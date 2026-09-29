@@ -6,7 +6,27 @@
     "description": "A small Electron app on electron-kit: what the kit's real-Electron tests and packaging checks drive.",
     "main": "src/main.js",
     "scripts": {
-        "start": "electron ."
+        "start": "electron .",
+        "build": "electron-builder --publish never"
+    },
+    "build": {
+        "appId": "com.diamonddigitaldev.electronkitdemo",
+        "productName": "electron-kit Demo",
+        "artifactName": "electron-kit-Demo-${version}.${ext}",
+        "files": [
+            "src/**/*"
+        ],
+        "win": {
+            "target": [
+                "nsis"
+            ]
+        },
+        "linux": {
+            "target": [
+                "AppImage"
+            ],
+            "category": "Development"
+        }
     },
     "author": "Diamond Digital Development <https://diamonddigital.dev>",
     "license": "Apache-2.0",
@@ -18,6 +38,7 @@
         "material-icons": "^1.13.14"
     },
     "devDependencies": {
-        "electron": "^44.5.0"
+        "electron": "^44.5.0",
+        "electron-builder": "^26.15.3"
     }
 }
