@@ -1,0 +1,205 @@
+name: CI
+
+# While the repository is private, its Actions minutes are limited and Windows
+# minutes count double. So every push runs everything on Ubuntu, and Windows
+# joins on pull requests, and when the workflow is run by hand.
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  house-rules:
+    name: House rules
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # Every commit, so every commit is checked.
+          fetch-depth: 0
+          persist-credentials: false
+
+      # No commit may carry AI attribution: not in its author or committer, not
+      # in its message (no Co-Authored-By trailer, no "Generated with" footer).
+      - name: No AI attribution in commits
+        run: |
+          # Listed first, so the step fails if git can't list them.
+          commits=$(git rev-list HEAD)
+          bad=0
+          for commit in $commits; do
+            if git log -1 --format='%an <%ae>%n%cn <%ce>%n%B' "$commit" \
+                | grep -iE 'claude|anthropic|co-authored|generated with' > /dev/null; then
+              echo "::error::$(git log -1 --format='%h %s' "$commit") carries AI attribution in its author, committer or message."
+              bad=1
+            fi
+          done
+          [ "$bad" = 0 ] && echo "No commit carries AI attribution."
+          exit "$bad"
+
+      # No file and no commit message may name one of the organisation's
+      # private repositories. Naming them here would do just that, so the list
+      # is the PRIVATE_REPO_NAMES secret, one name per line, and this step never
+      # prints a name: only the files and commits it was found in. -w, so that
+      # "Electron-based" doesn't count as a name that it contains.
+      - name: No private repository names in files or commits
+        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+        env:
+          PRIVATE_REPO_NAMES: ${{ secrets.PRIVATE_REPO_NAMES }}
+        run: |
+          if [ -z "$PRIVATE_REPO_NAMES" ]; then
+            echo "::error::The PRIVATE_REPO_NAMES secret isn't set, so there's nothing to check against."
+            exit 1
+          fi
+          # Listed first, so the step fails if git can't list them.
+          commits=$(git rev-list HEAD)
+          bad=0
+          n=0
+          while IFS= read -r name; do
+            name="${name%$'\r'}"
+            [ -n "$name" ] || continue
+            n=$((n + 1))
+            # git grep exits 1 when nothing matches, and more than 1 when it fails.
+            if files=$(git grep -liwF -e "$name" -- .); then
+              echo "::error::Private repository name $n is named in:"
+              printf '%s\n' "$files" | sed 's/^/  /'
+              bad=1
+            elif [ $? -ne 1 ]; then
+              echo "::error::git grep failed, so the files weren't checked."
+              exit 2
+            fi
+            for commit in $commits; do
+              if git log -1 --format='%s%n%b' "$commit" | grep -iwF -e "$name" > /dev/null; then
+                echo "::error::Private repository name $n is named in the message of $(git log -1 --format='%h' "$commit")."
+                bad=1
+              fi
+            done
+          done <<< "$PRIVATE_REPO_NAMES"
+          [ "$bad" = 0 ] && echo "None of the $n private repository names is named in any file or commit message."
+          exit "$bad"
+
+  unit:
+    name: Unit and contract tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      # npm 12, as on the development machine: it only runs the install scripts package.json allows.
+      - name: Install npm 12
+        run: npm install -g npm@12
+
+      # Electron downloads its binary the first time it's asked for, not on
+      # install, and these tests never ask, so nothing large is downloaded.
+      - name: Install dependencies
+        run: |
+          npm --version
+          npm ci
+
+      - name: Run tests
+        run: npm test
+
+  electron:
+    name: Electron tests and packaged demo (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        os: ${{ fromJSON(github.event_name == 'push' && '["ubuntu-latest"]' || '["ubuntu-latest", "windows-latest"]') }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            demo/package-lock.json
+
+      # npm 12, as on the development machine: it only runs the install scripts package.json allows.
+      - name: Install npm 12
+        run: npm install -g npm@12
+
+      # Windows runners install global packages outside Node's own folder, and
+      # setup-node puts Node's folder, with its bundled npm, first on PATH.
+      - name: Put npm 12 first on PATH
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: npm prefix -g >> $env:GITHUB_PATH
+
+      # The demo installs the kit from this checkout as a packed copy
+      # (demo/.npmrc). Electron downloads its binary the first time it's asked
+      # where it is, so that's done here.
+      - name: Install dependencies and Electron
+        run: |
+          npm --version
+          npm ci
+          npm ci --prefix demo
+          cd demo && node -e "console.log(require('electron'))"
+
+      # The libraries Electron needs, and Xvfb, the virtual display its windows
+      # open on. Playwright runs apt-get with sudo itself.
+      - name: Install Electron's system libraries and Xvfb
+        if: runner.os == 'Linux'
+        run: npx playwright install-deps chromium
+
+      - name: Run the Electron tests
+        if: runner.os == 'Linux'
+        run: xvfb-run --auto-servernum --server-args="-screen 0 1280x1024x24" npx playwright test
+
+      - name: Run the Electron tests
+        if: runner.os == 'Windows'
+        run: npx playwright test
+
+      # Nothing is published, and no token is passed to it. Nothing is uploaded
+      # as a workflow artifact either.
+      - name: Build the demo
+        working-directory: demo
+        run: npx --no-install electron-builder ${{ runner.os == 'Windows' && '--win' || '--linux' }} --publish never
+
+      - name: Check the packaged demo carries the kit
+        working-directory: demo
+        shell: bash
+        run: |
+          ls -l dist
+          ls dist/*.${{ runner.os == 'Windows' && 'exe' || 'AppImage' }} > /dev/null
+          list=$(npx --no-install asar list dist/*-unpacked/resources/app.asar | sed 's#\\#/#g')
+          for file in package.json main/index.js main/channels.js preload.js css/kit.css page/kit.js; do
+            if ! printf '%s\n' "$list" | grep -x "/node_modules/@diamonddigitaldev/electron-kit/$file" > /dev/null; then
+              echo "::error::app.asar doesn't carry the kit's $file."
+              exit 1
+            fi
+          done
+          echo "app.asar carries the kit's files."
+
+      # The same tests, against the packaged app: on Windows the unpacked app
+      # the installer carries, on Linux the AppImage itself, which runs without
+      # FUSE by extracting itself first.
+      - name: Run the Electron tests against the packaged demo
+        if: runner.os == 'Linux'
+        run: |
+          export KIT_DEMO_EXECUTABLE=$(ls demo/dist/*.AppImage)
+          chmod +x "$KIT_DEMO_EXECUTABLE"
+          APPIMAGE_EXTRACT_AND_RUN=1 xvfb-run --auto-servernum --server-args="-screen 0 1280x1024x24" npx playwright test
+
+      - name: Run the Electron tests against the packaged demo
+        if: runner.os == 'Windows'
+        env:
+          KIT_DEMO_EXECUTABLE: demo/dist/win-unpacked/electron-kit Demo.exe
+        run: npx playwright test
