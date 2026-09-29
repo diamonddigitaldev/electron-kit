@@ -1,0 +1,55 @@
+"use strict";
+
+// electron-kit's main-process entry, what an app's main.js requires:
+//
+//     const kit = require("@diamonddigitaldev/electron-kit/main").start();
+//     kit.ready.then(createWindow);
+//
+// For now start() only wires the shared preload: it registers preload.js on
+// the app's default session and answers the channels it calls. The rest of
+// start() (logging, single instance, settings, windows, theme, menu, updater)
+// arrives piece by piece.
+
+const path = require("path");
+const { app, ipcMain, session } = require("electron");
+const { CHANNELS } = require("./channels");
+
+/** The shared preload, which kit.start() registers on the app's session. */
+const PRELOAD_PATH = path.join(__dirname, "..", "preload.js");
+
+/** The id the shared preload is registered under, in every session that has it. */
+const PRELOAD_ID = "electron-kit";
+
+let started = false;
+
+/**
+ * Register the shared preload on a session, so every window created in it
+ * afterwards gets window.kitAPI. Windows that already exist don't.
+ * @param {Electron.Session} ses
+ * @returns {string} The registration's id.
+ */
+function registerPreload(ses) {
+    if (ses.getPreloadScripts().some((script) => script.id === PRELOAD_ID)) {
+        throw new Error("electron-kit's preload is already registered on this session.");
+    }
+    return ses.registerPreloadScript({ type: "frame", id: PRELOAD_ID, filePath: PRELOAD_PATH });
+}
+
+/**
+ * Start the kit. Call it once, at the top of main.js, before any window.
+ * @returns {{ ready: Promise<void> }} ready resolves once the app is ready and
+ *   the shared preload is registered: create windows after it.
+ */
+function start() {
+    if (started) throw new Error("kit.start() was called twice.");
+    started = true;
+
+    ipcMain.handle(CHANNELS.APP_GET_VERSION, () => app.getVersion());
+
+    const ready = app.whenReady().then(() => {
+        registerPreload(session.defaultSession);
+    });
+    return { ready };
+}
+
+module.exports = { start, registerPreload, PRELOAD_PATH, PRELOAD_ID, CHANNELS };

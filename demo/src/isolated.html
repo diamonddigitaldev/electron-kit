@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Isolated Window</title>
+    <link rel="stylesheet" href="../node_modules/bootstrap/dist/css/bootstrap.min.css">
+</head>
+<body>
+    <main class="container py-4">
+        <h1 class="h5 mb-3">Isolated Window</h1>
+        <p>This window runs in a partition of its own. It has the demo's own bridge, and not the kit's.</p>
+        <table class="table table-sm align-middle">
+            <tbody>
+                <tr>
+                    <th scope="row">Shared Bridge (kitAPI)</th>
+                    <td id="kit-api">Checking…</td>
+                </tr>
+                <tr>
+                    <th scope="row">App Bridge (electronAPI)</th>
+                    <td id="electron-api">Checking…</td>
+                </tr>
+            </tbody>
+        </table>
+    </main>
+
+    <script src="isolated.js"></script>
+</body>
+</html>

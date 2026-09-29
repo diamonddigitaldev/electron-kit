@@ -1,0 +1,51 @@
+{
+    "name": "@diamonddigitaldev/electron-kit",
+    "version": "0.0.0",
+    "private": true,
+    "description": "The shared design system for Diamond Digital Development's Electron apps: main-process behaviour, a shared preload, page components and CSS, and test helpers.",
+    "type": "commonjs",
+    "exports": {
+        "./main": "./main/index.js",
+        "./preload.js": "./preload.js",
+        "./page/*": "./page/*",
+        "./css/*": "./css/*",
+        "./testing": "./testing/index.js",
+        "./package.json": "./package.json"
+    },
+    "files": [
+        "main/",
+        "preload.js",
+        "page/",
+        "css/",
+        "testing/"
+    ],
+    "scripts": {
+        "test": "node --test \"test/*.test.js\"",
+        "test:e2e": "playwright test",
+        "demo": "node scripts/refresh-demo.js && npm --prefix demo start"
+    },
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/diamonddigitaldev/electron-kit"
+    },
+    "keywords": [
+        "electron",
+        "design-system",
+        "bootstrap"
+    ],
+    "author": "Diamond Digital Development <https://diamonddigital.dev>",
+    "license": "Apache-2.0",
+    "engines": {
+        "node": ">=24.0.0"
+    },
+    "peerDependencies": {
+        "bootstrap": "^5.3.0",
+        "electron": ">=44.0.0",
+        "electron-store": "^11.0.2",
+        "electron-updater": "^6.8.9",
+        "material-icons": "^1.13.14"
+    },
+    "devDependencies": {
+        "@playwright/test": "^1.63.0"
+    }
+}

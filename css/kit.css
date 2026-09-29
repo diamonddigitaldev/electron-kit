@@ -1,0 +1,16 @@
+/* ============================================================================
+   electron-kit: the shared styles
+   ----------------------------------------------------------------------------
+   Linked from node_modules after Bootstrap and Material Icons, and before the
+   app's own accent.css and styles.css:
+
+       <link rel="stylesheet" href="../node_modules/@diamonddigitaldev/electron-kit/css/kit.css">
+
+   The token layer (everything but the accent), the Bootstrap bridge, reduced
+   motion and each shared component's styles arrive here piece by piece. Until
+   then it holds one marker, which the kit's tests read to see it loaded.
+   ========================================================================== */
+
+:root {
+    --kit-css: 1;
+}

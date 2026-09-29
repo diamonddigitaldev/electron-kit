@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>electron-kit Demo</title>
+    <link rel="stylesheet" href="../node_modules/bootstrap/dist/css/bootstrap.min.css">
+    <link rel="stylesheet" href="../node_modules/material-icons/iconfont/round.css">
+    <link rel="stylesheet" href="../node_modules/@diamonddigitaldev/electron-kit/css/kit.css">
+    <link rel="stylesheet" href="styles/accent.css">
+</head>
+<body>
+    <main class="container py-4">
+        <h1 class="h4 mb-3">electron-kit Demo</h1>
+
+        <table class="table table-sm align-middle">
+            <tbody>
+                <tr>
+                    <th scope="row">Shared Bridge (kitAPI)</th>
+                    <td id="kit-api">Checking…</td>
+                </tr>
+                <tr>
+                    <th scope="row">App Bridge (electronAPI)</th>
+                    <td id="electron-api">Checking…</td>
+                </tr>
+                <tr>
+                    <th scope="row">Sandboxed</th>
+                    <td id="sandboxed">Checking…</td>
+                </tr>
+                <tr>
+                    <th scope="row">Page Library (kit.js)</th>
+                    <td id="kit-js">Checking…</td>
+                </tr>
+                <tr>
+                    <th scope="row">Kit Styles (kit.css)</th>
+                    <td id="kit-css">Checking…</td>
+                </tr>
+            </tbody>
+        </table>
+
+        <button id="open-isolated" type="button" class="btn btn-primary">
+            <span class="material-icons-round align-middle" aria-hidden="true">open_in_new</span>
+            Open Isolated Window
+        </button>
+    </main>
+
+    <script src="../node_modules/@diamonddigitaldev/electron-kit/page/kit.js"></script>
+    <script src="renderer.js"></script>
+</body>
+</html>

@@ -1,0 +1,140 @@
+"use strict";
+
+// The demo app, launched as a person would launch it, with a throwaway profile.
+//
+// Each test gets its own run of demo/ with the demo's own Electron build,
+// through Playwright's _electron:
+// - with --user-data-dir set to a temporary profile, so it never reads or
+//   writes yours;
+// - without ELECTRON_RUN_AS_NODE, which some shells set, and which makes
+//   Electron run as plain Node;
+// - with --no-proxy-server. Without it, Electron looks for a proxy by itself
+//   when the system says to, as Windows does by default ("Automatically detect
+//   settings"), asking the network for a WPAD script;
+// - with --log-net-log, so that after the test the run's net log can show it
+//   looked up no name beyond this machine. The app's own requests are watched
+//   too: it may make none to any server.
+//
+// KIT_DEMO_EXECUTABLE runs a packaged build of the demo instead (the path to
+// its executable), so the same tests check the packaged app.
+
+const { _electron: electron, test: base, expect } = require("@playwright/test");
+const fs = require("fs");
+const os = require("os");
+const path = require("path");
+const { createRequire } = require("module");
+const { setTimeout: sleep } = require("timers/promises");
+const { outsideLookups } = require("./netlog");
+
+// No trailing separator: on Windows, a backslash before an argument's closing quote escapes it.
+const DEMO_DIR = path.join(__dirname, "..", "..", "demo");
+
+/** The packaged demo's executable, when the tests run against a build. */
+const PACKAGED = process.env.KIT_DEMO_EXECUTABLE ? path.resolve(process.env.KIT_DEMO_EXECUTABLE) : null;
+
+/** The demo's own Electron build. The electron package downloads it the first time it's asked for. */
+const electronPath = () => createRequire(path.join(DEMO_DIR, "package.json"))("electron");
+
+/** Whether a request is to a server, rather than for one of the app's own files. */
+const toServer = (url) => /^(https?|wss?):$/.test(new URL(url).protocol);
+
+/** A page is ready once it has shown every check: body[data-ready]. */
+const ready = (page) => expect(page.locator("body[data-ready=true]")).toBeAttached({ timeout: 15_000 });
+
+/** One run of the demo. */
+class Demo {
+    /** @param {import("@playwright/test").ElectronApplication} app */
+    constructor(app) {
+        this.app = app;
+    }
+
+    /** Whether this run is a packaged build. */
+    get packaged() {
+        return Boolean(PACKAGED);
+    }
+
+    /** The main window, once its page is ready. */
+    async mainWindow() {
+        const page = await this.app.firstWindow();
+        await ready(page);
+        return page;
+    }
+
+    /** Open the isolated window with the main window's button, and return it once its page is ready. */
+    async openIsolatedWindow(main) {
+        const [page] = await Promise.all([
+            this.app.waitForEvent("window"),
+            main.getByRole("button", { name: "Open Isolated Window" }).click(),
+        ]);
+        await ready(page);
+        return page;
+    }
+
+    /**
+     * What the main process says about a page's window: its web preferences,
+     * whether it's in the default session, and the preloads its session has.
+     * @param {import("@playwright/test").Page} page
+     */
+    async windowOf(page) {
+        const id = await (await this.app.browserWindow(page)).evaluate((win) => win.id);
+        return this.app.evaluate(({ BrowserWindow, session }, id) => {
+            const { webContents } = BrowserWindow.fromId(id);
+            const prefs = webContents.getLastWebPreferences();
+            return {
+                sandbox: prefs.sandbox,
+                contextIsolation: prefs.contextIsolation,
+                nodeIntegration: prefs.nodeIntegration,
+                defaultSession: webContents.session === session.defaultSession,
+                sessionPreloads: webContents.session.getPreloadScripts(),
+            };
+        }, id);
+    }
+
+    /** The bridges a page's main world has, and what else of Node's it can see. */
+    bridgesOf(page) {
+        return page.evaluate(() => ({
+            kitAPI: typeof window.kitAPI,
+            electronAPI: typeof window.electronAPI,
+            require: typeof window.require,
+            process: typeof window.process,
+        }));
+    }
+}
+
+const test = base.extend({
+    demo: async ({}, use) => {
+        const root = fs.mkdtempSync(path.join(os.tmpdir(), "electron-kit-demo-"));
+        const netLog = path.join(root, "netlog.json");
+        const switches = [`--user-data-dir=${path.join(root, "profile")}`, "--no-proxy-server", `--log-net-log=${netLog}`];
+        const env = { ...process.env };
+        delete env.ELECTRON_RUN_AS_NODE;
+
+        const app = await electron.launch(PACKAGED
+            ? { executablePath: PACKAGED, args: switches, env }
+            : { executablePath: electronPath(), args: [...switches, DEMO_DIR], env });
+        const toServers = [];
+        app.context().on("request", (request) => {
+            if (toServer(request.url())) toServers.push(request.url());
+        });
+        // A hung app gets 10 s to quit, so the teardown can't hang with it.
+        const close = () => Promise.race([app.close().catch(() => {}), sleep(10_000)]);
+
+        try {
+            await use(new Demo(app));
+            expect.soft(toServers, "requests the demo made to servers").toEqual([]);
+            // Quitting finishes the net log.
+            await close();
+            expect.soft(outsideLookups(netLog), "names the demo looked up beyond this machine (its net log)").toEqual([]);
+        } finally {
+            await close();
+            try {
+                fs.rmSync(root, { recursive: true, force: true, maxRetries: 5 });
+            } catch (err) {
+                // An app that didn't quit can still hold its files. Throwing here would replace the test's own error.
+                console.error(`Couldn't remove the test's folder ${root}: ${err.message}`);
+            }
+        }
+    },
+});
+
+module.exports = { test, expect };

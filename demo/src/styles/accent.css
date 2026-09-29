@@ -1,0 +1,15 @@
+/* ============================================================================
+   The demo's accent: the one per-app part of the house style
+   ----------------------------------------------------------------------------
+   Every app on electron-kit has this file, linked after the kit's kit.css and
+   before the app's own styles.css. The kit's styles read only these values.
+   The accent's full set, with a checked text shade per theme, arrives with the
+   kit's token layer; until then it's the house's four values.
+   ========================================================================== */
+
+:root {
+    --accent:       #0d6efd;
+    --accent-hover: #3d8bfd;
+    --accent-muted: #6ea8fe;
+    --accent-rgb:   13, 110, 253;
+}
