@@ -19,8 +19,6 @@ const webPreferences = (extra = {}) => ({
     sandbox: true,
     contextIsolation: true,
     nodeIntegration: false,
-    // On Linux, the spell checker downloads its dictionaries from Google's servers.
-    spellcheck: false,
     ...extra,
 });
 

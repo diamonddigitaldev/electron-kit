@@ -5,10 +5,10 @@
 //     const kit = require("@diamonddigitaldev/electron-kit/main").start();
 //     kit.ready.then(createWindow);
 //
-// For now start() only wires the shared preload: it registers preload.js on
-// the app's default session and answers the channels it calls. The rest of
-// start() (logging, single instance, settings, windows, theme, menu, updater)
-// arrives piece by piece.
+// For now start() wires the shared preload (it registers preload.js on the
+// app's default session and answers the channels it calls), and stops the spell
+// checker's dictionary download. The rest of start() (logging, single instance,
+// settings, windows, theme, menu, updater) arrives piece by piece.
 
 const path = require("path");
 const { app, ipcMain, session } = require("electron");
@@ -45,6 +45,13 @@ function start() {
     started = true;
 
     ipcMain.handle(CHANNELS.APP_GET_VERSION, () => app.getVersion());
+
+    // On Linux, Electron's spell checker downloads its dictionaries from
+    // Google's servers as each session starts, which tells them the user's
+    // address and language, even when every window has spellcheck: false.
+    // With no languages, it has nothing to download. This covers the default
+    // session and every partition, since it's in place before any is created.
+    app.on("session-created", (ses) => ses.setSpellCheckerLanguages([]));
 
     const ready = app.whenReady().then(() => {
         registerPreload(session.defaultSession);

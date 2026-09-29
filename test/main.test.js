@@ -41,6 +41,14 @@ test("kit.start() refuses to run twice", () => {
     assert.throws(() => main.start(), /called twice/);
 });
 
+test("kit.start() gives every session it creates no spell-check languages, so nothing is downloaded", () => {
+    const { main, electron, fakeSession } = loadMain();
+    main.start();
+    const created = [fakeSession(), fakeSession()];
+    for (const ses of created) electron.app.emit("session-created", ses);
+    assert.deepEqual(created.map((ses) => ses.spellCheckerLanguages), [[], []]);
+});
+
 test("registerPreload() refuses a session that already has the preload", () => {
     const { main, fakeSession } = loadMain();
     const ses = fakeSession();

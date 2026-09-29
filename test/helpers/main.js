@@ -9,26 +9,39 @@ const path = require("path");
 
 const MAIN = path.join(__dirname, "..", "..", "main", "index.js");
 
-/** A session that keeps its preload registrations, as Electron's does. */
+/** A session that keeps its preload registrations and spell-check languages, as Electron's does. */
 function fakeSession() {
     const scripts = [];
     return {
         scripts,
+        spellCheckerLanguages: ["en-GB"],
         registerPreloadScript(script) {
             const id = script.id ?? `script-${scripts.length + 1}`;
             scripts.push({ ...script, id });
             return id;
         },
         getPreloadScripts: () => scripts.map((script) => ({ ...script })),
+        setSpellCheckerLanguages(languages) {
+            this.spellCheckerLanguages = [...languages];
+        },
     };
 }
 
 function loadMain({ version = "1.2.3" } = {}) {
     const handlers = new Map();
+    const listeners = new Map();
     const electron = {
         app: {
             getVersion: () => version,
             whenReady: () => Promise.resolve(),
+            on(event, listener) {
+                listeners.set(event, [...(listeners.get(event) ?? []), listener]);
+                return this;
+            },
+            /** Emit an app event to its listeners with these arguments, as Electron would. */
+            emit(event, ...args) {
+                for (const listener of listeners.get(event) ?? []) listener(...args);
+            },
         },
         ipcMain: {
             handle(channel, handler) {
