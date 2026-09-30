@@ -15,7 +15,7 @@
 // three apps' accents (test/fixtures/accents/), in both themes. 26 images.
 //
 // So that an image only changes when the look does: the window's page is
-// 760 x 600 at a scale factor of 1; motion is reduced, so every transition ends
+// 760 x 600 at a scale factor of 1, drawn without the GPU; motion is reduced, so every transition ends
 // at once, and Playwright stops any animation left; the caret is hidden and the
 // mouse parked where nothing hovers; the pulse dot and the Electron version
 // (which a dependency update changes) are masked. The demo's own version is
@@ -34,7 +34,9 @@ const WIDTH = 760;
 const HEIGHT = 600;
 
 test.skip(process.platform !== "win32", "the baselines are Windows' (D15)");
-test.use({ demoSwitches: ["--force-device-scale-factor=1"] });
+// Drawn in software: a GPU rounds off corners and letters differently from the runner, which has none.
+// With it off, a Windows machine draws what the runner draws, so the spec passes locally too.
+test.use({ demoSwitches: ["--force-device-scale-factor=1", "--disable-gpu"] });
 
 /** The same starting point as keyboard.spec.js: Tab goes from the top of the page. */
 const fromTheTop = (page) => page.evaluate(() => {
@@ -80,7 +82,8 @@ async function looksLike(main, name) {
         }
         await new Promise(requestAnimationFrame);
     });
-    await expect(main).toHaveScreenshot(`${name}.png`, {
+    // Soft, so every image is compared and each one that changed is reported (and uploaded, in CI).
+    await expect.soft(main).toHaveScreenshot(`${name}.png`, {
         animations: "disabled",
         caret: "hide",
         // How far a pixel's colour may drift and still count as the same, from 0 to 1. Playwright's 0.2
