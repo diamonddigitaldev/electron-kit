@@ -485,6 +485,12 @@ a:hover {
    name: never display: none, which would leave an item named by nothing (its
    glyph is aria-hidden). */
 .nav-rail .nav-label {
+    /* The label's box is trimmed to its capitals, top to baseline, so the
+       item's centring puts the capitals' middle on the icon's, whatever the
+       font's own spacing above and below them: in a plain line box, Segoe UI
+       drew the text 1px low on Windows and Linux's font didn't. The rail's
+       test measures it by the glyph's ink. */
+    text-box: trim-both cap alphabetic;
     transition: opacity var(--dur-state) var(--ease-state);
 }
 
@@ -609,6 +615,171 @@ a:hover {
 
 .credits .credits-btn:hover {
     background-color: var(--bs-tertiary-bg);
+}
+
+/* -- Update tab ---------------------------------------------------------------
+   Top to bottom: the version, Check for Updates and its status line, then
+   the automatic downloads switch and the channel, each a row with a help
+   line. The status line keeps its height, so nothing below it jumps. */
+.update-tab {
+    display: flex;
+    flex-direction: column;
+    gap: 1.25rem;
+    max-width: 32rem;
+}
+
+.update-version {
+    margin: 0;
+    font-weight: 500;
+}
+
+.update-check {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.5rem;
+}
+
+/* Full width, so it's the same box whatever it says, or when it says nothing. */
+.update-status {
+    align-self: stretch;
+    min-height: 1.5em;
+    margin: 0;
+}
+
+.update-row .form-text {
+    min-height: 1.2em;
+    margin-top: 0.25rem;
+}
+
+.update-row .form-label {
+    margin-bottom: 0.25rem;
+}
+
+.update-channel {
+    max-width: 12rem;
+}
+
+/* -- Update dot ---------------------------------------------------------------
+   Yellow (Bootstrap's warning), on the rail's Settings item and on the Update
+   tab, while an update waits. The yellow alone is 1.55:1 on the light rail,
+   so it has a ring in Bootstrap's warning text colour for the theme, which
+   holds 3:1 against the rail and the page in both (7.58:1 light, 9.82:1 dark).
+   On the item it sits at its end when the rail is expanded, and on the corner
+   of the glyph when collapsed. */
+.update-dot {
+    display: inline-block;
+    flex-shrink: 0;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background-color: var(--bs-warning);
+    box-shadow: 0 0 0 1.5px var(--bs-warning-text-emphasis);
+    pointer-events: none;
+}
+
+.update-dot[hidden] {
+    display: none;
+}
+
+.nav-rail .nav-settings .update-dot {
+    margin-left: auto;
+}
+
+.nav-rail.collapsed .nav-settings .update-dot {
+    position: absolute;
+    top: 7px;
+    left: 26px;
+    margin: 0;
+}
+
+.settings-tab .update-dot {
+    margin-left: 0.4rem;
+    vertical-align: 0.1em;
+}
+
+/* -- Toasts -------------------------------------------------------------------
+   Under the header, centred, one above another. Each is filled with its
+   semantic colour, with black text on info and warning and white on success
+   and danger, and slides in 8px as it shows and out as it goes. */
+.toast-host {
+    position: fixed;
+    top: 60px;
+    left: 50%;
+    z-index: 1080;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    width: min(720px, calc(100% - 2rem));
+    transform: translateX(-50%);
+    pointer-events: none;
+}
+
+.toast-note {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.6rem;
+    padding: 0.7rem 1rem;
+    border-left: 4px solid;
+    border-radius: 6px;
+    box-shadow: var(--bs-box-shadow);
+    font-size: 0.875rem;
+    opacity: 0;
+    transform: translateY(-8px);
+    transition: opacity var(--dur-state) var(--ease-standard),
+                transform var(--dur-state) var(--ease-standard);
+    pointer-events: auto;
+}
+
+.toast-note.toast-shown {
+    opacity: 1;
+    transform: none;
+}
+
+.toast-info    { background-color: #0dcaf0; border-color: #0aa2c0; color: #000; }
+.toast-warning { background-color: #ffc107; border-color: #cc9a06; color: #000; }
+.toast-success { background-color: #198754; border-color: #146c43; color: #fff; }
+.toast-danger  { background-color: #dc3545; border-color: #b02a37; color: #fff; }
+
+/* The glyph sits on the body's first line. */
+.toast-note .toast-icon {
+    flex-shrink: 0;
+    font-size: 18px;
+    line-height: 1.3125rem;
+}
+
+.toast-body {
+    flex: 1 1 auto;
+    line-height: 1.3125rem;
+}
+
+.toast-close {
+    display: flex;
+    flex-shrink: 0;
+    padding: 0;
+    border: 0;
+    background: none;
+    color: inherit;
+    opacity: 0.7;
+    transition: opacity var(--dur-micro) var(--ease-micro);
+}
+
+.toast-close:hover,
+.toast-close:focus-visible {
+    opacity: 1;
+}
+
+.toast-close .material-icons-round {
+    font-size: 18px;
+    line-height: 1.3125rem;
+}
+
+/* The ring in the toast's own text colour: the accent's text shade isn't
+   made to hold on a semantic fill. */
+.toast-close:focus-visible {
+    outline: var(--focus-ring-width) solid currentColor;
+    outline-offset: 1px;
+    border-radius: 2px;
 }
 
 /* -- Reduced motion ---------------------------------------------------------

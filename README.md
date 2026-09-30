@@ -184,7 +184,16 @@ the accent's fill under it that slides to the next tab chosen and takes its text
 `setSettings()` as it's made. It's reached from the rail, and from the menu's `Settings` (`CmdOrCtrl+,`),
 which puts focus on the selected tab.
 
-**Update** shows the version running; the updater's controls arrive next. **Credits** replaces the old Credits
+**Update**, top to bottom: the app's name and version; `Check for Updates` (disabled while a check or
+download runs, or with no updater), with a status line under it (`role="status"`, its height kept) and
+`Download Update` when there's an update to download; the `Download updates automatically` switch, on by
+default; and the `Update channel`, `Stable`, `Beta` or `Alpha`, each with its help line. Each change is kept
+as it's made, and a new channel checks again. The menu's `Check for Updates` opens this tab and runs a check.
+While an update waits (`dot` in the updater's state), a **yellow dot** shows on the rail's Settings item (at
+its end, or on the corner of its glyph when the rail is collapsed) and on the Update tab. Its ring holds 3:1
+on the light rail, where the yellow alone is 1.55:1, and "Update available" becomes part of the item's and the
+tab's names. When an update downloads by itself, one toast says so. The updater itself is under
+[Updates](#updates). **Credits** replaces the old Credits
 window: the logo, the app's name and version, the `•` credit lines, then the donate line and `Donate on Buy
 Me a Coffee` and `View Source Code on GitHub`, all from `app:get-info`. The version is Electron's (the app's `package.json`),
 and so is the name unless `start({ name })` gives one: an app whose `package.json` `name` is its npm name
@@ -193,6 +202,15 @@ and every saved setting with it; the repository is `start({ repository })`, or e
 credit line is a sentence, or a list of parts with links as `{ text, href }`. Every link and button opens
 through `shell:open-external`, which opens `http(s)` links only; the page never follows a link itself.
 `start()` checks the credits and throws on a link that isn't `http(s)`, so a mistake shows at launch.
+
+### Toasts
+
+`kit.ui.toast(message, { type, timeout })` shows something the person should know but not answer, under the
+header: `type` is `"info"` (the default), `"success"`, `"warning"` or `"danger"`, each filled with its colour
+and text that holds AA on it, with its glyph and a `Dismiss` button. It closes itself after `--timing-toast`
+(4.5 s), or `timeout` ms (`0` keeps it until it's dismissed), and returns `{ element, close() }`. The message
+is text, never markup. The host is a polite live region; a danger toast is `role="alert"`. It slides in and
+out over `--dur-state`, at once under reduced motion.
 
 ### The Settings
 

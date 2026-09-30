@@ -18,7 +18,8 @@
 // 760 x 600 at a scale factor of 1, drawn without the GPU; motion is reduced, so every transition ends
 // at once, and Playwright stops any animation left; the caret is hidden and the
 // mouse parked where nothing hovers; the pulse dot and the Electron version
-// (which a dependency update changes) are masked. The demo's own version is
+// (which a dependency update changes) are masked, and so are the Update tab's
+// Check for Updates and status line, which differ when the demo is packaged. The demo's own version is
 // 0.0.0 in demo/package.json, so the Update and Credits tabs show it as it is.
 //
 // The images are made on the runner, not on a developer's machine: run the CI
@@ -92,7 +93,9 @@ async function looksLike(main, name) {
         threshold: 0.02,
 
 
-        mask: [main.locator(".pulse-dot"), main.locator("#electron-api")],
+        // The Update tab's Check for Updates and its status line differ between a run from source (disabled, "Updates
+        // are checked in the installed app.") and a packaged one (ready to check); update-tab.spec.js checks both.
+        mask: [main.locator(".pulse-dot"), main.locator("#electron-api"), main.locator("#update-check"), main.locator("#update-status")],
     });
 }
 

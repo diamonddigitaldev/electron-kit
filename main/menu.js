@@ -16,7 +16,7 @@
 // the rest. Settings and Check for Updates push view:show to the window, and
 // the page's mountShell() shows Settings, and its Update tab for a check, so
 // the menu and the rail reach the same place. Check for Updates runs a check
-// too once the updater arrives (M2).
+// too (kit.start() passes the updater's check()).
 //
 // Replacing Electron's default menu takes its F12 with it, and testers need the
 // console, so a pre-release (a version with a "-", such as 2.0.0-beta.2)
@@ -57,17 +57,21 @@ function showView(win, what) {
 
 /**
  * The house menu's template, with the app's items in it.
- * @param {{ items?: Electron.MenuItemConstructorOptions[], version: string, platform?: NodeJS.Platform }} options
+ * @param {{ items?: Electron.MenuItemConstructorOptions[], version: string, platform?: NodeJS.Platform, checkForUpdates?: () => unknown }} options
+ *   checkForUpdates: runs a check, after Check for Updates has shown the Update tab.
  * @returns {Electron.MenuItemConstructorOptions[]}
  */
-function menuTemplate({ items = [], version, platform = process.platform }) {
+function menuTemplate({ items = [], version, platform = process.platform, checkForUpdates = () => {} }) {
     if (!Array.isArray(items)) throw new Error("kit.start(): menu.items must be a list of menu items.");
 
     const submenu = [
         ...items,
         ...(items.length ? [{ type: "separator" }] : []),
         { id: MENU_IDS.SETTINGS, label: "Settings", accelerator: "CmdOrCtrl+,", click: (_item, win) => showView(win, { view: "settings" }) },
-        { id: MENU_IDS.CHECK_FOR_UPDATES, label: "Check for Updates", click: (_item, win) => showView(win, { view: "settings", tab: "update" }) },
+        { id: MENU_IDS.CHECK_FOR_UPDATES, label: "Check for Updates", click: (_item, win) => {
+            showView(win, { view: "settings", tab: "update" });
+            checkForUpdates();
+        } },
         ...(isPrerelease(version)
             ? [{ type: "separator" }, { id: MENU_IDS.DEVTOOLS, label: "Toggle Developer Tools", accelerator: "F12", role: "toggleDevTools" }]
             : []),

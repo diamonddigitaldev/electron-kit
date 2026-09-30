@@ -25,6 +25,10 @@ const kit = require("@diamonddigitaldev/electron-kit/main").start({
         donate: "https://buymeacoff.ee/willtda",
     },
     repository: "https://github.com/diamonddigitaldev/electron-kit",
+    // Settings > Update. No check at launch, so a run of the tests never
+    // checks unless a test asks; packaged, the demo updates from the server
+    // its build names.
+    updates: { checkOnLaunch: false },
     menu: {
         items: [
             { label: "Open Isolated Window", accelerator: "CmdOrCtrl+Shift+N", click: () => createIsolatedWindow() },

@@ -83,8 +83,12 @@ function start(config = {}) {
     // Every option is checked before anything is registered.
     const settings = store.createSettings(config.settings);
     const credits = info.checkInfo({ credits: config.credits, repository: config.repository, name: config.name });
-    const template = menu.menuTemplate({ items: config.menu?.items, version: app.getVersion() });
     const updates = updater.createUpdater({ options: updater.checkUpdates(config.updates), app, settings, send: sendUpdateStatus });
+    const template = menu.menuTemplate({
+        items: config.menu?.items,
+        version: app.getVersion(),
+        checkForUpdates: () => updates.check().catch(() => {}),
+    });
     started = true;
 
     /** Change some settings, from the page or the app's main, and tell the updater. */
