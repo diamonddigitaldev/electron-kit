@@ -23,6 +23,9 @@
 //
 // KIT_DEMO_EXECUTABLE runs a packaged build of the demo instead (the path to
 // its executable), so the same tests check the packaged app.
+//
+// A spec can add switches of its own to every launch with
+// test.use({ demoSwitches: [...] }), as the visual spec pins the scale factor.
 
 const { _electron: electron, test: base, expect } = require("@playwright/test");
 const fs = require("fs");
@@ -177,7 +180,8 @@ class Demo {
 }
 
 const test = base.extend({
-    demo: async ({}, use) => {
+    demoSwitches: [[], { option: true }],
+    demo: async ({ demoSwitches }, use) => {
         const root = fs.mkdtempSync(path.join(os.tmpdir(), "electron-kit-demo-"));
         const profile = path.join(root, "profile");
         const env = { ...process.env };
@@ -192,7 +196,7 @@ const test = base.extend({
         async function launch() {
             const netLog = path.join(root, `netlog-${netLogs.length + 1}.json`);
             netLogs.push(netLog);
-            const switches = [`--user-data-dir=${profile}`, "--no-proxy-server", `--log-net-log=${netLog}`];
+            const switches = [`--user-data-dir=${profile}`, "--no-proxy-server", `--log-net-log=${netLog}`, ...demoSwitches];
             const launched = await electron.launch({
                 ...(PACKAGED ? { executablePath: PACKAGED, args: switches } : { executablePath: electronPath(), args: [...switches, DEMO_DIR] }),
                 env,

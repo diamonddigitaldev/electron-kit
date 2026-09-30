@@ -12,6 +12,9 @@ module.exports = defineConfig({
     // The demo's copy of the kit is refreshed first, so the tests drive the kit as it is now.
     globalSetup: require.resolve("./e2e/global-setup"),
     forbidOnly: Boolean(process.env.CI),
+    // The visual spec's baselines come from a Windows CI runner (README, Development), so a run never
+    // writes one unless it's asked to with --update-snapshots.
+    updateSnapshots: "none",
     // A flaky test gets fixed, not retried.
     retries: 0,
     // One line per test, with its name, in the terminal and the CI log.
