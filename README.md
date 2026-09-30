@@ -31,7 +31,7 @@ It's in early development and not published to npm yet.
 | `@diamonddigitaldev/electron-kit/main` | `start(config)`, called once at the top of an app's `main.js` |
 | `@diamonddigitaldev/electron-kit/preload.js` | the shared bridge, `window.kitAPI`, registered on the app's session by `start()` |
 | `@diamonddigitaldev/electron-kit/page/theme.js` | the theme script, loaded in `<head>`: draws the page in the OS theme and follows it |
-| `@diamonddigitaldev/electron-kit/page/kit.js` | the page library, `window.kit`, loaded as a classic script: `kit.ui.mountShell()` builds the nav rail, the header and the Settings view; `kit.ui.toast()` and `kit.ui.confirm()` |
+| `@diamonddigitaldev/electron-kit/page/kit.js` | the page library, `window.kit`, loaded as a classic script: `kit.ui.mountShell()` builds the nav rail, the header and the Settings view; `kit.ui.toast()`, `kit.ui.confirm()`, the parts of a section of files, `kit.keys` and `kit.format` |
 | `@diamonddigitaldev/electron-kit/css/kit.css` | the shared styles, linked after Bootstrap and before the app's `accent.css` |
 | `@diamonddigitaldev/electron-kit/testing` | helpers for an app's tests |
 
@@ -103,6 +103,8 @@ name (`const kitApi = window.kitAPI;`), or use `window.kitAPI` where it's needed
 | `view:show` | the kit pushes | `onShowView(callback)`: `{ view, tab }` when the menu asks for a view; `mountShell()` listens for it |
 
 A pushed value reaches the callback on its own, never with the IPC event behind it.
+`kitAPI.getPathForFile(file)` asks no channel: it's Electron's `webUtils`, in the page, and gives a dropped
+`File`'s path on disk (`""` for one that isn't on disk). `kit.ui.dropZone()` uses it.
 
 The kit's preload runs in every page of the app's session, so `window.kitAPI` is in any page a window of
 it shows: the app's own, but also a page a window is navigated to, or one it opens. So the kit answers the
@@ -273,6 +275,73 @@ unticked each time). Each choice is `btn-outline-secondary` unless it names its 
 `secondary`, `success`, `warning`, `danger`, `outline-secondary` or `outline-danger`). What the answers mean
 for the batch, such as a Cancel All ending the prompts still to come, is the app's. A mistake in the options
 throws before anything shows.
+
+### A Section of Files
+
+The parts of a section that works through a list of files, each built with `createElement` and optional:
+
+```js
+// Files dropped anywhere in the section, and the house drop zone for when it's empty.
+const { zone } = kit.ui.dropZone($("convert-view"), {
+    onPaths: (paths) => addFiles(paths),
+    icon: "swap_horiz",
+    label: "Drag & Drop Files or Folders Here",   // Title Case
+    onBrowse: () => browseFiles(),                // the box and its Select Files button (browseLabel)
+});
+$("empty-state").append(zone);
+
+const bar = kit.ui.progress({ label: file.name, thin: true });   // one item's, 4px; a batch's is 6px
+bar.set(42);        // a percent
+bar.set(null);      // not known: a bar slides across, never a frozen 0%
+
+const actions = kit.ui.actionBar({
+    run:   { label: "Convert", onClick: convert },
+    abort: { onClick: cancelAll },               // "Cancel"
+    clear: { onClick: clearAll },                // "Clear All"; leave it out for none
+    progressLabel: "Converting",
+});
+actions.update({ summary: "3 files queued", detail: "Ready to convert", percent: 0, running: false, canRun: true, canClear: true });
+```
+
+- **`kit.ui.dropZone(area, options)`** takes files dropped anywhere in `area`. Each file's path comes from
+  `kitAPI.getPathForFile()`, one `File` at a time (a `FileList` can't cross the bridge); a file that isn't on disk
+  is left out, and `onPaths` is called only with paths. While files are over the area it has the class
+  `drag-over`, counted in and out, since `dragleave` fires crossing onto each child. The app may light its own
+  list under `.drag-over`. A drop anywhere else in the page opens nothing, where the window would otherwise
+  navigate to the file. With `icon`, `label` and `onBrowse`, it also builds `zone`, the dashed box: the glyph,
+  the label, "or" and a `Select Files` button. The whole box browses, bar its button, and it's lit while files are
+  over the area. The app puts `zone` where it goes.
+- **`kit.ui.progress({ label, thin })`** is Bootstrap's `.progress` in the accent, `role="progressbar"`, named by
+  `label`. `set(null)` takes the value away and slides a 40% bar across; under reduced motion that bar is full,
+  faded and still.
+- **`kit.ui.actionBar(options)`** is the bar under a list: a status line (a live region; `summary` on the left,
+  `detail` on the right), the batch's progress, then `Clear All` and the primary action. The primary action
+  and its abort share one place, so only one is ever there: `update({ running: true })` swaps `Convert` for
+  `Cancel`, and the keyboard's focus moves with it. `size: "sm"` makes its buttons small.
+
+### Keys
+
+`kit.keys.onKey(handler, { view })` listens for a section's own shortcuts (Delete, Escape, `Ctrl+A` on a list),
+and returns a function that stops listening. The handler isn't called while someone is typing, while a modal
+is open (a prompt, or one of Bootstrap's), or, given a `view`, while another view shows. `kit.keys.isTyping()`
+says whether a key goes into something being typed in: a text field, a text area or anything editable. A
+checkbox isn't, and neither is a select, which keeps the focus after a choice and would swallow the next
+Escape.
+
+### Format
+
+`kit.format` is the house's wording for numbers. Every count on screen goes through `countOf()`, so "1 files"
+can't happen:
+
+| Helper | Gives |
+|---|---|
+| `plural(n, one, many?)` | the word that agrees: `plural(3, "file")` is `"files"`, `plural(1, "needs", "need")` is `"needs"` |
+| `countOf(n, one, many?)` | the count and its word: `"1 file"`, `"18,000 frames"` |
+| `groupDigits(n)` | `"18,000"` |
+| `formatBytes(bytes)` | `"512 B"`, `"1.5 KB"`, `"12 MB"`: binary units, one decimal below 10; `null` if unknown |
+| `formatEta(seconds)` | `"45s"`, `"2m 05s"`, `"1h 02m"`; `null` if unknown |
+| `formatDuration(seconds)` | `"9:05"`, `"1:02:03"`; `null` if unknown |
+| `summarise({ done, failed, cancelled }, { one, done })` | `"3 files converted, 1 failed, 2 cancelled"`, or `"Nothing converted"` |
 
 ### The Settings
 
@@ -486,7 +555,7 @@ from npm; `npm run demo` and `npm run test:e2e` refresh that copy first.
 ### Visual Tests
 
 `e2e/visual.spec.js` compares the demo's window with committed images, in
-`e2e/visual.spec.js-snapshots/`, using Playwright's `toHaveScreenshot()`. It takes 30 images:
+`e2e/visual.spec.js-snapshots/`, using Playwright's `toHaveScreenshot()`. It takes 32 images:
 
 | State | Accents | Themes |
 |---|---|---|
@@ -497,6 +566,7 @@ from npm; `npm run demo` and `npm run test:e2e` refresh that copy first.
 | The rail collapsed, the same | the demo's | light and dark |
 | A warning toast with its list shown | the demo's | light and dark |
 | The batch prompt, Save as New focused by keyboard | the demo's | light and dark |
+| A section of files: the drop zone, a bar not known, the action bar with Convert focused | the demo's | light and dark |
 
 The app accents are the ones in `test/fixtures/accents/`. The page is 760 × 600 at a scale factor of 1, drawn without the GPU, as on the runner, which has none.
 Motion is reduced, so every transition ends at once. The caret is hidden and the mouse is parked. The

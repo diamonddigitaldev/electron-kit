@@ -14,7 +14,7 @@
 // requires "electron" only and inlines its channel names below;
 // test/preload.test.js checks they still match main/channels.js.
 
-const { contextBridge, ipcRenderer } = require("electron");
+const { contextBridge, ipcRenderer, webUtils } = require("electron");
 
 const CH = {
     APP_GET_VERSION: "app:get-version",
@@ -63,4 +63,7 @@ contextBridge.exposeInMainWorld("kitAPI", {
     onThemeChanged: (callback) => on(CH.THEME_CHANGED, callback),
     // { view, tab? }, when the menu asks for a view (Settings, CmdOrCtrl+,). mountShell() shows it.
     onShowView: (callback) => on(CH.VIEW_SHOW, callback),
+    // A dropped File's path on disk ("" for one that isn't a file on disk). One File at a time: a FileList
+    // can't cross the bridge. kit.ui.dropZone() uses it.
+    getPathForFile: (file) => webUtils.getPathForFile(file),
 });

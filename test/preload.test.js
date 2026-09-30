@@ -28,6 +28,8 @@ const BRIDGE = {
     onUpdateStatus: { on: PUSH.UPDATE_STATUS },
     onThemeChanged: { on: PUSH.THEME_CHANGED },
     onShowView: { on: PUSH.VIEW_SHOW },
+    // Asks no channel: Electron's webUtils answers it in the renderer.
+    getPathForFile: { local: true },
 };
 
 /** The bridge's methods that invoke ("invoke") or listen ("on"), as [name, channel]. */
@@ -71,6 +73,12 @@ test("each kitAPI method that asks invokes its shared channel with what it was g
         await exposed.kitAPI[name](...args, "an extra argument");
         assert.deepEqual(calls, [{ method: "invoke", channel, args }], `kitAPI.${name}()`);
     }
+});
+
+test("kitAPI.getPathForFile() asks Electron's webUtils for one File's path, and sends nothing to main", () => {
+    const { exposed, calls } = loadPreload(PRELOAD);
+    assert.equal(exposed.kitAPI.getPathForFile({ name: "a.txt" }), "");
+    assert.deepEqual(calls, []);
 });
 
 test("each kitAPI method that listens hands its callback the payload alone, and can stop", () => {

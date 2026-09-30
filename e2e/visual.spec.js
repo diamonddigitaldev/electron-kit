@@ -5,16 +5,18 @@
 // the images are taken on a Windows CI runner, so they show Segoe UI as most
 // people see it, and Linux runs every other test without them.
 //
-// Nine states, each a whole window:
+// Ten states, each a whole window:
 // - Settings on its General, Update and Credits tabs;
 // - Controls at rest (the box ticked, the switch off), and toggled by keyboard
 //   (the box unticked, the switch on and focused);
 // - the rail expanded, and collapsed, on Overview with Controls focused by keyboard;
-// - a warning toast with its list shown, and the batch prompt (kit.ui.confirm())
-//   with Save as New focused by keyboard.
-// All nine in the demo's accent, in the light and dark themes. The two that
+// - a warning toast with its list shown; the batch prompt (kit.ui.confirm())
+//   with Save as New focused by keyboard; and, last, since it replaces the
+//   Overview, a section of files (the drop zone, a bar whose amount isn't
+//   known, the action bar with Convert focused by keyboard).
+// All ten in the demo's accent, in the light and dark themes. The two that
 // show the most accent (the rail, and Controls toggled) again in each of the
-// three apps' accents (test/fixtures/accents/), in both themes. 30 images.
+// three apps' accents (test/fixtures/accents/), in both themes. 32 images.
 //
 // So that an image only changes when the look does: the window's page is
 // 760 x 600 at a scale factor of 1, drawn without the GPU; motion is reduced, so every transition ends
@@ -178,6 +180,28 @@ const STATES = {
         await main.keyboard.press("Tab");
         await main.keyboard.press("Shift+Tab");
         await expect(main.getByRole("button", { name: "Save as New" })).toBeFocused();
+    },
+    "files": async (main) => {
+        // A section of files: the drop zone, an item's bar whose amount isn't known (still, under reduced
+        // motion), and the action bar partway through, with Convert focused by keyboard.
+        // The prompt before it is answered first.
+        await main.keyboard.press("Escape");
+        await expect(main.locator("dialog[open]")).toHaveCount(0);
+        await main.getByRole("button", { name: "Overview", exact: true }).click();
+        await main.evaluate(() => {
+            const area = document.createElement("div");
+            document.getElementById("overview-view").replaceChildren(area);
+            const { zone } = window.kit.ui.dropZone(area, { onPaths() {}, icon: "swap_horiz", label: "Drag & Drop Files or Folders Here", onBrowse() {} });
+            const one = window.kit.ui.progress({ label: "clip.mp4", thin: true });
+            one.set(null);
+            const bar = window.kit.ui.actionBar({ run: { label: "Convert", onClick() {} }, abort: { onClick() {} }, clear: { onClick() {} } });
+            bar.update({ summary: "3 files queued", detail: "Ready to convert", percent: 40, canRun: true });
+            area.append(zone, one.element, bar.element);
+            one.element.style.margin = "1rem 0";
+        });
+        await main.getByRole("button", { name: "Clear All" }).focus();
+        await main.keyboard.press("Tab");
+        await expect(main.getByRole("button", { name: "Convert" })).toBeFocused();
     },
 };
 
