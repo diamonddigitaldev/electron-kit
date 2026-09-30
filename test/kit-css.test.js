@@ -213,8 +213,10 @@ test("a collapsed rail fades its labels as the rail closes, never removing them,
     for (const { selector, declarations } of KIT_RULES.filter((r) => r.selector.includes("nav-label"))) {
         assert.notEqual(declarations.display, "none", selector);
         assert.notEqual(declarations.visibility, "hidden", selector);
-        assert.ok(!declarations.position, `${selector} takes the label out of the flow`);
+        assert.ok(!["absolute", "fixed"].includes(declarations.position), `${selector} takes the label out of the flow`);
     }
+    // Trimmed to its capitals, so they centre on the icon in any font.
+    assert.equal(rule(".nav-rail .nav-label")["text-box"], "trim-both cap alphabetic");
     // Nothing about an item's layout changes when the rail collapses: only its width does.
     assert.deepEqual(KIT_RULES.filter((r) => /\.collapsed \.nav-(item|collapse)(,|$)/.test(r.selector)).map((r) => r.selector), []);
 });

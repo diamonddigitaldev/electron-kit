@@ -485,6 +485,12 @@ a:hover {
    name: never display: none, which would leave an item named by nothing (its
    glyph is aria-hidden). */
 .nav-rail .nav-label {
+    /* The label's box is trimmed to its capitals, top to baseline, so the
+       item's centring puts the capitals' middle on the icon's, whatever the
+       font's own spacing above and below them: in a plain line box, Segoe UI
+       drew the text 1px low on Windows and Linux's font didn't. The rail's
+       test measures it by the glyph's ink. */
+    text-box: trim-both cap alphabetic;
     transition: opacity var(--dur-state) var(--ease-state);
 }
 

@@ -251,6 +251,31 @@ test("each rail icon is drawn centred: in its item when collapsed, and on the it
     expect(problems).toEqual([]);
 });
 
+test("each rail item's label sits level with its icon: the capitals' middle on the glyph's", async ({ demo }) => {
+    const { inkBox } = require("./helpers/pixels");
+    const main = await demo.mainWindow();
+    await main.mouse.move(400, 30);
+    for (const item of await main.locator(".nav-rail .nav-item, .nav-rail .nav-collapse").all()) {
+        const icon = item.locator(".nav-icon");
+        const box = await icon.boundingBox();
+        const { ink } = await inkBox(main, icon, { threshold: 60 });
+        const glyph = box.y + (ink.top + ink.bottom) / 2;
+        // Where the label's capitals are drawn: its baseline (an empty inline box sits on it), less half a capital's height.
+        const { name, capitals } = await item.locator(".nav-label").evaluate((label) => {
+            const style = getComputedStyle(label);
+            const probe = document.createElement("span");
+            probe.style.cssText = "display: inline-block; width: 0; height: 0; vertical-align: baseline";
+            label.append(probe);
+            const baseline = probe.getBoundingClientRect().bottom;
+            probe.remove();
+            const context = document.createElement("canvas").getContext("2d");
+            context.font = `${style.fontWeight} ${style.fontSize} ${style.fontFamily}`;
+            return { name: label.textContent, capitals: baseline - context.measureText("H").actualBoundingBoxAscent / 2 };
+        });
+        expect(Math.abs(capitals - glyph), `${name}: capitals at ${capitals}, glyph at ${glyph}`).toBeLessThanOrEqual(0.5);
+    }
+});
+
 test("each rail item has as much rail on its right, up to the edge's line, as on its left, collapsed and expanded", async ({ demo }) => {
     // The rail's edge is a 1px line drawn inside it, so an item centred in the whole rail
     // would sit a pixel nearer the line, which its border makes plain (Will's review of DFC).
