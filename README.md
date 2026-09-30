@@ -358,8 +358,10 @@ When the look changes on purpose, or a state is added, update the baselines:
 2. Run the CI workflow by hand on that branch, with the images updated:
    `gh workflow run ci.yml --ref <branch> -f update-visual-baselines=true`. The same form is under
    Actions > CI > Run workflow.
-3. When it's done, download the images into the tree:
-   `gh run download <run id> -n visual-baselines -D e2e/visual.spec.js-snapshots`.
+3. When it's done, download the images to a folder of their own, then copy them over the committed ones
+   (`gh run download` won't overwrite a file that's there):
+   `gh run download <run id> -n visual-baselines -D <new folder>`, then
+   `cp <new folder>/*.png e2e/visual.spec.js-snapshots/`.
 4. Look at every changed image (`git diff --stat`, then open them), and commit only the changes you meant.
 
 The artifact is kept 3 days.
