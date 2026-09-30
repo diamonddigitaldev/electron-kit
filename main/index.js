@@ -57,6 +57,7 @@ function registerPreload(ses) {
  *   settings?: { defaults?: Record<string, unknown> },
  *   credits?: { lines?: (string | (string | { text: string, href: string })[])[], donate?: string },
  *   repository?: string,
+ *   name?: string,
  *   menu?: { items?: Electron.MenuItemConstructorOptions[] },
  * }} [config]
  * @returns {{
@@ -74,7 +75,7 @@ function start(config = {}) {
 
     // Every option is checked before anything is registered.
     const settings = store.createSettings(config.settings);
-    const credits = info.checkInfo({ credits: config.credits, repository: config.repository });
+    const credits = info.checkInfo({ credits: config.credits, repository: config.repository, name: config.name });
     const template = menu.menuTemplate({ items: config.menu?.items, version: app.getVersion() });
     started = true;
 
