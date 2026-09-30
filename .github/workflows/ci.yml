@@ -198,6 +198,18 @@ jobs:
             grep -q "^version: 0.0.0$" "$file"
           done
           echo "The build carries every channel's update file."
+
+      # builder/base.json's maintainer, not package.json's author (a name and a web address).
+      - name: Check the .deb and .rpm name their maintainer
+        if: runner.os == 'Linux'
+        working-directory: demo
+        run: |
+          expected="Diamond Digital Development <will.knowles@diamonddigital.dev>"
+          deb=$(dpkg-deb -f dist/*.deb Maintainer)
+          rpm=$(rpm -qp --queryformat '%{PACKAGER}' dist/*.rpm)
+          echo "deb: $deb"
+          echo "rpm: $rpm"
+          test "$deb" = "$expected" && test "$rpm" = "$expected"
           list=$(npx --no-install asar list dist/*-unpacked/resources/app.asar | sed 's#\\#/#g')
           for file in package.json main/index.js main/accelerators.js main/channels.js main/info.js main/ipc.js main/menu.js main/shell.js main/store.js main/theme.js main/updater.js main/version.js preload.js css/kit.css page/theme.js page/kit.js; do
             if ! printf '%s\n' "$list" | grep -x "/node_modules/@diamonddigitaldev/electron-kit/$file" > /dev/null; then

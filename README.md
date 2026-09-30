@@ -290,7 +290,8 @@ offered to everyone on Stable. The app gives its own identity, files, icons, fil
 electron-builder merges `extends` deeply (checked in its source, 26.15): objects key by key, with the
 app's values winning, and **lists joined, never replaced**. So an app can add a target to the base's lists,
 but can't take one away; the base holds only what every app ships. A `.deb` or `.rpm` names its maintainer
-from `package.json`'s `author` email, unless `build.linux.maintainer` gives one. An app's tests check
+from the base's `linux.maintainer`, not from `package.json`'s `author`, which in every app is a name and a
+web address, and which npm would read as the email. An app's tests check
 the config with `assertBuildExtendsKit(require("../package.json"))` from `electron-kit/testing`.
 
 ### The Menu
