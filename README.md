@@ -81,6 +81,11 @@ kit.ready.then(() => {
 <script src="../node_modules/@diamonddigitaldev/electron-kit/page/kit.js"></script>
 ```
 
+`window.kitAPI`, `window.electronAPI` and `window.kit` are globals, so a classic script mustn't declare a
+top-level `const`, `let`, `function` or `class` of the same name: `const kitAPI = window.kitAPI;` throws
+"Identifier 'kitAPI' has already been declared", and the whole script never runs. Give the local another
+name (`const kitApi = window.kitAPI;`), or use `window.kitAPI` where it's needed.
+
 ### The Shared Channels
 
 | Channel | Kind | `window.kitAPI` |
