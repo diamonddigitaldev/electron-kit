@@ -163,16 +163,23 @@ class Demo {
     /**
      * Open a window in the app's default session, with the house's secure web
      * preferences but none of the demo's own, showing a URL that isn't one of
-     * the demo's pages. The kit's session preload still runs there.
+     * the demo's pages. The kit's session preload still runs there. With
+     * { appPreload: true }, the demo's own preload runs there too, as in a
+     * window of the demo's that has been navigated away.
      * @param {string} url
+     * @param {{ appPreload?: boolean }} [options]
      */
-    async openWindowAt(url) {
+    async openWindowAt(url, { appPreload = false } = {}) {
         const [page] = await Promise.all([
             this.app.waitForEvent("window"),
-            this.app.evaluate(({ BrowserWindow }, url) => {
-                const win = new BrowserWindow({ show: false, webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false } });
+            this.app.evaluate(({ BrowserWindow, app }, { url, appPreload }) => {
+                const webPreferences = { sandbox: true, contextIsolation: true, nodeIntegration: false };
+                // The demo's code is at app.getAppPath(): demo/, or app.asar when packaged.
+                const sep = process.platform === "win32" ? "\\" : "/";
+                if (appPreload) webPreferences.preload = [app.getAppPath(), "src", "preload.js"].join(sep);
+                const win = new BrowserWindow({ show: false, webPreferences });
                 win.loadURL(url);
-            }, url),
+            }, { url, appPreload }),
         ]);
         await page.waitForLoadState();
         return page;

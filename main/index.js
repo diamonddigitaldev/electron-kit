@@ -7,13 +7,16 @@
 //         credits:  { lines: [...], donate: "https://…" }, // the Credits tab (info.js)
 //         menu:     { items: [/* Open Files… */] },       // the app's own menu items
 //     });
+//     kit.ipc.handle("job:run", (_event, job) => run(job)); // the app's own channels
 //     kit.ready.then(createWindow);
 //
 // For now start() wires the shared preload (it registers preload.js on the
 // app's default session, the UI session, and answers the channels it calls, for
 // the app's own page only), keeps the settings, answers the Credits tab and
 // opens its links, sets the house menu, pushes each change of the OS theme to
-// every window, and stops the spell checker's dictionary download. Every
+// every window, and stops the spell checker's dictionary download. It answers
+// the app's own channels too, through kit.ipc.handle(), with the same check on
+// who's asking as the shared ones. Every
 // option is checked here, so a mistake throws at launch. The rest of start()
 // (logging, single instance, windows, updater) arrives piece by piece.
 
@@ -56,10 +59,15 @@ function registerPreload(ses) {
  *   repository?: string,
  *   menu?: { items?: Electron.MenuItemConstructorOptions[] },
  * }} [config]
- * @returns {{ ready: Promise<void>, settings: { get(): object, set(changes: object): object } }}
+ * @returns {{
+ *   ready: Promise<void>,
+ *   settings: { get(): object, set(changes: object): object },
+ *   ipc: { handle(channel: string, handler: (event: Electron.IpcMainInvokeEvent, ...args: any[]) => any): void },
+ * }}
  *   ready resolves once the app is ready, the shared preload is registered and
  *   the menu set: create windows after it. settings are the app's settings,
- *   for its main process.
+ *   for its main process. ipc.handle() answers one of the app's own channels,
+ *   for the app's own page only (ipc.js).
  */
 function start(config = {}) {
     if (started) throw new Error("kit.start() was called twice.");
@@ -88,7 +96,7 @@ function start(config = {}) {
         menu.setMenu(template);
         theme.followTheme();
     });
-    return { ready, settings: { get: settings.get, set: settings.set } };
+    return { ready, settings: { get: settings.get, set: settings.set }, ipc: { handle: ipc.handleApp } };
 }
 
 module.exports = { start, registerPreload, PRELOAD_PATH, PRELOAD_ID, CHANNELS, MENU_IDS: menu.MENU_IDS };

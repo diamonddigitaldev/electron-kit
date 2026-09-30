@@ -105,6 +105,33 @@ call rejects:
 Error invoking remote method 'app:get-version': Error: electron-kit answers "app:get-version" for the app's own page only.
 ```
 
+### The App's Own Channels
+
+The app's own preload is no safer: a window of the app that's navigated away still has
+`window.electronAPI`. So the app answers its own channels through `kit.ipc.handle()`, which makes the same
+check as the shared handlers, instead of `ipcMain.handle()`:
+
+```js
+const kit = require("@diamonddigitaldev/electron-kit/main").start({ /* … */ });
+
+kit.ipc.handle("job:run", (_event, spec) => runJob(spec));      // an async answer
+kit.ipc.handle("job:cancel", (_event, jobId) => cancel(jobId)); // an answer at once
+kit.ipc.handle("queue:cancel-all", () => { cancelAll(); });     // no answer
+```
+
+It works as `ipcMain.handle()` does: the handler gets the event and the page's arguments as they came,
+what it returns (or resolves with) is the answer, and what it throws (or rejects with) is the page's
+error. Any other sender's call is refused before the handler runs:
+
+```
+Error invoking remote method 'job:run': Error: "job:run" is answered for the app's own page only.
+```
+
+It throws as the app registers a channel that isn't `domain:action` (lower case, words joined by `-`), one
+of the kit's shared channels above, or one that already has a handler. For now it answers the UI session
+only: a window in a session or partition of its own is refused, so a channel only such a window asks is
+still the app's to answer itself.
+
 ### The Shell
 
 `kit.ui.mountShell()` builds the app's frame around its own sections: the nav rail (the app's sections,
@@ -163,7 +190,8 @@ through `shell:open-external`, which opens `http(s)` links only; the page never 
 folder), beside the kit's own: `navCollapsed`, off. What's stored is read over the defaults, so a setting
 added later appears with its default, and a stored value of the wrong kind is never handed out. A change
 must name a known setting and keep its kind (a boolean stays a boolean, a list a list), with JSON values
-only, or it's refused and nothing is stored. The main process has the same settings as
+only, or it's refused and nothing is stored. A setting whose default is `null` means "not chosen yet", and
+takes any JSON value (File Converter's `concurrency: null`, the CPU count until someone picks one). The main process has the same settings as
 `kit.settings.get()` and `kit.settings.set(changes)`. Migration between versions comes later.
 
 ### The Menu

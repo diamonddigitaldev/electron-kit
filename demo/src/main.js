@@ -69,10 +69,14 @@ function createIsolatedWindow() {
     win.loadFile(path.join(__dirname, "isolated.html"));
 }
 
-ipcMain.handle(IPC.GET_ELECTRON_VERSION, () => process.versions.electron);
-ipcMain.handle(IPC.OPEN_ISOLATED_WINDOW, () => {
+// The demo's own channels go through kit.ipc.handle(), which answers the demo's
+// own page only, as the kit's shared channels do. The isolated window asks for
+// the Electron version from a partition of its own, which kit.ipc.handle()
+// refuses (the UI session only, for now), so that one is answered for anyone.
+kit.ipc.handle(IPC.OPEN_ISOLATED_WINDOW, () => {
     createIsolatedWindow();
 });
+ipcMain.handle(IPC.GET_ELECTRON_VERSION, () => process.versions.electron);
 
 app.on("window-all-closed", () => {
     if (process.platform !== "darwin") app.quit();
