@@ -1,0 +1,12 @@
+{
+    "generateUpdatesFilesForAllChannels": true,
+    "win": {
+        "target": ["nsis"]
+    },
+    "nsis": {
+        "menuCategory": "Diamond Digital Development"
+    },
+    "linux": {
+        "target": ["AppImage", "deb", "rpm"]
+    }
+}

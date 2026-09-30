@@ -9,22 +9,20 @@
         "start": "electron .",
         "build": "electron-builder --publish never"
     },
+    "homepage": "https://github.com/diamonddigitaldev/electron-kit",
     "build": {
+        "extends": "@diamonddigitaldev/electron-kit/builder/base.json",
         "appId": "com.diamonddigitaldev.electronkitdemo",
         "productName": "electron-kit Demo",
         "artifactName": "electron-kit-Demo-${version}.${ext}",
         "files": [
             "src/**/*"
         ],
-        "win": {
-            "target": [
-                "nsis"
-            ]
+        "publish": {
+            "provider": "generic",
+            "url": "http://127.0.0.1:47613/"
         },
         "linux": {
-            "target": [
-                "AppImage"
-            ],
             "category": "Development"
         }
     },

@@ -167,6 +167,16 @@ jobs:
         if: runner.os == 'Windows'
         run: npx playwright test
 
+      # The .rpm target (builder/base.json) needs rpmbuild, from the rpm package.
+      - name: Check for rpmbuild
+        if: runner.os == 'Linux'
+        run: |
+          if ! command -v rpmbuild > /dev/null; then
+            sudo apt-get update
+            sudo apt-get install -y --no-install-recommends rpm
+          fi
+          rpmbuild --version
+
       # Nothing is published, and no token is passed to it.
       - name: Build the demo
         working-directory: demo
@@ -177,7 +187,17 @@ jobs:
         shell: bash
         run: |
           ls -l dist
-          ls dist/*.${{ runner.os == 'Windows' && 'exe' || 'AppImage' }} > /dev/null
+          for ext in ${{ runner.os == 'Windows' && 'exe' || 'AppImage deb rpm' }}; do
+            ls dist/*.$ext > /dev/null
+          done
+          # builder/base.json's generateUpdatesFilesForAllChannels: a finished
+          # release (the demo is 0.0.0) carries every channel's file.
+          for channel in latest beta alpha; do
+            file=dist/$channel${{ runner.os == 'Linux' && '-linux' || '' }}.yml
+            test -f "$file" || { echo "::error::The build has no $file."; exit 1; }
+            grep -q "^version: 0.0.0$" "$file"
+          done
+          echo "The build carries every channel's update file."
           list=$(npx --no-install asar list dist/*-unpacked/resources/app.asar | sed 's#\\#/#g')
           for file in package.json main/index.js main/accelerators.js main/channels.js main/info.js main/ipc.js main/menu.js main/shell.js main/store.js main/theme.js main/updater.js main/version.js preload.js css/kit.css page/theme.js page/kit.js; do
             if ! printf '%s\n' "$list" | grep -x "/node_modules/@diamonddigitaldev/electron-kit/$file" > /dev/null; then

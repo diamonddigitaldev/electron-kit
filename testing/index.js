@@ -13,7 +13,11 @@
 //
 // assertNoBareAccelerators() fails a menu template with an accelerator that
 // has no modifier but Shift and isn't a function key (the kit's menu builder
-// refuses one too). The contract and window helpers join them later.
+// refuses one too).
+//
+// assertBuildExtendsKit() checks an app's package.json: its electron-builder
+// config extends the kit's builder/base.json, and doesn't undo what it sets.
+// The contract and window helpers join them later.
 
 const fs = require("fs");
 const vm = require("vm");
@@ -104,4 +108,26 @@ ${describeBare(found)}` });
     }
 }
 
-module.exports = { loadPreload, assertNoBareAccelerators, SANDBOX_MODULES, ...accent, ...contrast };
+/** What an app's build.extends names the kit's base config as. */
+const KIT_BASE = "@diamonddigitaldev/electron-kit/builder/base.json";
+
+/**
+ * Fail unless an app's package.json builds on the kit's base config
+ * (builder/base.json): build.extends names it, by the package's name or its
+ * path in node_modules, and the app doesn't turn off the channel files every
+ * release needs (generateUpdatesFilesForAllChannels) or leave out a publish
+ * target for the updater to read.
+ * @param {{ build?: Record<string, any> }} pkg - the app's package.json, parsed
+ */
+function assertBuildExtendsKit(pkg) {
+    const build = pkg?.build ?? {};
+    const extendsList = Array.isArray(build.extends) ? build.extends : [build.extends];
+    assert.ok(
+        extendsList.some((spec) => spec === KIT_BASE || spec === `node_modules/${KIT_BASE}`),
+        `package.json's build.extends must name "${KIT_BASE}"; it's ${JSON.stringify(build.extends)}.`,
+    );
+    assert.notEqual(build.generateUpdatesFilesForAllChannels, false, "build.generateUpdatesFilesForAllChannels must stay on: every release carries its channels' update files.");
+    assert.ok(build.publish, "build.publish must name where updates come from: electron-builder writes it into the app for the updater.");
+}
+
+module.exports = { loadPreload, assertNoBareAccelerators, assertBuildExtendsKit, KIT_BASE, SANDBOX_MODULES, ...accent, ...contrast };

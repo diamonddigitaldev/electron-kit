@@ -41,8 +41,8 @@ class NodeHttpExecutor extends HttpExecutor {
     }
 }
 
-/** An installer's name, as electron-builder names it. */
-const installerName = (version) => `Kit-Test-Setup-${version}.exe`;
+/** An installer's name, as electron-builder names it: "exe" for Windows' NSIS, "AppImage" for Linux. */
+const installerName = (version, ext = "exe") => `Kit-Test-Setup-${version}.${ext}`;
 
 /** The bytes the server hands out as an installer: anything will do, as long as its sha512 matches. */
 const installerBytes = (version) => Buffer.from(`installer for ${version}`);
@@ -50,12 +50,12 @@ const installerBytes = (version) => Buffer.from(`installer for ${version}`);
 /**
  * A channel file, as electron-builder writes it, for a version.
  * @param {string} version
- * @param {{ sha512?: string }} [options] - sha512: a wrong one, to fail the download
+ * @param {{ sha512?: string, ext?: string }} [options] - sha512: a wrong one, to fail the download; ext: the installer's
  */
-function channelFile(version, { sha512 } = {}) {
+function channelFile(version, { sha512, ext } = {}) {
     const bytes = installerBytes(version);
     const hash = sha512 ?? crypto.createHash("sha512").update(bytes).digest("base64");
-    const file = installerName(version);
+    const file = installerName(version, ext);
     return [
         `version: ${version}`,
         "files:",
@@ -74,15 +74,18 @@ function channelFile(version, { sha512 } = {}) {
  * @param {Record<string, string | { version: string, sha512?: string }>} channels
  *   What each channel file holds: { latest: "2.1.0", beta: "2.1.0-beta.1" }.
  *   A channel left out is a 404, as a release without that file would be.
+ * @param {{ port?: number, ext?: string }} [options]
+ *   port: a fixed one (a packaged app's app-update.yml names it), else any
+ *   free one. ext: the installer's, "exe" or "AppImage".
  * @returns {Promise<{ url: string, requests: { file: string, headers: http.IncomingHttpHeaders }[], installers: () => string[], close(): Promise<void> }>}
  */
-async function startUpdateServer(channels) {
+async function startUpdateServer(channels, { port = 0, ext = "exe" } = {}) {
     const requests = [];
     const byFile = new Map();
     for (const [channel, release] of Object.entries(channels)) {
         const { version, sha512 } = typeof release === "string" ? { version: release } : release;
-        byFile.set(`${channel}.yml`, channelFile(version, { sha512 }));
-        byFile.set(installerName(version), installerBytes(version));
+        byFile.set(`${channel}.yml`, channelFile(version, { sha512, ext }));
+        byFile.set(installerName(version, ext), installerBytes(version));
     }
     const server = http.createServer((req, res) => {
         const file = decodeURIComponent(new URL(req.url, "http://localhost").pathname.slice(1));
@@ -96,14 +99,14 @@ async function startUpdateServer(channels) {
         }
         res.end(body);
     });
-    await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+    await new Promise((resolve, reject) => server.once("error", reject).listen(port, "127.0.0.1", resolve));
     return {
         url: `http://127.0.0.1:${server.address().port}/`,
         requests,
         /** The channel files asked for, as the Windows names. */
         channelFiles: () => requests.filter((r) => r.file.endsWith(".yml")).map((r) => r.file.replace(/-linux\.yml$/, ".yml")),
         /** The installers downloaded. */
-        installers: () => requests.filter((r) => r.file.endsWith(".exe")).map((r) => r.file),
+        installers: () => requests.filter((r) => r.file.endsWith(`.${ext}`)).map((r) => r.file),
         close: () => new Promise((resolve) => server.close(resolve)),
     };
 }

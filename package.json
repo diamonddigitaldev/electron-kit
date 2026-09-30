@@ -10,6 +10,7 @@
         "./page/*": "./page/*",
         "./css/*": "./css/*",
         "./testing": "./testing/index.js",
+        "./builder/*": "./builder/*",
         "./package.json": "./package.json"
     },
     "files": [
@@ -17,7 +18,8 @@
         "preload.js",
         "page/",
         "css/",
-        "testing/"
+        "testing/",
+        "builder/"
     ],
     "scripts": {
         "test": "node --test \"test/*.test.js\"",
