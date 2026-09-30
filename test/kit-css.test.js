@@ -221,9 +221,15 @@ test("a collapsed rail fades its labels as the rail closes, never removing them,
 
 test("every focus ring the kit draws is a solid ring in the accent's text shade, and Bootstrap's glow is gone", () => {
     const ring = "var(--focus-ring-width) solid var(--accent-text)";
+    // A toast's close button is the one exception: it's on the toast's semantic fill, where the accent's text
+    // shade isn't made to hold, so its ring is the toast's own text colour, which is AA on the fill.
+    const onFill = new Set([".toast-close:focus-visible"]);
     const rings = KIT_RULES.filter((r) => Object.hasOwn(r.declarations, "outline") && r.declarations.outline !== "none");
     assert.ok(rings.length >= 3);
-    for (const { selector, declarations } of rings) assert.equal(declarations.outline, ring, selector);
+    for (const { selector, declarations } of rings) {
+        assert.equal(declarations.outline, onFill.has(selector) ? "var(--focus-ring-width) solid currentColor" : ring, selector);
+    }
+    assert.deepEqual(rings.filter((r) => onFill.has(r.selector)).map((r) => r.selector), [...onFill]);
     const focus = rule(":focus-visible, .btn:focus-visible, .nav-link:focus-visible, .form-check-input:focus-visible, .form-range:focus-visible");
     assert.equal(focus["box-shadow"], "none");
     assert.equal(rule(".btn")["--bs-btn-focus-box-shadow"], "none");

@@ -149,13 +149,6 @@ test("Settings has tabs across the top: the app's own, then Update, then Credits
     await expect(main.locator("#settings-pane-credits .credits-name")).toHaveCount(1);
 });
 
-test("the Update tab shows the version until the updater arrives", async ({ demo }) => {
-    const main = await demo.mainWindow();
-    await main.getByRole("button", { name: "Settings", exact: true }).click();
-    await main.getByRole("tab", { name: "Update" }).click();
-    const version = await demo.app.evaluate(({ app }) => app.getVersion());
-    await expect(main.getByRole("tabpanel", { name: "Update" })).toContainText(`Version ${version}`);
-});
 
 test("the menu is the house menu, with the demo's own item, Settings on CmdOrCtrl+, and no Credits", async ({ demo }) => {
     await demo.mainWindow();

@@ -79,6 +79,27 @@ test("Settings and Check for Updates show Settings, and its Update tab, in the w
     assert.deepEqual(other.sent, []);
 });
 
+test("Check for Updates runs a check too, once the Update tab is showing", async () => {
+    const EventEmitter = require("events");
+    let checks = 0;
+    const autoUpdater = Object.assign(new EventEmitter(), {
+        checkForUpdates: async () => (checks++, { isUpdateAvailable: false, updateInfo: { version: "1.2.3" } }),
+    });
+    const loaded = loadMain({ isPackaged: true, autoUpdater });
+    await loaded.main.start({ updates: { checkOnLaunch: false } }).ready;
+    const win = loaded.openWindow();
+    const check = loaded.menus.application.template[0].submenu.find((i) => i.label === "Check for Updates");
+    check.click(check, win);
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    assert.equal(checks, 1);
+    assert.deepEqual(win.sent[0], { channel: PUSH.VIEW_SHOW, args: [{ view: "settings", tab: "update" }] });
+
+    // With no updater, it only shows the tab.
+    const { template, openWindow } = await menuFor({});
+    const item = template[0].submenu.find((i) => i.label === "Check for Updates");
+    assert.doesNotThrow(() => item.click(item, openWindow()));
+});
+
 test("with no window given, the menu shows Settings in the focused window, else the first one that's open", async () => {
     const { template, openWindow } = await menuFor({});
     const settings = template[0].submenu.find((i) => i.label === "Settings");

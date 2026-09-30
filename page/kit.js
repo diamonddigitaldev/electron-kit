@@ -24,6 +24,9 @@
 // It builds the nav rail (the app's sections, then Settings above Collapse),
 // the header, and the Settings view (the app's tabs, then Update, then Credits
 // last), moves the app's elements into them, and routes between the views.
+// The Update tab and the update dot follow the kit's updater (update:status).
+//
+// kit.ui.toast(message, { type, timeout }) shows a toast under the header.
 // The shared markup is built with createElement and textContent, never HTML
 // strings, and every icon is aria-hidden: an item's name is its label, which a
 // collapsed rail hides visually but keeps for screen readers.
@@ -186,15 +189,201 @@
         });
 
         select(tabs[0].id);
-        return { view, select, pane: (id) => paneOf.get(id), selected: () => tabs[buttons.findIndex((b) => b.getAttribute("aria-selected") === "true")].id };
+        return { view, select, pane: (id) => paneOf.get(id), tab: (id) => buttons[tabs.findIndex((tab) => tab.id === id)], selected: () => tabs[buttons.findIndex((b) => b.getAttribute("aria-selected") === "true")].id };
     }
 
-    /** The Update tab, until the updater arrives: the version running. */
-    function fillUpdate(pane, version) {
-        pane.replaceChildren(
-            el("p", { className: "mb-1", text: `Version ${version}` }),
-            el("p", { className: "text-body-secondary small", text: "Update settings arrive here in a later version." }),
-        );
+    // -- The Update tab ----------------------------------------------------------
+
+    /** The update channels, as the Update tab offers them, with the help line for each. */
+    const UPDATE_CHANNELS = [
+        { value: "stable", label: "Stable", help: "Finished releases only." },
+        { value: "beta", label: "Beta", help: "Betas and finished releases." },
+        { value: "alpha", label: "Alpha", help: "Every build, alphas included." },
+    ];
+
+    /**
+     * What the Update tab's status line says for the updater's state
+     * (main/updater.js), and whether it's an error.
+     * @param {{ state: string, reason: string | null, error: string | null, version: string | null, percent: number | null }} status
+     * @param {string} appName
+     * @returns {{ text: string, percent?: string, danger?: boolean }}
+     */
+    function updateMessage({ state, reason, error, version, percent }, appName) {
+        switch (state) {
+            case "unavailable":
+                return { text: reason === "not-packaged" ? "Updates are checked in the installed app." : `${appName} doesn't update itself.` };
+            case "checking":
+                return { text: "Checking for updates…" };
+            case "none":
+                return { text: "You're up to date." };
+            case "available":
+                return { text: `Version ${version} is available.` };
+            case "downloading":
+                return { text: `Downloading version ${version}…`, percent: ` ${percent ?? 0}%` };
+            case "downloaded":
+                return { text: `Version ${version} has downloaded and will be installed when you close ${appName}.` };
+            case "error":
+                return error === "download"
+                    ? { text: `Version ${version} couldn't be downloaded.`, danger: true }
+                    : { text: "Couldn't check for updates. Try again later.", danger: true };
+            default:
+                return { text: "" };
+        }
+    }
+
+    /**
+     * The Update tab, top to bottom: the app and the version running, Check
+     * for Updates with its status line (a live region, its height kept, so
+     * nothing jumps) and Download Update when there's one to download, the
+     * automatic downloads switch, and the update channel. Each change is kept
+     * as it's made, and the kit's main process acts on it (a new channel
+     * checks again).
+     * @param {HTMLElement} pane
+     * @returns {{ showInfo(info: object): void, showSettings(settings: object): void, showStatus(status: object, appName: string): boolean }}
+     */
+    function buildUpdate(pane) {
+        const version = el("p", { className: "update-version" });
+        const check = el("button", { className: "btn btn-secondary", text: "Check for Updates", attrs: { type: "button", id: "update-check" } });
+        const statusText = el("span");
+        // The percent is seen, not read out: a screen reader would announce every step of it.
+        const statusPercent = el("span", { attrs: { "aria-hidden": "true" } });
+        const status = el("p", { className: "update-status", attrs: { id: "update-status", role: "status" } }, [statusText, statusPercent]);
+        const download = el("button", { className: "btn btn-sm btn-primary update-download", text: "Download Update", attrs: { type: "button", id: "update-download", hidden: "" } });
+
+        const auto = el("input", { className: "form-check-input", attrs: { type: "checkbox", role: "switch", id: "update-auto", "aria-describedby": "update-auto-help" } });
+        const autoHelp = el("div", { className: "form-text", attrs: { id: "update-auto-help" } });
+        const channel = el("select", { className: "form-select form-select-sm update-channel", attrs: { id: "update-channel", "aria-describedby": "update-channel-help" } },
+            UPDATE_CHANNELS.map(({ value, label }) => el("option", { text: label, attrs: { value } })));
+        const channelHelp = el("div", { className: "form-text", attrs: { id: "update-channel-help" } });
+        const showChannelHelp = () => {
+            channelHelp.textContent = UPDATE_CHANNELS.find((c) => c.value === channel.value)?.help ?? "";
+        };
+        showChannelHelp();
+
+        pane.replaceChildren(el("div", { className: "update-tab" }, [
+            version,
+            el("div", { className: "update-check" }, [check, status, download]),
+            el("div", { className: "update-row" }, [
+                el("div", { className: "form-check form-switch mb-0" }, [auto, el("label", { className: "form-check-label", text: "Download updates automatically", attrs: { for: "update-auto" } })]),
+                autoHelp,
+            ]),
+            el("div", { className: "update-row" }, [
+                el("label", { className: "form-label", text: "Update channel", attrs: { for: "update-channel" } }),
+                channel,
+                channelHelp,
+            ]),
+        ]));
+
+        const api = bridge();
+        check.addEventListener("click", () => api?.checkForUpdates().catch(() => {}));
+        download.addEventListener("click", () => api?.downloadUpdate().catch(() => {}));
+        auto.addEventListener("change", () => api?.setSettings({ autoDownloadUpdates: auto.checked }).catch(() => {}));
+        channel.addEventListener("change", () => {
+            showChannelHelp();
+            api?.setSettings({ updateChannel: channel.value }).catch(() => {});
+        });
+
+        return {
+            showInfo(info) {
+                version.textContent = `${info.name} ${info.version}`;
+                autoHelp.textContent = `Updates are installed when you close ${info.name}.`;
+            },
+            showSettings(settings) {
+                auto.checked = settings.autoDownloadUpdates === true;
+                if (UPDATE_CHANNELS.some((c) => c.value === settings.updateChannel)) channel.value = settings.updateChannel;
+                showChannelHelp();
+            },
+            /** Show the updater's state; returns whether the update dot shows. */
+            showStatus(next, appName) {
+                const message = updateMessage(next, appName);
+                statusText.textContent = message.text;
+                statusPercent.textContent = message.percent ?? "";
+                // Bootstrap's emphasis shade, which holds AA on the page in both themes (its plain danger doesn't on dark).
+                status.classList.toggle("text-danger-emphasis", Boolean(message.danger));
+                // A check can run unless there's no updater, one is running, or an update is downloading or waiting.
+                check.disabled = ["unavailable", "checking", "downloading", "downloaded"].includes(next.state);
+                download.hidden = !(next.state === "available" || (next.state === "error" && next.error === "download"));
+                // With no updater at all, its settings do nothing.
+                const off = next.state === "unavailable" && next.reason === "off";
+                auto.disabled = off;
+                channel.disabled = off;
+                return next.dot === true;
+            },
+        };
+    }
+
+    /**
+     * The update dot, on an element: hidden unless an update is waiting, with
+     * a text alternative, "Update available", that becomes part of the
+     * element's name while it shows.
+     * @param {HTMLElement} host
+     * @returns {(shown: boolean) => void}
+     */
+    function updateDot(host) {
+        const dot = el("span", { className: "update-dot", attrs: { "aria-hidden": "true", hidden: "" } });
+        // Empty while there's no dot, so it's in no one's text: a tab's, or an item's tooltip.
+        const said = el("span", { className: "visually-hidden" });
+        host.append(dot, said);
+        return (shown) => {
+            dot.hidden = !shown;
+            said.textContent = shown ? "Update available" : "";
+        };
+    }
+
+    // -- Toasts ------------------------------------------------------------------
+
+    /** Each toast type's glyph. */
+    const TOAST_ICONS = { info: "info", success: "check_circle", warning: "warning", danger: "error" };
+
+    /** The toast host: made the first time a toast shows, a polite live region. */
+    function toastHost() {
+        return document.getElementById("toast-host")
+            ?? document.body.appendChild(el("div", { className: "toast-host", attrs: { id: "toast-host", "aria-live": "polite" } }));
+    }
+
+    /**
+     * Show a toast: something the person should know, but not answer. It
+     * closes itself after --timing-toast (4.5 s), or when its close button is
+     * pressed. A danger toast is announced at once (role="alert"); the rest
+     * politely, through the host's live region. The message is text, never
+     * markup.
+     * @param {string} message
+     * @param {{ type?: "info" | "success" | "warning" | "danger", timeout?: number }} [options]
+     *   timeout: how long it stays, in ms; 0 keeps it until it's closed.
+     * @returns {{ element: HTMLElement, close(): void }}
+     */
+    function toast(message, { type = "info", timeout } = {}) {
+        if (typeof message !== "string" || message === "") throw new Error("kit.ui.toast(): the message must be text.");
+        if (!Object.hasOwn(TOAST_ICONS, type)) throw new Error(`kit.ui.toast(): type must be one of ${Object.keys(TOAST_ICONS).join(", ")}.`);
+        if (timeout !== undefined && !(Number.isFinite(timeout) && timeout >= 0)) throw new Error("kit.ui.toast(): timeout must be a number of ms, or 0.");
+        const stay = timeout ?? (parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--timing-toast")) || 4500);
+
+        const close = el("button", { className: "toast-close", attrs: { type: "button", title: "Dismiss", "aria-label": "Dismiss" } }, [icon("close")]);
+        const note = el("div", { className: `toast-note toast-${type}`, attrs: type === "danger" ? { role: "alert" } : {} }, [
+            icon(TOAST_ICONS[type], "toast-icon"),
+            el("div", { className: "toast-body", text: message }),
+            close,
+        ]);
+        toastHost().append(note);
+        // Drawn once where it starts, then moved in, so it slides.
+        note.getBoundingClientRect();
+        note.classList.add("toast-shown");
+
+        let timer = null;
+        let closed = false;
+        function dismiss() {
+            if (closed) return;
+            closed = true;
+            clearTimeout(timer);
+            note.classList.remove("toast-shown");
+            const gone = () => note.remove();
+            note.addEventListener("transitionend", gone, { once: true });
+            // In case nothing transitions (reduced motion, a hidden page).
+            setTimeout(gone, 1000);
+        }
+        close.addEventListener("click", dismiss);
+        if (stay > 0) timer = setTimeout(dismiss, stay);
+        return { element: note, close: dismiss };
     }
 
     /** The Credits tab, from app:get-info: the logo, name and version, the credit lines, then donating and the source. */
@@ -239,9 +428,10 @@
             className: `nav-item ${extra}`.trim(),
             attrs: { type: "button", "data-view": view },
         }, [icon(glyph, "nav-icon"), el("span", { className: "nav-label", text: label })]);
+        const settingsItem = railItem("settings", "Settings", "settings", "nav-settings");
         const items = [
             ...sections.map(({ view, label, icon: glyph }) => railItem(view, label, glyph)),
-            railItem("settings", "Settings", "settings", "nav-settings"),
+            settingsItem,
         ];
         const collapseLabel = el("span", { className: "nav-label", text: "Collapse" });
         const collapse = el("button", {
@@ -268,6 +458,21 @@
         document.body.prepend(el("div", { className: "app-frame" }, [rail, shell]));
 
         for (const { id, render } of settingsTabs) render(settings.pane(id));
+
+        // Settings > Update, and the update dot on the rail's Settings and on the Update tab.
+        let appName = title;
+        const update = buildUpdate(settings.pane("update"));
+        const dots = [updateDot(settingsItem), updateDot(settings.tab("update"))];
+        let toasted = null;
+        function showUpdate(status, { pushed = false } = {}) {
+            const dot = update.showStatus(status, appName);
+            for (const show of dots) show(dot);
+            // One toast, when an update downloads by itself while the app is open.
+            if (pushed && status.state === "downloaded" && status.auto && toasted !== status.version) {
+                toasted = status.version;
+                toast(`Version ${status.version} has downloaded and will be installed when you close ${appName}.`);
+            }
+        }
 
         // Routing: one route between views, from the rail, the menu, or the app.
         let current = null;
@@ -316,18 +521,23 @@
         });
 
         const api = bridge();
+        api?.onUpdateStatus((status) => showUpdate(status, { pushed: true }));
         const ready = Promise.all([
             // The saved state is put in place at once, not animated.
             api?.getSettings().then((saved) => {
                 rail.classList.add("nav-rail-instant");
                 setCollapsed(saved.navCollapsed === true);
                 requestAnimationFrame(() => requestAnimationFrame(() => rail.classList.remove("nav-rail-instant")));
+                update.showSettings(saved);
             }),
             api?.getInfo().then((info) => {
-                fillUpdate(settings.pane("update"), info.version);
+                appName = info.name;
+                update.showInfo(info);
                 fillCredits(settings.pane("credits"), info, credits.logo);
             }),
-        ]).then(() => {});
+        ]).then(() => api?.getUpdateStatus()).then((status) => {
+            if (status) showUpdate(status);
+        });
 
         return { showView, showSettings, ready };
     }
@@ -353,7 +563,7 @@
     }, true);
 
     window.kit = {
-        ui: { mountShell },
+        ui: { mountShell, toast },
         format: {},
         keys: {},
     };
