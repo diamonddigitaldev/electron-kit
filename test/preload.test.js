@@ -22,6 +22,10 @@ const BRIDGE = {
     getSettings: { invoke: INVOKE.SETTINGS_GET },
     setSettings: { invoke: INVOKE.SETTINGS_SET, args: [{ navCollapsed: true }] },
     openExternal: { invoke: INVOKE.SHELL_OPEN_EXTERNAL, args: ["https://example.com/"] },
+    getUpdateStatus: { invoke: INVOKE.UPDATE_GET_STATUS },
+    checkForUpdates: { invoke: INVOKE.UPDATE_CHECK },
+    downloadUpdate: { invoke: INVOKE.UPDATE_DOWNLOAD },
+    onUpdateStatus: { on: PUSH.UPDATE_STATUS },
     onThemeChanged: { on: PUSH.THEME_CHANGED },
     onShowView: { on: PUSH.VIEW_SHOW },
 };

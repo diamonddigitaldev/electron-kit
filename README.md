@@ -95,6 +95,10 @@ name (`const kitApi = window.kitAPI;`), or use `window.kitAPI` where it's needed
 | `settings:get` | the page asks | `getSettings()`: every setting, the app's and the kit's, over their defaults |
 | `settings:set` | the page asks | `setSettings(changes)`: changes some settings (`{ navCollapsed: true }`) and resolves with them all |
 | `shell:open-external` | the page asks | `openExternal(url)`: opens an `http(s)` link in the person's browser; anything else is refused |
+| `update:get-status` | the page asks | `getUpdateStatus()`: the updater's state (below), without checking |
+| `update:check` | the page asks | `checkForUpdates()`: checks now, and resolves with the state once the check is done |
+| `update:download` | the page asks | `downloadUpdate()`: downloads the update found, and resolves with the state once it's downloaded or has failed |
+| `update:status` | the kit pushes | `onUpdateStatus(callback)`: the updater's state, on each change; to the app's own windows only |
 | `theme:changed` | the kit pushes | `onThemeChanged(callback)`: `"dark"` or `"light"` on each change of the OS theme; returns a function that stops listening |
 | `view:show` | the kit pushes | `onShowView(callback)`: `{ view, tab }` when the menu asks for a view; `mountShell()` listens for it |
 
@@ -180,7 +184,7 @@ the accent's fill under it that slides to the next tab chosen and takes its text
 `setSettings()` as it's made. It's reached from the rail, and from the menu's `Settings` (`CmdOrCtrl+,`),
 which puts focus on the selected tab.
 
-**Update** shows the version running until the updater arrives. **Credits** replaces the old Credits
+**Update** shows the version running; the updater's controls arrive next. **Credits** replaces the old Credits
 window: the logo, the app's name and version, the `•` credit lines, then the donate line and `Donate on Buy
 Me a Coffee` and `View Source Code on GitHub`, all from `app:get-info`. The version is Electron's (the app's `package.json`),
 and so is the name unless `start({ name })` gives one: an app whose `package.json` `name` is its npm name
@@ -194,12 +198,55 @@ through `shell:open-external`, which opens `http(s)` links only; the page never 
 
 `start({ settings: { defaults } })` gives the app's own settings and their defaults. They're kept by
 `electron-store`, under one `settings` key in its default file (`config.json` in the app's `userData`
-folder), beside the kit's own: `navCollapsed`, off. What's stored is read over the defaults, so a setting
+folder), beside the kit's own: `navCollapsed`, off; `autoDownloadUpdates`, on; and `updateChannel`,
+`"stable"`, `"beta"` or `"alpha"`, `null` until the updater saves the running build's own. What's stored is read over the defaults, so a setting
 added later appears with its default, and a stored value of the wrong kind is never handed out. A change
 must name a known setting and keep its kind (a boolean stays a boolean, a list a list), with JSON values
 only, or it's refused and nothing is stored. A setting whose default is `null` means "not chosen yet", and
 takes any JSON value (File Converter's `concurrency: null`, the CPU count until someone picks one). The main process has the same settings as
 `kit.settings.get()` and `kit.settings.set(changes)`. Migration between versions comes later.
+
+### Updates
+
+`start({ updates: {} })` gives the app an updater: electron-updater, from the update server
+electron-builder wrote into the app (its `publish` config). Without `updates` there's none, and nothing is
+checked. With it, it runs **only in a packaged app** (`app.isPackaged`; electron-updater isn't even loaded
+otherwise), and checks **only when the app says so**: 5 seconds after launch (`updates: { checkOnLaunch:
+false }` turns that off), and whenever the page asks (`checkForUpdates()`). It makes no other request.
+
+- **Channels:** `stable` offers finished releases only (electron-updater's `latest`), `beta` betas too, and
+  `alpha` anything. With no channel saved, the updater saves the running build's own when it starts (an
+  `-alpha` build `alpha`, a `-beta` build `beta`, anything else `stable`); from then on the saved choice
+  wins, whatever version an update brings. Changing it checks again.
+- **Every update found must pass the kit's own check** (`isOfferableUpdate(candidate, current, channel)`):
+  strictly newer, and in the channel. So a release mis-tagged on the server never reaches `stable`, and
+  nothing older is ever offered: someone who moves from `alpha` to `stable` keeps their alpha until a newer
+  finished release. electron-updater never downloads by itself (`autoDownload` is off), and its `channel` is
+  set before `allowDowngrade = false`, because its channel setter turns downgrades back on.
+- **Automatic downloads** (`autoDownloadUpdates`, on by default): an update found downloads at once, and
+  is installed when the app quits (`autoInstallOnAppQuit`). Off, the update dot shows, and the page offers
+  `downloadUpdate()`. The dot stays until the app runs the new version, and shows too when a download fails.
+  Turning it on downloads an update waiting. Moving to a channel that wouldn't offer an update already
+  downloaded keeps it from being installed.
+- **No ID of the install is sent.** electron-updater sends a random ID with every request
+  (`x-user-staging-id`), for staged rollouts; the kit sends `00000000-0000-0000-0000-000000000000` instead.
+  electron-updater still keeps its own in `userData` (`.updaterId`), but it never leaves the machine.
+
+The state, from `getUpdateStatus()` and `onUpdateStatus()`:
+
+| Field | What it is |
+|---|---|
+| `state` | `"unavailable"`, `"idle"`, `"checking"`, `"none"` (up to date), `"available"`, `"downloading"`, `"downloaded"` or `"error"` |
+| `reason` | for `"unavailable"`: `"off"` (no `updates` option) or `"not-packaged"` (run from source) |
+| `error` | for `"error"`: `"check"` or `"download"` |
+| `version` | the update found, or `null` |
+| `percent` | the download's, 0–100, or `null` |
+| `dot` | whether the update dot shows |
+| `auto` | whether it downloaded by itself (the page shows a toast then) |
+| `current`, `channel` | the version running, and the channel in use |
+
+The version rules are `require("@diamonddigitaldev/electron-kit/main").version` (`parse`, `compare`,
+`channelOf`, `isOfferableUpdate` and the rest), for an app's own use.
 
 ### The Menu
 

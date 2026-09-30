@@ -68,9 +68,12 @@ function fakeWindow({ destroyed = false, focused = false } = {}) {
 // loadMain() has returned, so its stand-in stays in place: the latest
 // loadMain()'s store.
 let currentStore = null;
+let currentUpdater = null;
 const load = Module._load;
 Module._load = function (request, ...rest) {
-    return request === "electron-store" && currentStore ? currentStore : load.call(this, request, ...rest);
+    if (request === "electron-store" && currentStore) return currentStore;
+    if (request === "electron-updater" && currentUpdater) return { autoUpdater: currentUpdater };
+    return load.call(this, request, ...rest);
 };
 
 /**
@@ -94,10 +97,12 @@ function fakeElectronStore(data) {
 }
 
 /**
- * @param {{ version?: string, name?: string, stored?: Record<string, unknown> }} [options]
+ * @param {{ version?: string, name?: string, stored?: Record<string, unknown>, isPackaged?: boolean, autoUpdater?: object }} [options]
  *   stored: what's already in the store's file, and what the store writes to.
+ *   isPackaged: app.isPackaged. autoUpdater: what require("electron-updater")
+ *   hands the kit, in place of the real one.
  */
-function loadMain({ version = "1.2.3", name = "Kit Demo", stored = {} } = {}) {
+function loadMain({ version = "1.2.3", name = "Kit Demo", stored = {}, isPackaged = false, autoUpdater = null } = {}) {
     const handlers = new Map();
     const listeners = new Map();
     const windows = [];
@@ -106,6 +111,7 @@ function loadMain({ version = "1.2.3", name = "Kit Demo", stored = {} } = {}) {
     const store = fakeElectronStore(stored);
     const electron = {
         app: {
+            isPackaged,
             getVersion: () => version,
             getName: () => name,
             getAppPath: () => APP_PATH,
@@ -165,6 +171,7 @@ function loadMain({ version = "1.2.3", name = "Kit Demo", stored = {} } = {}) {
     });
 
     currentStore = store.module;
+    currentUpdater = autoUpdater;
     const load = Module._load;
     Module._load = function (request, ...rest) {
         return request === "electron" ? electron : load.call(this, request, ...rest);

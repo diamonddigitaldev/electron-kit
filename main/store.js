@@ -22,6 +22,20 @@ const KIT_DEFAULTS = Object.freeze({
     // Whether the nav rail is collapsed: a narrow window is where someone
     // collapses it, and having to do it again at every launch would grate.
     navCollapsed: false,
+    // Settings > Update (updater.js): download an update as soon as it's
+    // found, and the channel updates come from. The channel is null until the
+    // updater first starts, which saves the running build's own channel.
+    autoDownloadUpdates: true,
+    updateChannel: null,
+});
+
+/**
+ * The kit's settings that take one of a few values only, as a list of them.
+ * A stored value that isn't one of them is never handed out (the default is,
+ * as for a value of the wrong kind), and a change to one is refused.
+ */
+const KIT_CHOICES = Object.freeze({
+    updateChannel: Object.freeze(["stable", "beta", "alpha"]),
 });
 
 /** The key the settings are stored under. */
@@ -74,6 +88,15 @@ function isJsonValue(value) {
 const fits = (value, fallback) => isJsonValue(value) && (fallback === null || kindOf(value) === kindOf(fallback));
 
 /**
+ * Whether a value may be kept as this setting: it fits its default, and is
+ * one of the setting's choices if it has any (KIT_CHOICES).
+ * @param {string} key
+ * @param {unknown} value
+ * @param {unknown} fallback - The setting's default.
+ */
+const allowed = (key, value, fallback) => fits(value, fallback) && (!Object.hasOwn(KIT_CHOICES, key) || KIT_CHOICES[key].includes(value));
+
+/**
  * Check the app's defaults: a plain object of JSON values, without the kit's
  * own keys. Throws on anything else, when kit.start() is called.
  * @param {Record<string, unknown>} defaults
@@ -108,7 +131,7 @@ function createSettings({ defaults = {}, open = openElectronStore } = {}) {
         const saved = stored();
         const settings = {};
         for (const [key, fallback] of Object.entries(all)) {
-            settings[key] = Object.hasOwn(saved, key) && fits(saved[key], fallback) ? saved[key] : fallback;
+            settings[key] = Object.hasOwn(saved, key) && allowed(key, saved[key], fallback) ? saved[key] : fallback;
         }
         return settings;
     }
@@ -123,6 +146,9 @@ function createSettings({ defaults = {}, open = openElectronStore } = {}) {
         if (!isPlainObject(changes)) throw new Error("Settings can only be changed with an object of settings.");
         for (const [key, value] of Object.entries(changes)) {
             if (!Object.hasOwn(all, key)) throw new Error(`There's no setting called "${key}".`);
+            if (Object.hasOwn(KIT_CHOICES, key) && !KIT_CHOICES[key].includes(value)) {
+                throw new Error(`The setting "${key}" takes one of ${KIT_CHOICES[key].map((c) => JSON.stringify(c)).join(", ")}.`);
+            }
             if (!fits(value, all[key])) throw new Error(`The setting "${key}" takes ${KIND_NAMES[kindOf(all[key])]}.`);
         }
         const next = { ...get(), ...changes };
@@ -139,4 +165,4 @@ function openElectronStore() {
     return new Store();
 }
 
-module.exports = { createSettings, KIT_DEFAULTS, STORE_KEY };
+module.exports = { createSettings, KIT_DEFAULTS, KIT_CHOICES, STORE_KEY };

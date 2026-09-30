@@ -21,6 +21,9 @@ const ASKS = {
     "getSettings()": "settings:get",
     "setSettings({ navCollapsed: true })": "settings:set",
     "openExternal(\"https://example.com/\")": "shell:open-external",
+    "getUpdateStatus()": "update:get-status",
+    "checkForUpdates()": "update:check",
+    "downloadUpdate()": "update:download",
 };
 
 /** What a page's kitAPI.getVersion() comes to: { version }, or { refused } with the error it rejects with. */
