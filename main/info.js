@@ -1,8 +1,11 @@
 "use strict";
 
-// app:get-info: what the Settings view's Credits tab shows. The app's name and
-// version (Electron's, from its package.json), the repository its source is in,
-// its credit lines and the donate link.
+// app:get-info: what the Settings view's Credits tab shows. The app's name
+// (kit.start({ name }), or else Electron's, from its package.json) and version
+// (Electron's), the repository its source is in, its credit lines and the
+// donate link. An app whose package.json name is its npm name gives its own:
+// setting productName instead would move its userData folder, and every saved
+// setting with it.
 //
 // The credits come from kit.start({ credits }):
 //
@@ -51,9 +54,9 @@ function packageRepository() {
 /**
  * Check kit.start()'s credits and repository, and return them in the form
  * app:get-info hands out: each line a list of parts. Throws on a mistake.
- * @param {{ credits?: { lines?: unknown[], donate?: string }, repository?: string }} config
+ * @param {{ credits?: { lines?: unknown[], donate?: string }, repository?: string, name?: string }} config
  */
-function checkInfo({ credits = {}, repository } = {}) {
+function checkInfo({ credits = {}, repository, name } = {}) {
     const fail = (message) => {
         throw new Error(`kit.start(): ${message}`);
     };
@@ -74,17 +77,18 @@ function checkInfo({ credits = {}, repository } = {}) {
     });
     if (donate !== null && !isWebUrl(donate)) fail("credits.donate must be an http(s) URL.");
     if (repository !== undefined && !isWebUrl(repository)) fail("repository must be an http(s) URL.");
+    if (name !== undefined && (typeof name !== "string" || name.trim() === "")) fail("name must be the app's name, as text.");
 
-    return { lines: parts, donate, repository: repository ?? null };
+    return { lines: parts, donate, repository: repository ?? null, name: name ?? null };
 }
 
 /**
  * app:get-info's answer: { name, version, repository, credits: { lines, donate } }.
  * @param {ReturnType<typeof checkInfo>} info - what checkInfo() returned.
  */
-function appInfo({ lines, donate, repository }) {
+function appInfo({ lines, donate, repository, name }) {
     return {
-        name: app.getName(),
+        name: name ?? app.getName(),
         version: app.getVersion(),
         repository: repository ?? packageRepository(),
         credits: { lines, donate },

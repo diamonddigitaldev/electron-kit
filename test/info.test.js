@@ -104,3 +104,17 @@ test("shell:open-external refuses anything but an http(s) link, opens nothing, a
     }
     assert.deepEqual(opened, []);
 });
+
+test("app:get-info answers start({ name }) as the app's name, where the package.json's is its npm name", async () => {
+    // File Converter's package.json name is diamond-file-converter; its userData folder is named after it.
+    const info = await infoFor({ credits: CREDITS, name: "Diamond File Converter" }, { name: "diamond-file-converter" });
+    assert.equal(info.name, "Diamond File Converter");
+    assert.equal((await infoFor({ credits: CREDITS }, { name: "diamond-file-converter" })).name, "diamond-file-converter");
+});
+
+test("kit.start() throws on a name that isn't text", () => {
+    for (const name of ["", "   ", 7, null, ["App"]]) {
+        const { main } = loadMain();
+        assert.throws(() => main.start({ name }), /name must be the app's name, as text/, JSON.stringify(name));
+    }
+});

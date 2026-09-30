@@ -182,8 +182,10 @@ which puts focus on the selected tab.
 
 **Update** shows the version running until the updater arrives. **Credits** replaces the old Credits
 window: the logo, the app's name and version, the `•` credit lines, then the donate line and `Donate on Buy
-Me a Coffee` and `View Source Code on GitHub`, all from `app:get-info`. The name and version are Electron's
-(the app's `package.json`); the repository is `start({ repository })`, or else the `package.json`'s. Each
+Me a Coffee` and `View Source Code on GitHub`, all from `app:get-info`. The version is Electron's (the app's `package.json`),
+and so is the name unless `start({ name })` gives one: an app whose `package.json` `name` is its npm name
+(`diamond-file-converter`) passes its own, since a top-level `productName` would move its `userData` folder
+and every saved setting with it; the repository is `start({ repository })`, or else the `package.json`'s. Each
 credit line is a sentence, or a list of parts with links as `{ text, href }`. Every link and button opens
 through `shell:open-external`, which opens `http(s)` links only; the page never follows a link itself.
 `start()` checks the credits and throws on a link that isn't `http(s)`, so a mistake shows at launch.
