@@ -3,11 +3,20 @@ name: CI
 # While the repository is private, its Actions minutes are limited and Windows
 # minutes count double. So every push runs everything on Ubuntu, and Windows
 # joins on pull requests, and when the workflow is run by hand.
+#
+# Run by hand with "Update the visual baselines" ticked, it runs only the
+# visual spec, on Windows, and uploads the images it takes (README,
+# Development).
 
 on:
   push:
   pull_request:
   workflow_dispatch:
+    inputs:
+      update-visual-baselines:
+        description: Update the visual baselines (runs only the visual spec, on Windows, and uploads its images)
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -96,6 +105,7 @@ jobs:
 
   electron:
     name: Electron tests and packaged demo (${{ matrix.os }})
+    if: ${{ !inputs.update-visual-baselines }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 20
     strategy:
@@ -150,8 +160,7 @@ jobs:
         if: runner.os == 'Windows'
         run: npx playwright test
 
-      # Nothing is published, and no token is passed to it. Nothing is uploaded
-      # as a workflow artifact either.
+      # Nothing is published, and no token is passed to it.
       - name: Build the demo
         working-directory: demo
         run: npx --no-install electron-builder ${{ runner.os == 'Windows' && '--win' || '--linux' }} --publish never
@@ -186,3 +195,66 @@ jobs:
         env:
           KIT_DEMO_EXECUTABLE: demo/dist/win-unpacked/electron-kit Demo.exe
         run: npx playwright test
+
+      # The only thing this job uploads: when a visual test fails, the image it
+      # expected, the one it took and the difference, so the failure can be
+      # seen. A workflow artifact is as private as the repository, and it's
+      # kept 3 days. Nothing else is uploaded.
+      - name: Upload the visual differences
+        if: failure() && runner.os == 'Windows'
+        uses: actions/upload-artifact@v7
+        with:
+          name: visual-differences-${{ github.run_attempt }}
+          path: |
+            test-results/**/*-actual.png
+            test-results/**/*-expected.png
+            test-results/**/*-diff.png
+          if-no-files-found: ignore
+          retention-days: 3
+
+  # Run by hand (update-visual-baselines): the visual spec takes its images
+  # afresh on a Windows runner, and they're uploaded as a workflow artifact,
+  # as private as the repository and kept 3 days, to be checked and committed
+  # (README, Development). Nothing is committed from here.
+  visual-baselines:
+    name: Visual baselines (windows-latest)
+    if: ${{ inputs.update-visual-baselines }}
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            demo/package-lock.json
+
+      - name: Install npm 12
+        run: npm install -g npm@12
+
+      - name: Put npm 12 first on PATH
+        shell: pwsh
+        run: npm prefix -g >> $env:GITHUB_PATH
+
+      - name: Install dependencies and Electron
+        run: |
+          npm --version
+          npm ci
+          npm ci --prefix demo
+          cd demo && node -e "console.log(require('electron'))"
+
+      - name: Take the visual baselines
+        run: npx playwright test e2e/visual.spec.js --update-snapshots=all
+
+      - name: Upload the visual baselines
+        uses: actions/upload-artifact@v7
+        with:
+          name: visual-baselines
+          path: e2e/visual.spec.js-snapshots/
+          if-no-files-found: error
+          retention-days: 3
