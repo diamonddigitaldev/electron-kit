@@ -152,6 +152,13 @@ jobs:
         if: runner.os == 'Linux'
         run: npx playwright install-deps chromium
 
+      # The unit job runs them on Ubuntu. On Windows they run here, since the
+      # updater's tests drive electron-updater's Windows updater, as File
+      # Converter's installed app does.
+      - name: Run the unit and contract tests
+        if: runner.os == 'Windows'
+        run: npm test
+
       - name: Run the Electron tests
         if: runner.os == 'Linux'
         run: xvfb-run --auto-servernum --server-args="-screen 0 1280x1024x24" npx playwright test
@@ -172,7 +179,7 @@ jobs:
           ls -l dist
           ls dist/*.${{ runner.os == 'Windows' && 'exe' || 'AppImage' }} > /dev/null
           list=$(npx --no-install asar list dist/*-unpacked/resources/app.asar | sed 's#\\#/#g')
-          for file in package.json main/index.js main/accelerators.js main/channels.js main/info.js main/ipc.js main/menu.js main/shell.js main/store.js main/theme.js preload.js css/kit.css page/theme.js page/kit.js; do
+          for file in package.json main/index.js main/accelerators.js main/channels.js main/info.js main/ipc.js main/menu.js main/shell.js main/store.js main/theme.js main/updater.js main/version.js preload.js css/kit.css page/theme.js page/kit.js; do
             if ! printf '%s\n' "$list" | grep -x "/node_modules/@diamonddigitaldev/electron-kit/$file" > /dev/null; then
               echo "::error::app.asar doesn't carry the kit's $file."
               exit 1

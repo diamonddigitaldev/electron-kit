@@ -22,8 +22,12 @@ const CH = {
     SETTINGS_GET: "settings:get",
     SETTINGS_SET: "settings:set",
     SHELL_OPEN_EXTERNAL: "shell:open-external",
+    UPDATE_CHECK: "update:check",
+    UPDATE_DOWNLOAD: "update:download",
+    UPDATE_GET_STATUS: "update:get-status",
     THEME_CHANGED: "theme:changed",
     VIEW_SHOW: "view:show",
+    UPDATE_STATUS: "update:status",
 };
 
 /**
@@ -47,6 +51,14 @@ contextBridge.exposeInMainWorld("kitAPI", {
     setSettings: (changes) => ipcRenderer.invoke(CH.SETTINGS_SET, changes),
     // Open an http(s) link in the person's browser. Anything else is refused.
     openExternal: (url) => ipcRenderer.invoke(CH.SHELL_OPEN_EXTERNAL, url),
+    // The updater's state ({ state, version, percent, dot, … }, main/updater.js), without checking.
+    getUpdateStatus: () => ipcRenderer.invoke(CH.UPDATE_GET_STATUS),
+    // Check for an update now; resolves with the state once the check is done.
+    checkForUpdates: () => ipcRenderer.invoke(CH.UPDATE_CHECK),
+    // Download the update found; resolves with the state once it's downloaded, or has failed.
+    downloadUpdate: () => ipcRenderer.invoke(CH.UPDATE_DOWNLOAD),
+    // The updater's state, on each change.
+    onUpdateStatus: (callback) => on(CH.UPDATE_STATUS, callback),
     // "dark" or "light", on each change of the OS theme. page/theme.js applies it.
     onThemeChanged: (callback) => on(CH.THEME_CHANGED, callback),
     // { view, tab? }, when the menu asks for a view (Settings, CmdOrCtrl+,). mountShell() shows it.

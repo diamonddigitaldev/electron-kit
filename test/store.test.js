@@ -7,7 +7,7 @@
 
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { createSettings, KIT_DEFAULTS, STORE_KEY } = require("../main/store");
+const { createSettings, KIT_DEFAULTS, KIT_CHOICES, STORE_KEY } = require("../main/store");
 const { loadMain, appPage } = require("./helpers/main");
 const { INVOKE } = require("../main/channels");
 
@@ -31,30 +31,33 @@ function memoryStore(data = {}) {
 
 const APP_DEFAULTS = { format: "mp3", overwrite: false, quality: 5, recent: [], window: { width: 900 } };
 
-test("the kit's own settings are navCollapsed, off", () => {
-    assert.deepEqual(KIT_DEFAULTS, { navCollapsed: false });
+/** The kit's own settings, at their defaults. */
+const KIT = { navCollapsed: false, autoDownloadUpdates: true, updateChannel: null };
+
+test("the kit's own settings: the rail expanded, updates downloaded automatically, and no channel chosen yet", () => {
+    assert.deepEqual(KIT_DEFAULTS, KIT);
     assert.equal(STORE_KEY, "settings");
 });
 
 test("with nothing stored, every setting is its default: the app's and the kit's", () => {
     const store = memoryStore();
-    assert.deepEqual(createSettings({ defaults: APP_DEFAULTS, open: store.open }).get(), { ...APP_DEFAULTS, navCollapsed: false });
+    assert.deepEqual(createSettings({ defaults: APP_DEFAULTS, open: store.open }).get(), { ...APP_DEFAULTS, ...KIT });
 });
 
 test("what's stored wins over the defaults, and a setting added later appears with its default", () => {
     const store = memoryStore({ settings: { format: "flac", navCollapsed: true } });
-    assert.deepEqual(createSettings({ defaults: APP_DEFAULTS, open: store.open }).get(), { ...APP_DEFAULTS, format: "flac", navCollapsed: true });
+    assert.deepEqual(createSettings({ defaults: APP_DEFAULTS, open: store.open }).get(), { ...APP_DEFAULTS, ...KIT, format: "flac", navCollapsed: true });
 });
 
 test("a stored setting the defaults no longer name, or of the wrong kind, is never handed out", () => {
     const store = memoryStore({ settings: { format: 3, overwrite: "yes", recent: {}, gone: true, navCollapsed: "true", quality: null } });
-    assert.deepEqual(createSettings({ defaults: APP_DEFAULTS, open: store.open }).get(), { ...APP_DEFAULTS, navCollapsed: false });
+    assert.deepEqual(createSettings({ defaults: APP_DEFAULTS, open: store.open }).get(), { ...APP_DEFAULTS, ...KIT });
 });
 
 test("a stored file that isn't an object of settings reads as the defaults", () => {
     for (const settings of [undefined, null, "settings", [true], 7]) {
         const store = memoryStore({ settings });
-        assert.deepEqual(createSettings({ defaults: APP_DEFAULTS, open: store.open }).get(), { ...APP_DEFAULTS, navCollapsed: false }, String(settings));
+        assert.deepEqual(createSettings({ defaults: APP_DEFAULTS, open: store.open }).get(), { ...APP_DEFAULTS, ...KIT }, String(settings));
     }
 });
 
@@ -62,7 +65,7 @@ test("set() changes the settings it's given, keeps the rest, stores them all and
     const store = memoryStore({ settings: { format: "flac" } });
     const settings = createSettings({ defaults: APP_DEFAULTS, open: store.open });
     const after = settings.set({ navCollapsed: true, quality: 9 });
-    const expected = { ...APP_DEFAULTS, format: "flac", quality: 9, navCollapsed: true };
+    const expected = { ...APP_DEFAULTS, ...KIT, format: "flac", quality: 9, navCollapsed: true };
     assert.deepEqual(after, expected);
     assert.deepEqual(store.data.settings, expected);
     // A second copy, as at the next launch, reads the same.
@@ -100,6 +103,20 @@ test("set() refuses a setting that doesn't exist, or a change of kind, and store
     assert.equal(settings.get().navCollapsed, false);
 });
 
+test("the update channel is one of stable, beta and alpha, or null until one is saved", () => {
+    const store = memoryStore({ settings: { updateChannel: "nightly", autoDownloadUpdates: "yes" } });
+    const settings = createSettings({ open: store.open });
+    assert.equal(settings.get().updateChannel, null, "a stored channel that isn't one is never handed out");
+    assert.equal(settings.get().autoDownloadUpdates, true);
+    for (const channel of ["stable", "beta", "alpha"]) assert.equal(settings.set({ updateChannel: channel }).updateChannel, channel);
+    for (const channel of ["nightly", "latest", "Stable", null, 1, ["beta"]]) {
+        assert.throws(() => settings.set({ updateChannel: channel }), /"updateChannel" takes one of "stable", "beta", "alpha"/, String(channel));
+    }
+    assert.equal(store.data.settings.updateChannel, "alpha", "a refused change stores nothing");
+    assert.throws(() => settings.set({ autoDownloadUpdates: "off" }), /"autoDownloadUpdates" takes true or false/);
+    assert.deepEqual(KIT_CHOICES, { updateChannel: ["stable", "beta", "alpha"] });
+});
+
 test("the store isn't opened until the settings are first used, and then once", () => {
     const store = memoryStore();
     const settings = createSettings({ defaults: APP_DEFAULTS, open: store.open });
@@ -115,6 +132,7 @@ test("the app's defaults are checked when the settings are made", () => {
         [[], /must be a plain object/],
         ["defaults", /must be a plain object/],
         [{ navCollapsed: true }, /"navCollapsed" is one of the kit's own settings/],
+        [{ updateChannel: "beta" }, /"updateChannel" is one of the kit's own settings/],
         [{ when: new Date() }, /settings\.defaults\.when must be a JSON value/],
         [{ ratio: NaN }, /settings\.defaults\.ratio must be a JSON value/],
         [{ window: { opened: new Map() } }, /settings\.defaults\.window must be a JSON value/],
@@ -133,10 +151,10 @@ test("kit.start() answers settings:get and settings:set from the store, and hand
     const page = eventFrom(appPage());
     assert.equal(storeCounts.opened, 0, "nothing is opened at start");
 
-    assert.deepEqual(await handlers.get(INVOKE.SETTINGS_GET)(page), { showSample: false, navCollapsed: false });
-    assert.deepEqual(await handlers.get(INVOKE.SETTINGS_SET)(page, { navCollapsed: true }), { showSample: false, navCollapsed: true });
-    assert.deepEqual(stored.settings, { showSample: false, navCollapsed: true });
-    assert.deepEqual(kit.settings.get(), { showSample: false, navCollapsed: true });
+    assert.deepEqual(await handlers.get(INVOKE.SETTINGS_GET)(page), { showSample: false, ...KIT });
+    assert.deepEqual(await handlers.get(INVOKE.SETTINGS_SET)(page, { navCollapsed: true }), { showSample: false, ...KIT, navCollapsed: true });
+    assert.deepEqual(stored.settings, { showSample: false, ...KIT, navCollapsed: true });
+    assert.deepEqual(kit.settings.get(), { showSample: false, ...KIT, navCollapsed: true });
     assert.throws(() => handlers.get(INVOKE.SETTINGS_SET)(page, { showSample: "no" }), /takes true or false/);
 });
 

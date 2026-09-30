@@ -16,12 +16,16 @@ const INVOKE = Object.freeze({
     SETTINGS_GET: "settings:get",
     SETTINGS_SET: "settings:set",
     SHELL_OPEN_EXTERNAL: "shell:open-external",
+    UPDATE_CHECK: "update:check",
+    UPDATE_DOWNLOAD: "update:download",
+    UPDATE_GET_STATUS: "update:get-status",
 });
 
 /** Channels the kit pushes to the page (webContents.send), which the page only listens to. */
 const PUSH = Object.freeze({
     THEME_CHANGED: "theme:changed",
     VIEW_SHOW: "view:show",
+    UPDATE_STATUS: "update:status",
 });
 
 /** Every shared channel. */
