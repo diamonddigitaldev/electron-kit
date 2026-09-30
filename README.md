@@ -141,9 +141,10 @@ shell.showView("convert");                             // or shell.showSettings(
 
 ### Settings and Credits
 
-The Settings view has tabs across the top (Bootstrap's `nav-tabs`, with `role="tablist"`; the arrow keys,
-Home and End move between them, and only the selected tab is in the Tab order): the app's own tabs, then
-**Update**, then **Credits**, always last. There's no save button anywhere: a tab keeps each change through
+The Settings view has tabs across the top (`role="tablist"`; the arrow keys, Home and End move between
+them, and only the selected tab is in the Tab order): the app's own tabs, then **Update**, then
+**Credits**, always last. They're plain text on a thin line, the selected one darker, with a thicker bar in
+the accent's fill under it that slides to the next tab chosen and takes its text's width. There's no save button anywhere: a tab keeps each change through
 `setSettings()` as it's made. It's reached from the rail, and from the menu's `Settings` (`CmdOrCtrl+,`),
 which puts focus on the selected tab.
 
@@ -251,7 +252,7 @@ shade 20% lighter again. White on the fill needs 4.5:1, so the hover goes darker
 ### Tokens
 
 `kit.css` holds the house tokens: motion (`--dur-micro`, `--dur-state`, `--dur-default`, `--dur-enter`,
-`--dur-ambient` and the `--ease-*` curves), the wash ladder (`--wash-*`, alphas for
+`--dur-ambient` and the `--ease-*` curves, `--ease-spring` among them), the wash ladder (`--wash-*`, alphas for
 `rgba(var(--accent-rgb), …)`), radii (`--radius-*`), opacity (`--opacity-disabled`, `--opacity-muted`), the
 timings the JS side shares (`--timing-*`), the focus ring (`--focus-ring-width`, `--focus-ring-offset`) and
 the scrollbar. It binds the accent into Bootstrap's primary (`--bs-primary`, `.btn-primary`, links and
@@ -261,9 +262,14 @@ the scrollbar. It binds the accent into Bootstrap's primary (`--bs-primary`, `.b
 
 Bootstrap draws focus as a soft glow, a quarter-opaque ring, which is well under the 3:1 a focus indicator
 needs. `kit.css` draws every focus ring as a solid 2px ring in the accent's text shade instead (keyboard
-focus only, except in a text field or a select), over 4.5:1 on the page and the rail in both themes. An
-unchecked box or switch is drawn in the secondary text colour, not Bootstrap's 1.3:1 border colour, so its
-outline meets 3:1 too.
+focus only, except in a text field or a select), over 4.5:1 on the page and the rail in both themes.
+
+Checkboxes and switches are drawn by the kit rather than by Bootstrap's still images. A checked box fills
+with the accent and its tick springs in; a switch's knob slides across with a little overshoot and
+stretches while it's pressed; both give a little when pressed, and their border takes the accent's text
+shade on hover. Unchecked, they're drawn in the secondary text colour, not Bootstrap's 1.3:1 border colour,
+so their outline meets 3:1 too. All of it is timed by the `--dur-*` tokens and the `--ease-spring` curve,
+so reduced motion stills it. The rail's icons sit on whole pixels, centred in each item when collapsed.
 
 Under `prefers-reduced-motion: reduce`, the `--dur-*` tokens go to 0.01ms, so anything timed by them
 finishes at once, and `--dur-ambient` goes to 0s, which stops a pulse rather than making it flicker.

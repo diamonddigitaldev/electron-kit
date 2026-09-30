@@ -68,3 +68,17 @@ test("the page's media query carries a change on its own, with no push", async (
     await main.emulateMedia({ colorScheme: "light" });
     await showsTheme(main, "light");
 });
+
+test("a window in another session, without the kit's bridge, opens in the OS theme and follows it too", async ({ demo }) => {
+    const main = await demo.mainWindow();
+    await demo.useTheme(main, "dark");
+    const isolated = await demo.openIsolatedWindow(main);
+    expect(await demo.bridgesOf(isolated)).toMatchObject({ kitAPI: "undefined" });
+    await showsTheme(isolated, "dark");
+    expect(await drawn(isolated)).toMatchObject({ theme: "dark", background: BACKGROUND.dark });
+    for (const theme of ["light", "dark"]) {
+        await demo.setOsTheme(theme);
+        await showsTheme(isolated, theme);
+        expect((await drawn(isolated)).background, theme).toBe(BACKGROUND[theme]);
+    }
+});

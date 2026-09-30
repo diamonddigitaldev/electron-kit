@@ -231,3 +231,125 @@ test("a view taller than the window scrolls, so nothing in it is out of reach", 
     expect((await main.getByRole("heading", { level: 1 }).boundingBox()).y).toBeLessThan(30);
     await expect(main.getByRole("button", { name: "Settings", exact: true })).toBeInViewport();
 });
+
+test("each rail icon is drawn centred: in its item when collapsed, and on the item's middle line when expanded", async ({ demo }) => {
+    const { inkBox } = require("./helpers/pixels");
+    const main = await demo.mainWindow();
+    const rail = main.getByRole("navigation", { name: "Sections" });
+    const problems = [];
+    for (const collapsed of [false, true]) {
+        if (collapsed) {
+            await rail.getByRole("button", { name: "Collapse", exact: true }).click();
+            await expect.poll(async () => (await rail.boundingBox()).width).toBe(56);
+        }
+        // Clear of every item, so none is drawn hovered.
+        await main.mouse.move(400, 300);
+        for (const name of ["Overview", "Controls", "Settings", collapsed ? "Expand" : "Collapse"]) {
+            const item = rail.getByRole("button", { name, exact: true });
+            // The icon's own ink (not the label's), placed within the item.
+            const { ink } = await inkBox(main, item.locator(".nav-icon"));
+            const icon = await item.locator(".nav-icon").boundingBox();
+            const box = await item.boundingBox();
+            // Relative to the item's centre; a glyph's own drawing may be half a pixel off.
+            const x = icon.x - box.x + (ink.left + ink.right) / 2 - box.width / 2;
+            const y = icon.y - box.y + (ink.top + ink.bottom) / 2 - box.height / 2;
+            const where = `${collapsed ? "collapsed" : "expanded"} "${name}"`;
+            if (Math.abs(y) > 0.75) problems.push(`${where}: ${y.toFixed(2)}px off the middle line`);
+            if (collapsed && Math.abs(x) > 0.75) problems.push(`${where}: ${x.toFixed(2)}px off centre across`);
+            // On whole pixels, so the glyph isn't smeared across two.
+            if (!Number.isInteger(icon.x - box.x) || !Number.isInteger(icon.y - box.y)) problems.push(`${where}: its icon sits at a fraction of a pixel`);
+        }
+    }
+    expect(problems).toEqual([]);
+});
+
+test("the Settings tabs sit on a thin line, with an accent bar that slides to the selected tab at its text's width", async ({ demo }) => {
+    const main = await demo.mainWindow();
+    await main.getByRole("button", { name: "Settings", exact: true }).click();
+    const tablist = main.getByRole("tablist", { name: "Settings" });
+    const bar = tablist.locator(".settings-tab-indicator");
+    const accent = await main.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue("--accent").trim());
+    const line = await tablist.evaluate((el) => ({ width: getComputedStyle(el).borderBottomWidth, style: getComputedStyle(el).borderBottomStyle }));
+    expect(line).toEqual({ width: "1px", style: "solid" });
+    await expect(bar).toHaveAttribute("aria-hidden", "true");
+
+    /** Where the bar is against the selected tab, once any move has finished. */
+    const placement = async () => {
+        await bar.evaluate(async (el) => {
+            for (let running = el.getAnimations(); running.length; running = el.getAnimations()) {
+                await Promise.all(running.map((a) => a.finished.catch(() => {})));
+            }
+        });
+        const [b, t, l] = await Promise.all([bar.boundingBox(), tablist.getByRole("tab", { selected: true }).boundingBox(), tablist.boundingBox()]);
+        const r = (n) => Math.round(n) || 0;
+        return { left: r(b.x - t.x), width: r(b.width - t.width), height: b.height, onTheLine: r(b.y + b.height - (l.y + l.height)) };
+    };
+    // Laid out at once when the view is first shown.
+    expect(await placement()).toEqual({ left: 0, width: 0, height: 3, onTheLine: 0 });
+    await expect(bar).toHaveCSS("background-color", await main.evaluate((c) => { const d = document.createElement("div"); d.style.color = c; document.body.append(d); const v = getComputedStyle(d).color; d.remove(); return v; }, accent));
+
+    const widths = new Set();
+    for (const name of ["Update", "Credits", "General"]) {
+        await tablist.getByRole("tab", { name }).click();
+        // It moves by animating: the move is running just after the click.
+        expect(await bar.evaluate((el) => el.getAnimations().length), name).toBeGreaterThan(0);
+        expect(await placement(), name).toEqual({ left: 0, width: 0, height: 3, onTheLine: 0 });
+        widths.add((await bar.boundingBox()).width);
+    }
+    // Each tab's text is its own width, so the bar changes width too.
+    expect(widths.size).toBe(3);
+});
+
+test("a checkbox's tick springs in and a switch's knob slides across, in the accent, and both stop moving under reduced motion", async ({ demo }) => {
+    const main = await demo.mainWindow();
+    await main.getByRole("button", { name: "Controls", exact: true }).click();
+    const box = main.getByLabel("A checked box");
+    const toggle = main.getByLabel("A switch, off");
+
+    /** A pseudo-element's scale (the tick's) or x offset (the knob's), from its computed transform, once it has settled. */
+    const drawn = (locator, pseudo) => locator.evaluate(async (el, pseudo) => {
+        // Until nothing is moving. A transition cut short (a press let go) rejects its finished, and starts another.
+        for (let running = el.getAnimations({ subtree: true }); running.length; running = el.getAnimations({ subtree: true })) {
+            await Promise.all(running.map((a) => a.finished.catch(() => {})));
+        }
+        const m = new DOMMatrix(getComputedStyle(el, pseudo).transform);
+        return { scale: Math.round(Math.hypot(m.a, m.b) * 100) / 100, x: Math.round(m.e * 10) / 10 };
+    }, pseudo);
+    // Every transition each control starts, recorded as it starts, so a busy machine that has already
+    // finished one by the time the test looks still shows it ran.
+    await main.locator("#controls-view").evaluate((view) => {
+        window.transitionsRun = [];
+        view.addEventListener("transitionrun", (event) => window.transitionsRun.push(`${event.target.id}${event.pseudoElement} ${event.propertyName}`));
+    });
+    const started = () => main.evaluate(() => window.transitionsRun.splice(0));
+    /** How long a pseudo-element's transitions last, in ms, as its computed style says. */
+    const durations = (locator, pseudo) => locator.evaluate((el, pseudo) => getComputedStyle(el, pseudo).transitionDuration.split(",").map((d) => parseFloat(d) * (d.trim().endsWith("ms") ? 1 : 1000)), pseudo);
+
+    expect((await drawn(box, "::after")).scale, "checked: the tick is drawn").toBe(1);
+    expect(await box.evaluate((el) => getComputedStyle(el).backgroundImage), "Bootstrap's still image is gone").toBe("none");
+    expect(await durations(box, "::after"), "the tick springs over the state duration").toEqual([200]);
+    expect(await durations(toggle, "::before"), "the knob: transform, width, colour").toEqual([200, 120, 200]);
+    await started();
+
+    await box.uncheck();
+    expect((await drawn(box, "::after")).scale).toBe(0);
+    expect(await started(), "unchecking shrinks the tick away").toContain("sample-check::after transform");
+    await box.check();
+    expect((await drawn(box, "::after")).scale).toBe(1);
+    expect(await started(), "checking springs it in").toContain("sample-check::after transform");
+
+    const off = await drawn(toggle, "::before");
+    await toggle.check();
+    const on = await drawn(toggle, "::before");
+    expect(await started(), "the knob slides").toContain("sample-switch::before transform");
+    // One em across: the switch is 2em wide and the knob travels the difference.
+    expect(on.x - off.x).toBeCloseTo(16, 0);
+    const colours = await toggle.evaluate((el) => ({ track: getComputedStyle(el).backgroundColor, knob: getComputedStyle(el, "::before").backgroundColor }));
+    expect(colours).toEqual({ track: "rgb(13, 110, 253)", knob: "rgb(255, 255, 255)" });
+
+    // Reduced motion: the same changes, with nothing left to watch.
+    await main.emulateMedia({ reducedMotion: "reduce" });
+    for (const duration of [...await durations(box, "::after"), ...await durations(toggle, "::before")]) expect(duration).toBeLessThan(1);
+    await toggle.uncheck();
+    expect((await drawn(toggle, "::before")).x).toBe(off.x);
+});
