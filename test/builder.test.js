@@ -13,12 +13,16 @@ const demoPackage = require("../demo/package.json");
 
 const BASE = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "builder", "base.json"), "utf8"));
 
-test("the base config: every channel's update file, NSIS on Windows under the house's menu folder, and AppImage, .deb and .rpm on Linux", () => {
+test("the base config: every channel's update file, NSIS on Windows under the house's menu folder, and AppImage, .deb and .rpm on Linux, with a maintainer", () => {
     assert.deepEqual(BASE, {
         generateUpdatesFilesForAllChannels: true,
         win: { target: ["nsis"] },
         nsis: { menuCategory: "Diamond Digital Development" },
-        linux: { target: ["AppImage", "deb", "rpm"] },
+        linux: {
+            target: ["AppImage", "deb", "rpm"],
+            // Every app's package.json author is "Name <https://…>", which npm reads as an email.
+            maintainer: "Diamond Digital Development <will.knowles@diamonddigital.dev>",
+        },
     });
 });
 
