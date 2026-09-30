@@ -11,7 +11,8 @@
 // setting added in a later version appears with its default, and a stored
 // value the defaults no longer name, or of the wrong kind, is never handed
 // out. A change must name a known setting and keep its kind (a boolean stays
-// a boolean), or it's refused and nothing is stored.
+// a boolean), or it's refused and nothing is stored. A setting whose default
+// is null has no kind yet: it takes any JSON value.
 //
 // Migration between versions of the settings comes with the rest of the store
 // (M3).
@@ -29,8 +30,8 @@ const STORE_KEY = "settings";
 /** A value's kind: "array", "null", or its typeof. */
 const kindOf = (value) => (Array.isArray(value) ? "array" : value === null ? "null" : typeof value);
 
-/** A kind, as a setting's error names it. */
-const KIND_NAMES = { array: "a list", object: "an object", boolean: "true or false", number: "a number", string: "text", null: "null" };
+/** A kind, as a setting's error names it. A setting whose default is null takes any JSON value. */
+const KIND_NAMES = { array: "a list", object: "an object", boolean: "true or false", number: "a number", string: "text", null: "a JSON value" };
 
 /** Whether a value is a plain object: {} or made by Object.create(null). */
 const isPlainObject = (value) => {
@@ -61,6 +62,16 @@ function isJsonValue(value) {
             return false;
     }
 }
+
+/**
+ * Whether a value may be kept as a setting with this default: a JSON value of
+ * the default's kind, or any JSON value if the default is null, which stands
+ * for "not chosen yet" (File Converter's concurrency: null, the CPU count,
+ * until someone picks a number).
+ * @param {unknown} value
+ * @param {unknown} fallback - The setting's default.
+ */
+const fits = (value, fallback) => isJsonValue(value) && (fallback === null || kindOf(value) === kindOf(fallback));
 
 /**
  * Check the app's defaults: a plain object of JSON values, without the kit's
@@ -97,7 +108,7 @@ function createSettings({ defaults = {}, open = openElectronStore } = {}) {
         const saved = stored();
         const settings = {};
         for (const [key, fallback] of Object.entries(all)) {
-            settings[key] = Object.hasOwn(saved, key) && kindOf(saved[key]) === kindOf(fallback) ? saved[key] : fallback;
+            settings[key] = Object.hasOwn(saved, key) && fits(saved[key], fallback) ? saved[key] : fallback;
         }
         return settings;
     }
@@ -112,7 +123,7 @@ function createSettings({ defaults = {}, open = openElectronStore } = {}) {
         if (!isPlainObject(changes)) throw new Error("Settings can only be changed with an object of settings.");
         for (const [key, value] of Object.entries(changes)) {
             if (!Object.hasOwn(all, key)) throw new Error(`There's no setting called "${key}".`);
-            if (kindOf(value) !== kindOf(all[key]) || !isJsonValue(value)) throw new Error(`The setting "${key}" takes ${KIND_NAMES[kindOf(all[key])]}.`);
+            if (!fits(value, all[key])) throw new Error(`The setting "${key}" takes ${KIND_NAMES[kindOf(all[key])]}.`);
         }
         const next = { ...get(), ...changes };
         store.set(STORE_KEY, next);

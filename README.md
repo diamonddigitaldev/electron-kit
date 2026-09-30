@@ -163,7 +163,8 @@ through `shell:open-external`, which opens `http(s)` links only; the page never 
 folder), beside the kit's own: `navCollapsed`, off. What's stored is read over the defaults, so a setting
 added later appears with its default, and a stored value of the wrong kind is never handed out. A change
 must name a known setting and keep its kind (a boolean stays a boolean, a list a list), with JSON values
-only, or it's refused and nothing is stored. The main process has the same settings as
+only, or it's refused and nothing is stored. A setting whose default is `null` means "not chosen yet", and
+takes any JSON value (File Converter's `concurrency: null`, the CPU count until someone picks one). The main process has the same settings as
 `kit.settings.get()` and `kit.settings.set(changes)`. Migration between versions comes later.
 
 ### The Menu

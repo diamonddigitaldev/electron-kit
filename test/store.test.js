@@ -147,3 +147,19 @@ test("kit.start() throws on bad settings defaults, before registering anything",
     // And it can still be started properly.
     assert.doesNotThrow(() => main.start());
 });
+
+test("a setting whose default is null takes any JSON value, and keeps it across launches", () => {
+    // File Converter's concurrency: null until someone picks a number.
+    const defaults = { ...APP_DEFAULTS, concurrency: null };
+    const store = memoryStore({ settings: { concurrency: 4 } });
+    const settings = createSettings({ defaults, open: store.open });
+    assert.equal(settings.get().concurrency, 4, "a stored number carries over");
+    for (const value of [8, "auto", true, [1, 2], { cores: 2 }, null]) {
+        assert.deepEqual(settings.set({ concurrency: value }).concurrency, value, JSON.stringify(value));
+        assert.deepEqual(createSettings({ defaults, open: store.open }).get().concurrency, value, `${JSON.stringify(value)}, at the next launch`);
+    }
+    // Still a JSON value only, stored or changed.
+    assert.throws(() => settings.set({ concurrency: NaN }), /"concurrency" takes a JSON value/);
+    assert.throws(() => settings.set({ concurrency: new Date() }), /"concurrency" takes a JSON value/);
+    assert.deepEqual(createSettings({ defaults, open: memoryStore({ settings: { concurrency: { at: new Date() } } }).open }).get().concurrency, null);
+});
