@@ -5,14 +5,16 @@
 // the images are taken on a Windows CI runner, so they show Segoe UI as most
 // people see it, and Linux runs every other test without them.
 //
-// Seven states, each a whole window:
+// Nine states, each a whole window:
 // - Settings on its General, Update and Credits tabs;
 // - Controls at rest (the box ticked, the switch off), and toggled by keyboard
 //   (the box unticked, the switch on and focused);
-// - the rail expanded, and collapsed, on Overview with Controls focused by keyboard.
-// All seven in the demo's accent, in the light and dark themes. The two that
+// - the rail expanded, and collapsed, on Overview with Controls focused by keyboard;
+// - a warning toast with its list shown, and the batch prompt (kit.ui.confirm())
+//   with Save as New focused by keyboard.
+// All nine in the demo's accent, in the light and dark themes. The two that
 // show the most accent (the rail, and Controls toggled) again in each of the
-// three apps' accents (test/fixtures/accents/), in both themes. 26 images.
+// three apps' accents (test/fixtures/accents/), in both themes. 30 images.
 //
 // So that an image only changes when the look does: the window's page is
 // 760 x 600 at a scale factor of 1, drawn without the GPU; motion is reduced, so every transition ends
@@ -144,6 +146,38 @@ const STATES = {
         await fromTheTop(main);
         await tab(main, 2);
         await expect(main.getByRole("button", { name: "Controls", exact: true })).toBeFocused();
+    },
+    "toast-detail": async (main) => {
+        await main.getByRole("button", { name: "Overview", exact: true }).click();
+        await main.evaluate(() => window.kit.ui.toast("Added 12 files, skipped 3.", {
+            type: "warning",
+            action: { label: "Show Them", items: () => ["notes.txt", "readme.md", "setup.exe"].map((name) => ({ name, note: "not a supported format" })) },
+        }));
+        await main.getByRole("button", { name: "Show Them" }).click();
+        await blur(main);
+    },
+    "confirm-batch": async (main) => {
+        await main.locator("#toast-host .toast-note").evaluateAll((notes) => notes.forEach((note) => note.remove()));
+        await main.evaluate(() => {
+            window.kit.ui.confirm({
+                title: "File Already Exists",
+                body: "clip.mp4 already exists.",
+                icon: "file_copy",
+                choices: [
+                    { value: "cancelAll", label: "Cancel All" },
+                    { value: "skip", label: "Skip This File" },
+                    { value: "overwrite", label: "Overwrite" },
+                    { value: "unique", label: "Save as New" },
+                ],
+                cancel: "cancelAll",
+                defaultChoice: "unique",
+                applyToAll: true,
+            });
+        });
+        // Save as New has the focus, and its ring.
+        await main.keyboard.press("Tab");
+        await main.keyboard.press("Shift+Tab");
+        await expect(main.getByRole("button", { name: "Save as New" })).toBeFocused();
     },
 };
 

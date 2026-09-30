@@ -173,8 +173,8 @@ test("under reduced motion every duration token goes to (near) zero, and the amb
     }
 });
 
-test("kit.css has no at-rule but the tick's drawing, a toast's arrival and reduced motion", () => {
-    assert.deepEqual(Object.keys(KIT_AT_RULES).sort(), ["@keyframes kit-tick-draw", "@keyframes kit-toast-in", REDUCED_MOTION].sort());
+test("kit.css has no at-rule but the tick's drawing, a toast's and a prompt's arrival, and reduced motion", () => {
+    assert.deepEqual(Object.keys(KIT_AT_RULES).sort(), ["@keyframes kit-backdrop-in", "@keyframes kit-dialog-in", "@keyframes kit-tick-draw", "@keyframes kit-toast-in", REDUCED_MOTION].sort());
 });
 
 test("a ticked checkbox draws its tick, short stroke then long, timed by a token; unticking keeps its spring", () => {
@@ -223,9 +223,10 @@ test("a collapsed rail fades its labels as the rail closes, never removing them,
 
 test("every focus ring the kit draws is a solid ring in the accent's text shade, and Bootstrap's glow is gone", () => {
     const ring = "var(--focus-ring-width) solid var(--accent-text)";
-    // A toast's close button is the one exception: it's on the toast's semantic fill, where the accent's text
-    // shade isn't made to hold, so its ring is the toast's own text colour, which is AA on the fill.
-    const onFill = new Set([".toast-close:focus-visible"]);
+    // A toast's controls are the one exception (its close button, its action and the action's list): they're on
+    // the toast's semantic fill, where the accent's text shade isn't made to hold, so their ring is the toast's
+    // own text colour, which is AA on the fill.
+    const onFill = new Set([".toast-close:focus-visible, .toast-action:focus-visible, .toast-detail:focus-visible"]);
     const rings = KIT_RULES.filter((r) => Object.hasOwn(r.declarations, "outline") && r.declarations.outline !== "none");
     assert.ok(rings.length >= 3);
     for (const { selector, declarations } of rings) {
@@ -235,6 +236,7 @@ test("every focus ring the kit draws is a solid ring in the accent's text shade,
     const focus = rule(":focus-visible, .btn:focus-visible, .nav-link:focus-visible, .form-check-input:focus-visible, .form-range:focus-visible");
     assert.equal(focus["box-shadow"], "none");
     assert.equal(rule(".btn")["--bs-btn-focus-box-shadow"], "none");
+    assert.equal(rule(".btn-close")["--bs-btn-close-focus-shadow"], "none");
     assert.equal(rule(".form-control:focus, .form-select:focus")["box-shadow"], "none");
     // Nothing that can take focus goes without a ring.
     assert.deepEqual(KIT_RULES.filter((r) => r.declarations.outline === "none" || r.declarations.outline === "0").map((r) => r.selector), []);

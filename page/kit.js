@@ -26,7 +26,11 @@
 // last), moves the app's elements into them, and routes between the views.
 // The Update tab and the update dot follow the kit's updater (update:status).
 //
-// kit.ui.toast(message, { type, timeout }) shows a toast under the header.
+// kit.ui.toast(message, { type, timeout, action }) shows a toast under the
+// header; its action shows a list under the message (what was skipped).
+// kit.ui.confirm({ title, body, … }) asks a question in a modal, one at a
+// time, and resolves with the answer; its batch form takes the answers as
+// choices, with Apply to All Remaining.
 // The shared markup is built with createElement and textContent, never HTML
 // strings, and every icon is aria-hidden: an item's name is its label, which a
 // collapsed rail hides visually but keeps for screen readers.
@@ -341,27 +345,74 @@
             ?? document.body.appendChild(el("div", { className: "toast-host", attrs: { id: "toast-host", "aria-live": "polite" } }));
     }
 
+    /** The most rows a toast's detail list shows; a last row says how many more there are. */
+    const TOAST_DETAIL_LIMIT = 50;
+
+    /** A number for each toast's detail list, so its button can name it. */
+    let toastDetails = 0;
+
+    /**
+     * A toast's action: a button beside the message that shows a list under
+     * it (the files skipped, and why), and hides it again. The list is built
+     * only when the button is first pressed, from action.items(), and holds
+     * the first TOAST_DETAIL_LIMIT rows. Each row is text, or a name (in bold,
+     * and the one thing in it that can be selected and copied) and a note.
+     * The list is left out of the host's live region: the button says it's
+     * open, and a screen reader reads it when it's reached.
+     * @param {HTMLElement} body - The toast's message, which the button and the list go in.
+     * @param {{ label: string, items: () => (string | { name: string, note?: string })[] }} action
+     */
+    function toastAction(body, { label, items }) {
+        const id = `toast-detail-${++toastDetails}`;
+        const button = el("button", { className: "toast-action", text: label, attrs: { type: "button", "aria-expanded": "false", "aria-controls": id } });
+        let list = null;
+        button.addEventListener("click", () => {
+            if (!list) {
+                const rows = items();
+                if (!Array.isArray(rows)) throw new Error("kit.ui.toast(): action.items() must return a list.");
+                list = el("ul", { className: "toast-detail", attrs: { id, "aria-label": label, "aria-live": "off", tabindex: "0", hidden: "" } }, rows.slice(0, TOAST_DETAIL_LIMIT).map((row) => (
+                    typeof row === "string"
+                        ? el("li", { text: row })
+                        : el("li", {}, [el("span", { className: "toast-detail-name", text: String(row.name) }), row.note ? ` — ${row.note}` : null])
+                )));
+                if (rows.length > TOAST_DETAIL_LIMIT) list.append(el("li", { className: "toast-detail-more", text: `and ${rows.length - TOAST_DETAIL_LIMIT} more` }));
+                body.append(list);
+            }
+            const open = list.hidden;
+            list.hidden = !open;
+            button.setAttribute("aria-expanded", String(open));
+            button.textContent = open ? "Hide" : label;
+        });
+        body.append(" ", button);
+    }
+
     /**
      * Show a toast: something the person should know, but not answer. It
      * closes itself after --timing-toast (4.5 s), or when its close button is
      * pressed. A danger toast is announced at once (role="alert"); the rest
      * politely, through the host's live region. The message is text, never
-     * markup.
+     * markup. With an action (toastAction above), it stays until it's closed,
+     * unless a timeout is given: an action no one can reach in time isn't one.
      * @param {string} message
-     * @param {{ type?: "info" | "success" | "warning" | "danger", timeout?: number }} [options]
+     * @param {{ type?: "info" | "success" | "warning" | "danger", timeout?: number, action?: { label: string, items: () => (string | { name: string, note?: string })[] } }} [options]
      *   timeout: how long it stays, in ms; 0 keeps it until it's closed.
      * @returns {{ element: HTMLElement, close(): void }}
      */
-    function toast(message, { type = "info", timeout } = {}) {
+    function toast(message, { type = "info", timeout, action } = {}) {
         if (typeof message !== "string" || message === "") throw new Error("kit.ui.toast(): the message must be text.");
         if (!Object.hasOwn(TOAST_ICONS, type)) throw new Error(`kit.ui.toast(): type must be one of ${Object.keys(TOAST_ICONS).join(", ")}.`);
         if (timeout !== undefined && !(Number.isFinite(timeout) && timeout >= 0)) throw new Error("kit.ui.toast(): timeout must be a number of ms, or 0.");
-        const stay = timeout ?? (parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--timing-toast")) || 4500);
+        if (action !== undefined && !(typeof action?.label === "string" && action.label !== "" && typeof action.items === "function")) {
+            throw new Error("kit.ui.toast(): action must be { label, items }, items a function returning the list.");
+        }
+        const stay = timeout ?? (action ? 0 : parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--timing-toast")) || 4500);
 
         const close = el("button", { className: "toast-close", attrs: { type: "button", title: "Dismiss", "aria-label": "Dismiss" } }, [icon("close")]);
+        const body = el("div", { className: "toast-body", text: message });
+        if (action) toastAction(body, action);
         const note = el("div", { className: `toast-note toast-${type}`, attrs: type === "danger" ? { role: "alert" } : {} }, [
             icon(TOAST_ICONS[type], "toast-icon"),
-            el("div", { className: "toast-body", text: message }),
+            body,
             close,
         ]);
         toastHost().append(note);
@@ -381,6 +432,209 @@
         close.addEventListener("click", dismiss);
         if (stay > 0) timer = setTimeout(dismiss, stay);
         return { element: note, close: dismiss };
+    }
+
+    // -- Confirm -----------------------------------------------------------------
+
+    /** The variants a prompt's button may take: Bootstrap's, as DESIGN §6 uses them. */
+    const BUTTON_VARIANTS = ["primary", "secondary", "success", "warning", "danger", "outline-secondary", "outline-danger"];
+
+    /** The prompt showing now, or last shown, so the next waits for it: one prompt at a time. */
+    let prompts = Promise.resolve();
+
+    /** The prompt's dialog, built the first time one is asked, and filled for each. */
+    let dialogParts = null;
+
+    function confirmDialog() {
+        if (dialogParts) return dialogParts;
+        const glyph = icon("help_outline", "kit-dialog-icon");
+        const title = el("span", { attrs: { id: "kit-dialog-title" } });
+        const closeButton = el("button", { className: "btn-close", attrs: { type: "button", "aria-label": "Close" } });
+        const body = el("p", { className: "kit-dialog-text", attrs: { id: "kit-dialog-body" } });
+        const all = el("input", { className: "form-check-input", attrs: { type: "checkbox", id: "kit-dialog-all" } });
+        const allLabel = el("label", { className: "form-check-label", attrs: { for: "kit-dialog-all" } });
+        const allRow = el("div", { className: "form-check kit-dialog-all" }, [all, allLabel]);
+        const footer = el("div", { className: "kit-dialog-footer" });
+        const dialog = el("dialog", { className: "kit-dialog", attrs: { role: "alertdialog", "aria-modal": "true", "aria-labelledby": "kit-dialog-title", "aria-describedby": "kit-dialog-body" } }, [
+            el("div", { className: "kit-dialog-header" }, [el("h2", { className: "kit-dialog-title" }, [glyph, title]), closeButton]),
+            el("div", { className: "kit-dialog-body" }, [body, allRow]),
+            footer,
+        ]);
+        document.body.append(dialog);
+        dialogParts = { dialog, glyph, title, closeButton, body, all, allLabel, allRow, footer };
+        return dialogParts;
+    }
+
+    /**
+     * Check a prompt's options, and put them in one shape: its buttons, left to
+     * right, the answer each gives, the button that takes the focus, and the
+     * answer every other way out gives (Escape, the backdrop, the close button).
+     */
+    function promptOf(options) {
+        const fail = (message) => {
+            throw new Error(`kit.ui.confirm(): ${message}`);
+        };
+        const { title, body, icon: glyph = "help_outline", choices, applyToAll } = options ?? {};
+        if (typeof title !== "string" || title === "") fail("title must be the question, in Title Case.");
+        if (typeof body !== "string" || body === "") fail("body must be text.");
+        if (typeof glyph !== "string" || glyph === "") fail("icon must be a Material Icons Round glyph.");
+        const variant = (value, where) => {
+            if (!BUTTON_VARIANTS.includes(value)) fail(`${where} must be one of ${BUTTON_VARIANTS.join(", ")}.`);
+            return value;
+        };
+
+        if (choices === undefined) {
+            if (applyToAll !== undefined || options.cancel !== undefined || options.defaultChoice !== undefined) fail("applyToAll, cancel and defaultChoice go with choices.");
+            const { confirmLabel = "Confirm", cancelLabel = "Cancel", variant: confirmVariant = "primary" } = options;
+            if (typeof confirmLabel !== "string" || confirmLabel === "") fail("confirmLabel must be text.");
+            if (typeof cancelLabel !== "string" || cancelLabel === "") fail("cancelLabel must be text.");
+            variant(confirmVariant, "variant");
+            // Something risky or destructive is confirmed on purpose: the focus starts on Cancel.
+            const risky = ["warning", "danger"].includes(confirmVariant);
+            return {
+                title, body, glyph, batch: false, applyToAll: null,
+                buttons: [{ value: false, label: cancelLabel, variant: "outline-secondary" }, { value: true, label: confirmLabel, variant: confirmVariant }],
+                cancel: false,
+                focus: risky ? false : true,
+            };
+        }
+
+        if (!Array.isArray(choices) || choices.length < 2) fail("choices must be a list of two or more.");
+        const values = new Set();
+        const buttons = choices.map((choice, i) => {
+            const { value, label } = choice ?? {};
+            if (typeof value !== "string" || value === "") fail(`choices[${i}].value must be a name for the answer.`);
+            if (values.has(value)) fail(`choices[${i}].value "${value}" is taken.`);
+            values.add(value);
+            if (typeof label !== "string" || label === "") fail(`choices[${i}].label must be text.`);
+            return { value, label, variant: variant(choice.variant ?? (value === options.defaultChoice ? "primary" : "outline-secondary"), `choices[${i}].variant`) };
+        });
+        const { cancel = buttons[0].value, defaultChoice = buttons[buttons.length - 1].value } = options;
+        if (!values.has(cancel)) fail(`cancel "${cancel}" isn't one of the choices.`);
+        if (!values.has(defaultChoice)) fail(`defaultChoice "${defaultChoice}" isn't one of the choices.`);
+        if (applyToAll !== undefined && applyToAll !== false && !(applyToAll === true || (typeof applyToAll === "string" && applyToAll !== ""))) {
+            fail("applyToAll must be true, or the checkbox's label.");
+        }
+        return {
+            title, body, glyph, batch: true, buttons, cancel, focus: defaultChoice,
+            applyToAll: applyToAll === true ? "Apply to All Remaining" : applyToAll || null,
+        };
+    }
+
+    /**
+     * Show one prompt, and resolve with its answer once it's closed.
+     * @param {ReturnType<typeof promptOf>} prompt
+     */
+    function ask(prompt) {
+        const parts = confirmDialog();
+        const { dialog, glyph, title, closeButton, body, all, allLabel, allRow, footer } = parts;
+        glyph.textContent = prompt.glyph;
+        title.textContent = prompt.title;
+        body.textContent = prompt.body;
+        allRow.hidden = !prompt.applyToAll;
+        allLabel.textContent = prompt.applyToAll ?? "";
+        all.checked = false;
+        delete all.dataset.kitTick;
+        const buttons = prompt.buttons.map(({ value, label, variant }) => {
+            const button = el("button", { className: `btn btn-${variant}`, text: label, attrs: { type: "button" } });
+            button.addEventListener("click", () => answer(value));
+            return [value, button];
+        });
+        footer.replaceChildren(...buttons.map(([, button]) => button));
+
+        let answered = null;
+        let fallback = null;
+        let done;
+        const closed = new Promise((resolve) => {
+            done = resolve;
+        });
+
+        /** Answer, and close: faded out, then closed (closing is what resolves the prompt). */
+        function answer(value) {
+            if (answered !== null || !dialog.open) return;
+            answered = { value };
+            dialog.classList.add("leaving");
+            const shut = () => {
+                dialog.removeEventListener("transitionend", faded);
+                if (dialog.open) dialog.close();
+            };
+            // The dialog's own fade, not a button's hover colour ending inside it.
+            const faded = (event) => {
+                if (event.target === dialog && event.propertyName === "opacity") shut();
+            };
+            dialog.addEventListener("transitionend", faded);
+            // In case nothing transitions (reduced motion, a hidden page).
+            fallback = setTimeout(shut, 1000);
+        }
+        const onCancel = (event) => {
+            // Escape: faded out like any other answer. Pressed again before it's gone, Chromium
+            // may close the dialog itself, which onClose answers the same way.
+            event.preventDefault();
+            answer(prompt.cancel);
+        };
+        const onBackdrop = (event) => {
+            if (event.target !== dialog) return;
+            const box = dialog.getBoundingClientRect();
+            const inside = event.clientX >= box.left && event.clientX <= box.right && event.clientY >= box.top && event.clientY <= box.bottom;
+            if (!inside) answer(prompt.cancel);
+        };
+        const onCloseButton = () => answer(prompt.cancel);
+        function onClose() {
+            // Not left to close the next prompt, which may open in this one's place at once.
+            clearTimeout(fallback);
+            dialog.removeEventListener("cancel", onCancel);
+            dialog.removeEventListener("click", onBackdrop);
+            dialog.removeEventListener("close", onClose);
+            closeButton.removeEventListener("click", onCloseButton);
+            dialog.classList.remove("leaving");
+            const value = answered ? answered.value : prompt.cancel;
+            done(prompt.batch ? { choice: value, all: all.checked } : value);
+        }
+        dialog.addEventListener("cancel", onCancel);
+        dialog.addEventListener("click", onBackdrop);
+        dialog.addEventListener("close", onClose);
+        closeButton.addEventListener("click", onCloseButton);
+
+        // A modal <dialog> gives the focus back to what had it once it closes, by itself.
+        dialog.showModal();
+        buttons.find(([value]) => value === prompt.focus)[1].focus();
+        return closed;
+    }
+
+    /**
+     * Ask a question only the person can answer, in a modal over the page,
+     * and resolve with the answer. Prompts are asked one at a time: one asked
+     * while another shows waits until that's answered.
+     *
+     *     if (!await kit.ui.confirm({ title: "Large Frame Export", body: "This writes about 4,000 images.",
+     *                                 confirmLabel: "Write Them", variant: "warning", icon: "burst_mode" })) return;
+     *
+     * resolves true on the confirm button, and false every other way out:
+     * Cancel, Escape, the backdrop, the close button. The focus starts on the
+     * confirm button, or on Cancel when the variant is warning or danger.
+     *
+     * The batch form, for a question asked of each item in a batch, takes the
+     * answers as choices, left to right, and an Apply to All Remaining checkbox:
+     *
+     *     const { choice, all } = await kit.ui.confirm({
+     *         title: "File Already Exists", body: "clip.mp4 already exists.",
+     *         choices: [{ value: "cancelAll", label: "Cancel All" }, { value: "skip", label: "Skip This File" },
+     *                   { value: "overwrite", label: "Overwrite" }, { value: "unique", label: "Save as New" }],
+     *         cancel: "cancelAll", defaultChoice: "unique", applyToAll: true,
+     *     });
+     *
+     * It resolves { choice, all }: the choice's value, and whether the box was
+     * ticked. cancel is the answer every other way out gives (the first choice
+     * if not given); defaultChoice takes the focus, in btn-primary (the last
+     * choice if not given). Each choice is btn-outline-secondary unless it
+     * names its variant. Everything is text, never markup.
+     * @returns {Promise<boolean | { choice: string, all: boolean }>}
+     */
+    function confirm(options) {
+        const prompt = promptOf(options);
+        const answer = prompts.then(() => ask(prompt));
+        prompts = answer.then(() => {}, () => {});
+        return answer;
     }
 
     /** The Credits tab, from app:get-info: the logo, name and version, the credit lines, then donating and the source. */
@@ -560,7 +814,7 @@
     }, true);
 
     window.kit = {
-        ui: { mountShell, toast },
+        ui: { mountShell, toast, confirm },
         format: {},
         keys: {},
     };
