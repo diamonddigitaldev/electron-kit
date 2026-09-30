@@ -183,7 +183,8 @@ Menu
   Exit                     Alt+F4
 ```
 
-There's no Credits item: Credits is the last tab of Settings. On macOS the app's own menu comes first,
+There's no Credits item: Credits is the last tab of Settings. The menu is the main window's: a secondary
+window, if an app has one, calls `win.removeMenu()`, or on Windows and Linux it shows the same `Menu` bar. On macOS the app's own menu comes first,
 with Quit in it. **Every accelerator needs a modifier other than Shift, or is a function key**: Electron
 registers a menu's accelerators for the whole window, text fields included, so a bare `C` (or `Shift+C`)
 would take that letter from everything typed. `start()` throws on a menu that breaks the rule, and an
