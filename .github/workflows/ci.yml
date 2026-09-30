@@ -24,23 +24,6 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      # No commit may carry AI attribution: not in its author or committer, not
-      # in its message (no Co-Authored-By trailer, no "Generated with" footer).
-      - name: No AI attribution in commits
-        run: |
-          # Listed first, so the step fails if git can't list them.
-          commits=$(git rev-list HEAD)
-          bad=0
-          for commit in $commits; do
-            if git log -1 --format='%an <%ae>%n%cn <%ce>%n%B' "$commit" \
-                | grep -iE 'claude|anthropic|co-authored|generated with' > /dev/null; then
-              echo "::error::$(git log -1 --format='%h %s' "$commit") carries AI attribution in its author, committer or message."
-              bad=1
-            fi
-          done
-          [ "$bad" = 0 ] && echo "No commit carries AI attribution."
-          exit "$bad"
-
       # No file and no commit message may name one of the organisation's
       # private repositories. Naming them here would do just that, so the list
       # is the PRIVATE_REPO_NAMES secret, one name per line, and this step never

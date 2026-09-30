@@ -86,13 +86,14 @@ test("the page loads the kit's CSS and page script from node_modules", async ({ 
     const main = await demo.mainWindow();
     const loaded = await main.evaluate(() => ({
         css: document.querySelector('link[href*="electron-kit"]').href,
-        cssApplied: getComputedStyle(document.documentElement).getPropertyValue("--kit-css").trim(),
+        // A token only kit.css sets.
+        cssApplied: getComputedStyle(document.documentElement).getPropertyValue("--radius-card").trim(),
         script: document.querySelector('script[src*="electron-kit"]').src,
         kit: typeof window.kit,
     }));
 
     expect(decodeURIComponent(loaded.css)).toMatch(kitFile(demo.packaged, "css/kit.css"));
-    expect(loaded.cssApplied).toBe("1");
+    expect(loaded.cssApplied).toBe("8px");
     expect(decodeURIComponent(loaded.script)).toMatch(kitFile(demo.packaged, "page/kit.js"));
     expect(loaded.kit).toBe("object");
     await expect(main.locator("#kit-css")).toHaveText("Loaded");

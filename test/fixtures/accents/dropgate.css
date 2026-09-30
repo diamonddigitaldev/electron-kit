@@ -1,0 +1,13 @@
+/* Dropgate's accent: Bootstrap's blue, whose shades are Bootstrap's own button
+   hover and link colours. */
+
+:root {
+    --accent:            #0d6efd;
+    --accent-hover:      #0b5ed7;
+    --accent-rgb:        13, 110, 253;
+    --accent-contrast:   #fff;
+    --accent-text-light: #0a58ca;
+    --accent-text-dark:  #8bb9fe;
+    --accent-link-light: #0d6efd;
+    --accent-link-dark:  #6ea8fe;
+}

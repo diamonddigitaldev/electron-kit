@@ -5,10 +5,17 @@
 // loadPreload() runs a preload file the way a sandboxed renderer would, with
 // Electron's require() allowlist and a stand-in for "electron", and returns
 // what it did: what it required, what it exposed, and what each exposed call
-// sends over IPC. The contract, window and accent helpers join it later.
+// sends over IPC.
+//
+// assertAccentContrast() checks an app's src/styles/accent.css: every pairing
+// of the accent with the kit's surfaces meets WCAG 2.2 AA in both themes
+// (accent.js, with the maths in contrast.js). The contract and window helpers
+// join them later.
 
 const fs = require("fs");
 const vm = require("vm");
+const accent = require("./accent");
+const contrast = require("./contrast");
 
 /** What a sandboxed preload may require. Anything else throws there. */
 const SANDBOX_MODULES = Object.freeze(["electron", "events", "timers", "url"]);
@@ -77,4 +84,4 @@ function loadPreload(file) {
     return { required, exposed, calls };
 }
 
-module.exports = { loadPreload, SANDBOX_MODULES };
+module.exports = { loadPreload, SANDBOX_MODULES, ...accent, ...contrast };
