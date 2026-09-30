@@ -332,6 +332,26 @@
         return { showView, showSettings, ready };
     }
 
+    // -- Checkboxes ------------------------------------------------------------
+    //
+    // A checkbox a person ticks has its tick drawn (kit.css, kit-tick-draw).
+    // The mark that asks for it is set on the change a person makes, and
+    // cleared once the tick is drawn: a box checked by the page, or shown again
+    // after being hidden, has its tick there already rather than drawn again.
+
+    /** Whether an element is one of Bootstrap's checkboxes, not a switch. */
+    const isCheckbox = (el) => el instanceof HTMLInputElement && el.type === "checkbox"
+        && el.classList.contains("form-check-input") && el.getAttribute("role") !== "switch";
+
+    document.addEventListener("change", (event) => {
+        if (!isCheckbox(event.target)) return;
+        if (event.target.checked) event.target.dataset.kitTick = "draw";
+        else delete event.target.dataset.kitTick;
+    }, true);
+    document.addEventListener("animationend", (event) => {
+        if (event.animationName === "kit-tick-draw" && isCheckbox(event.target)) delete event.target.dataset.kitTick;
+    }, true);
+
     window.kit = {
         ui: { mountShell },
         format: {},

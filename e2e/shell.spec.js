@@ -300,7 +300,7 @@ test("the Settings tabs sit on a thin line, with an accent bar that slides to th
     expect(widths.size).toBe(3);
 });
 
-test("a checkbox's tick springs in and a switch's knob slides across, in the accent, and both stop moving under reduced motion", async ({ demo }) => {
+test("a checkbox's tick is drawn when ticked and springs away when unticked, a switch's knob slides across, in the accent, and both stop moving under reduced motion", async ({ demo }) => {
     const main = await demo.mainWindow();
     await main.getByRole("button", { name: "Controls", exact: true }).click();
     const box = main.getByLabel("A checked box");
@@ -308,10 +308,15 @@ test("a checkbox's tick springs in and a switch's knob slides across, in the acc
 
     /** A pseudo-element's scale (the tick's) or x offset (the knob's), from its computed transform, once it has settled. */
     const drawn = (locator, pseudo) => locator.evaluate(async (el, pseudo) => {
-        // Until nothing is moving. A transition cut short (a press let go) rejects its finished, and starts another.
-        for (let running = el.getAnimations({ subtree: true }); running.length; running = el.getAnimations({ subtree: true })) {
+        // Until nothing is moving. A transition cut short (a press let go) rejects its finished, and starts
+        // another; a finished animation that fills forward stays listed, so only unfinished ones count, and
+        // a frame goes by between rounds so the page's own animationend handlers run.
+        const moving = () => el.getAnimations({ subtree: true }).filter((a) => a.playState !== "finished");
+        for (let running = moving(); running.length; running = moving()) {
             await Promise.all(running.map((a) => a.finished.catch(() => {})));
+            await new Promise(requestAnimationFrame);
         }
+        await new Promise(requestAnimationFrame);
         const m = new DOMMatrix(getComputedStyle(el, pseudo).transform);
         return { scale: Math.round(Math.hypot(m.a, m.b) * 100) / 100, x: Math.round(m.e * 10) / 10 };
     }, pseudo);
@@ -320,6 +325,7 @@ test("a checkbox's tick springs in and a switch's knob slides across, in the acc
     await main.locator("#controls-view").evaluate((view) => {
         window.transitionsRun = [];
         view.addEventListener("transitionrun", (event) => window.transitionsRun.push(`${event.target.id}${event.pseudoElement} ${event.propertyName}`));
+        view.addEventListener("animationstart", (event) => window.transitionsRun.push(`${event.target.id}${event.pseudoElement} ${event.animationName}`));
     });
     const started = () => main.evaluate(() => window.transitionsRun.splice(0));
     /** How long a pseudo-element's transitions last, in ms, as its computed style says. */
@@ -336,7 +342,30 @@ test("a checkbox's tick springs in and a switch's knob slides across, in the acc
     expect(await started(), "unchecking shrinks the tick away").toContain("sample-check::after transform");
     await box.check();
     expect((await drawn(box, "::after")).scale).toBe(1);
-    expect(await started(), "checking springs it in").toContain("sample-check::after transform");
+    const onCheck = await started();
+    expect(onCheck, "ticking draws the tick").toContain("sample-check::after kit-tick-draw");
+    expect(onCheck, "rather than springing it in").not.toContain("sample-check::after transform");
+    // Drawn once: the mark asking for it is gone, and showing the view again doesn't draw it again.
+    await expect(box).not.toHaveAttribute("data-kit-tick");
+    await main.getByRole("button", { name: "Overview", exact: true }).click();
+    await main.getByRole("button", { name: "Controls", exact: true }).click();
+    expect((await drawn(box, "::after")).scale).toBe(1);
+    expect(await started(), "shown again, the tick is simply there").toEqual([]);
+    // Checked by the page, not a person: there at once, not drawn.
+    await box.evaluate((el) => { el.checked = false; });
+    await drawn(box, "::after");
+    await started();
+    await box.evaluate((el) => { el.checked = true; });
+    expect((await drawn(box, "::after")).scale).toBe(1);
+    expect(await started()).not.toContain("sample-check::after kit-tick-draw");
+    // Ticked by keyboard, it's drawn too.
+    await box.uncheck();
+    await drawn(box, "::after");
+    await started();
+    await box.focus();
+    await main.keyboard.press("Space");
+    expect((await drawn(box, "::after")).scale).toBe(1);
+    expect(await started()).toContain("sample-check::after kit-tick-draw");
 
     const off = await drawn(toggle, "::before");
     await toggle.check();
