@@ -14,7 +14,18 @@ async function show(id, check) {
     }
 }
 
+/** Show the theme theme.js stamped on <html>, and each change to it. */
+function showTheme() {
+    const names = { dark: "Dark", light: "Light" };
+    const update = () => {
+        $("theme").textContent = names[document.documentElement.getAttribute("data-bs-theme")] ?? "Missing";
+    };
+    update();
+    new MutationObserver(update).observe(document.documentElement, { attributeFilter: ["data-bs-theme"] });
+}
+
 async function init() {
+    showTheme();
     await Promise.all([
         show("kit-api", async () => (window.kitAPI ? `App version ${await window.kitAPI.getVersion()}` : "Missing")),
         show("electron-api", async () => (window.electronAPI ? `Electron ${await window.electronAPI.getElectronVersion()}` : "Missing")),

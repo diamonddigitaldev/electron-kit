@@ -30,6 +30,7 @@ It's in early development and not published to npm yet.
 |---|---|
 | `@diamonddigitaldev/electron-kit/main` | `start()`, called once at the top of an app's `main.js` |
 | `@diamonddigitaldev/electron-kit/preload.js` | the shared bridge, `window.kitAPI`, registered on the app's session by `start()` |
+| `@diamonddigitaldev/electron-kit/page/theme.js` | the theme script, loaded in `<head>`: draws the page in the OS theme and follows it |
 | `@diamonddigitaldev/electron-kit/page/kit.js` | the page library, `window.kit`, loaded as a classic script |
 | `@diamonddigitaldev/electron-kit/css/kit.css` | the shared styles, linked after Bootstrap and before the app's `accent.css` |
 | `@diamonddigitaldev/electron-kit/testing` | helpers for an app's tests |
@@ -65,9 +66,44 @@ kit.ready.then(() => {
 <link rel="stylesheet" href="../node_modules/@diamonddigitaldev/electron-kit/css/kit.css">
 <link rel="stylesheet" href="styles/accent.css">
 <link rel="stylesheet" href="styles.css">
+<script src="../node_modules/@diamonddigitaldev/electron-kit/page/theme.js"></script>
 ...
 <script src="../node_modules/@diamonddigitaldev/electron-kit/page/kit.js"></script>
 ```
+
+### The Shared Channels
+
+| Channel | Kind | `window.kitAPI` |
+|---|---|---|
+| `app:get-version` | the page asks | `getVersion()`: the app's version |
+| `theme:changed` | the kit pushes | `onThemeChanged(callback)`: `"dark"` or `"light"` on each change of the OS theme; returns a function that stops listening |
+
+A pushed value reaches the callback on its own, never with the IPC event behind it.
+
+The kit's preload runs in every page of the app's session, so `window.kitAPI` is in any page a window of
+it shows: the app's own, but also a page a window is navigated to, or one it opens. So the kit answers the
+app's own page only: a `file://` page inside the app's code (`app.getAppPath()`, `app.asar` when packaged),
+in the app's default session. Every shared handler makes that check before it runs, and any other sender's
+call rejects:
+
+```
+Error invoking remote method 'app:get-version': Error: electron-kit answers "app:get-version" for the app's own page only.
+```
+
+### The Theme
+
+`theme.js` goes in `<head>`, after the stylesheets, as a plain script (not `async`, `defer` or a module).
+It stamps `data-bs-theme`, `"dark"` or `"light"`, on `<html>` from `prefers-color-scheme` before the body
+parses, so the first paint is already in the OS theme. Then it follows the OS theme two ways, and applies
+whichever change arrives first: the media query's change, and `start()`'s `theme:changed` push, which the
+main process sends every window from `nativeTheme`. The push is there because the media query's change
+doesn't always reach the page: on real Windows, an app once stayed dark after Windows switched to Light.
+The page needs no code of its own for either, and a window without `window.kitAPI` follows the media
+query alone.
+
+To test it, switch the theme as the OS does, with `nativeTheme.themeSource` set from the main process, or
+emulate the media query with `page.emulateMedia({ colorScheme })`. Playwright's `_electron.launch()` holds
+every page's `prefers-color-scheme` at light unless it's given `colorScheme: null`.
 
 ### The Accent
 

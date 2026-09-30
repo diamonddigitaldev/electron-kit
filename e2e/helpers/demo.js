@@ -13,7 +13,12 @@
 //   settings"), asking the network for a WPAD script;
 // - with --log-net-log, so that after the test the run's net log can show it
 //   looked up no name beyond this machine. The app's own requests are watched
-//   too: it may make none to any server.
+//   too: it may make none to any server;
+// - with Playwright's colour scheme left alone (colorScheme: null). Otherwise
+//   it pins every page's prefers-color-scheme to light, so the page would never
+//   see the OS theme change. A test switches the theme as the OS does
+//   (setOsTheme(), nativeTheme from main) or emulates the media query itself
+//   (page.emulateMedia({ colorScheme })).
 //
 // KIT_DEMO_EXECUTABLE runs a packaged build of the demo instead (the path to
 // its executable), so the same tests check the packaged app.
@@ -40,6 +45,18 @@ const toServer = (url) => /^(https?|wss?):$/.test(new URL(url).protocol);
 
 /** A page is ready once it has shown every check: body[data-ready]. */
 const ready = (page) => expect(page.locator("body[data-ready=true]")).toBeAttached({ timeout: 15_000 });
+
+/**
+ * Wait until a page is drawn in a theme: the kit's theme.js has stamped it on
+ * <html>, and the transitions the switch started have finished.
+ * @param {import("@playwright/test").Page} page
+ * @param {"dark" | "light"} theme
+ */
+async function showsTheme(page, theme) {
+    await expect(page.locator("html")).toHaveAttribute("data-bs-theme", theme);
+    // getAnimations() brings the page's styles up to date first, so it sees the transitions the switch started.
+    await page.evaluate(() => Promise.all(document.getAnimations().filter((a) => a instanceof CSSTransition).map((a) => a.finished)));
+}
 
 /** One run of the demo. */
 class Demo {
@@ -99,6 +116,40 @@ class Demo {
             process: typeof window.process,
         }));
     }
+
+    /**
+     * Switch the theme as the OS would, from the main process
+     * (nativeTheme.themeSource): "dark", "light", or "system" to follow the OS again.
+     */
+    setOsTheme(theme) {
+        return this.app.evaluate(({ nativeTheme }, theme) => {
+            nativeTheme.themeSource = theme;
+        }, theme);
+    }
+
+    /** Switch the OS theme, and wait until a page is drawn in it. */
+    async useTheme(page, theme) {
+        await this.setOsTheme(theme);
+        await showsTheme(page, theme);
+    }
+
+    /**
+     * Open a window in the app's default session, with the house's secure web
+     * preferences but none of the demo's own, showing a URL that isn't one of
+     * the demo's pages. The kit's session preload still runs there.
+     * @param {string} url
+     */
+    async openWindowAt(url) {
+        const [page] = await Promise.all([
+            this.app.waitForEvent("window"),
+            this.app.evaluate(({ BrowserWindow }, url) => {
+                const win = new BrowserWindow({ show: false, webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false } });
+                win.loadURL(url);
+            }, url),
+        ]);
+        await page.waitForLoadState();
+        return page;
+    }
 }
 
 const test = base.extend({
@@ -109,9 +160,11 @@ const test = base.extend({
         const env = { ...process.env };
         delete env.ELECTRON_RUN_AS_NODE;
 
-        const app = await electron.launch(PACKAGED
-            ? { executablePath: PACKAGED, args: switches, env }
-            : { executablePath: electronPath(), args: [...switches, DEMO_DIR], env });
+        const app = await electron.launch({
+            ...(PACKAGED ? { executablePath: PACKAGED, args: switches } : { executablePath: electronPath(), args: [...switches, DEMO_DIR] }),
+            env,
+            colorScheme: null,
+        });
         const toServers = [];
         app.context().on("request", (request) => {
             if (toServer(request.url())) toServers.push(request.url());
@@ -137,4 +190,4 @@ const test = base.extend({
     },
 });
 
-module.exports = { test, expect };
+module.exports = { test, expect, showsTheme };

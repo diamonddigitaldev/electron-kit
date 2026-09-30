@@ -2,22 +2,27 @@
 
 // The shared preload's contract: it's self-contained (it requires "electron"
 // and nothing else, so it runs sandboxed), it exposes exactly one bridge,
-// window.kitAPI, with the shape below, and every channel it calls is one of the
-// kit's own, namespaced and unique.
+// window.kitAPI, with the shape below, and every channel it uses is one of the
+// kit's own, namespaced and unique: it invokes only channels the kit answers,
+// and listens only on ones the kit pushes.
 
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const fs = require("fs");
 const path = require("path");
 const { loadPreload } = require("../testing");
-const { CHANNELS } = require("../main/channels");
+const { CHANNELS, INVOKE, PUSH } = require("../main/channels");
 
 const PRELOAD = path.join(__dirname, "..", "preload.js");
 
-/** The bridge's shape: each method, and the channel it invokes. */
+/** The bridge's shape: each method, and the channel it invokes or listens on. */
 const BRIDGE = {
-    getVersion: CHANNELS.APP_GET_VERSION,
+    getVersion: { invoke: INVOKE.APP_GET_VERSION },
+    onThemeChanged: { on: PUSH.THEME_CHANGED },
 };
+
+/** The bridge's methods that invoke ("invoke") or listen ("on"), as [name, channel]. */
+const methodsThat = (use) => Object.entries(BRIDGE).filter(([, uses]) => use in uses).map(([name, uses]) => [name, uses[use]]);
 
 /** The CH block inlined in the preload, as { KEY: "channel" }. */
 function inlinedChannels(source) {
@@ -49,12 +54,39 @@ test("kitAPI has exactly the shared bridge's methods", () => {
     }
 });
 
-test("each kitAPI method invokes its shared channel, and nothing else", async () => {
-    for (const [name, channel] of Object.entries(BRIDGE)) {
+test("each kitAPI method that asks invokes its shared channel, and nothing else", async () => {
+    for (const [name, channel] of methodsThat("invoke")) {
         const { exposed, calls } = loadPreload(PRELOAD);
         await exposed.kitAPI[name]();
         assert.deepEqual(calls, [{ method: "invoke", channel, args: [] }], `kitAPI.${name}()`);
     }
+});
+
+test("each kitAPI method that listens hands its callback the payload alone, and can stop", () => {
+    for (const [name, channel] of methodsThat("on")) {
+        const { exposed, calls } = loadPreload(PRELOAD);
+        const received = [];
+        const stop = exposed.kitAPI[name]((...args) => received.push(args));
+
+        assert.equal(calls.length, 1, `kitAPI.${name}() listens once`);
+        const [{ method, channel: on, args: [listener] }] = calls;
+        assert.deepEqual({ method, on }, { method: "on", on: channel }, `kitAPI.${name}()`);
+        // Electron calls the listener with the IPC event first, which the page must never get.
+        listener({ sender: "ipcRenderer itself", ports: [] }, "dark", "a second argument");
+        assert.deepEqual(received, [["dark"]], `kitAPI.${name}()'s callback`);
+
+        assert.equal(typeof stop, "function", `kitAPI.${name}() returns a function that stops listening`);
+        stop();
+        assert.deepEqual(calls[1], { method: "removeListener", channel, args: [listener] }, `kitAPI.${name}()'s stop`);
+    }
+});
+
+test("the bridge invokes only channels the kit answers, listens only on ones it pushes, and uses them all", () => {
+    const invoked = methodsThat("invoke").map(([, channel]) => channel);
+    const listened = methodsThat("on").map(([, channel]) => channel);
+    assert.deepEqual(invoked.filter((channel) => !Object.values(INVOKE).includes(channel)), []);
+    assert.deepEqual(listened.filter((channel) => !Object.values(PUSH).includes(channel)), []);
+    assert.deepEqual([...invoked, ...listened].sort(), Object.values(CHANNELS).sort());
 });
 
 test("the preload's inlined channels match main/channels.js", () => {

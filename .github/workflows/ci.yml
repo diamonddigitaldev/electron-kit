@@ -163,7 +163,7 @@ jobs:
           ls -l dist
           ls dist/*.${{ runner.os == 'Windows' && 'exe' || 'AppImage' }} > /dev/null
           list=$(npx --no-install asar list dist/*-unpacked/resources/app.asar | sed 's#\\#/#g')
-          for file in package.json main/index.js main/channels.js preload.js css/kit.css page/kit.js; do
+          for file in package.json main/index.js main/channels.js main/ipc.js main/theme.js preload.js css/kit.css page/theme.js page/kit.js; do
             if ! printf '%s\n' "$list" | grep -x "/node_modules/@diamonddigitaldev/electron-kit/$file" > /dev/null; then
               echo "::error::app.asar doesn't carry the kit's $file."
               exit 1

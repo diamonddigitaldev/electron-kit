@@ -18,8 +18,22 @@ const { contextBridge, ipcRenderer } = require("electron");
 
 const CH = {
     APP_GET_VERSION: "app:get-version",
+    THEME_CHANGED: "theme:changed",
 };
+
+/**
+ * Listen on a channel the kit pushes. The callback gets the payload alone,
+ * never the IPC event, which would hand the page ipcRenderer itself. Returns a
+ * function that stops listening.
+ */
+function on(channel, callback) {
+    const listener = (_event, payload) => callback(payload);
+    ipcRenderer.on(channel, listener);
+    return () => ipcRenderer.removeListener(channel, listener);
+}
 
 contextBridge.exposeInMainWorld("kitAPI", {
     getVersion: () => ipcRenderer.invoke(CH.APP_GET_VERSION),
+    // "dark" or "light", on each change of the OS theme. page/theme.js applies it.
+    onThemeChanged: (callback) => on(CH.THEME_CHANGED, callback),
 });

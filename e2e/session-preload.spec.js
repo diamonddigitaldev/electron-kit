@@ -8,7 +8,7 @@
 //    the kit's session preload and window.electronAPI from its own preload;
 // 2. both bridges answer an invoke round trip;
 // 3. a window in a partition of its own gets no kitAPI;
-// and that the page loads the kit's CSS and page script from node_modules.
+// and that the page loads the kit's CSS and page scripts from node_modules.
 // With KIT_DEMO_EXECUTABLE set, they check a packaged build, where the kit's
 // files must come from inside app.asar.
 
@@ -82,20 +82,25 @@ test("a window in a partition of its own gets its own preload's bridge and no ki
     expect(await demo.bridgesOf(main)).toMatchObject({ kitAPI: "object", electronAPI: "object" });
 });
 
-test("the page loads the kit's CSS and page script from node_modules", async ({ demo }) => {
+test("the page loads the kit's CSS and page scripts from node_modules", async ({ demo }) => {
     const main = await demo.mainWindow();
     const loaded = await main.evaluate(() => ({
         css: document.querySelector('link[href*="electron-kit"]').href,
         // A token only kit.css sets.
         cssApplied: getComputedStyle(document.documentElement).getPropertyValue("--radius-card").trim(),
-        script: document.querySelector('script[src*="electron-kit"]').src,
+        scripts: [...document.querySelectorAll('script[src*="electron-kit"]')].map((script) => script.src),
         kit: typeof window.kit,
+        theme: document.documentElement.getAttribute("data-bs-theme"),
     }));
 
     expect(decodeURIComponent(loaded.css)).toMatch(kitFile(demo.packaged, "css/kit.css"));
     expect(loaded.cssApplied).toBe("8px");
-    expect(decodeURIComponent(loaded.script)).toMatch(kitFile(demo.packaged, "page/kit.js"));
+    const [theme, kit] = loaded.scripts.map(decodeURIComponent);
+    expect(loaded.scripts).toHaveLength(2);
+    expect(theme).toMatch(kitFile(demo.packaged, "page/theme.js"));
+    expect(kit).toMatch(kitFile(demo.packaged, "page/kit.js"));
     expect(loaded.kit).toBe("object");
+    expect(loaded.theme).toMatch(/^(dark|light)$/);
     await expect(main.locator("#kit-css")).toHaveText("Loaded");
     await expect(main.locator("#kit-js")).toHaveText("Loaded");
 });

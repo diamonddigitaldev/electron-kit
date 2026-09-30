@@ -6,13 +6,17 @@
 //     kit.ready.then(createWindow);
 //
 // For now start() wires the shared preload (it registers preload.js on the
-// app's default session and answers the channels it calls), and stops the spell
-// checker's dictionary download. The rest of start() (logging, single instance,
-// settings, windows, theme, menu, updater) arrives piece by piece.
+// app's default session, the UI session, and answers the channels it calls, for
+// the app's own page only), pushes each change of the OS theme to every window,
+// and stops the spell checker's dictionary download. The rest of start()
+// (logging, single instance, settings, windows, menu, updater) arrives piece by
+// piece.
 
 const path = require("path");
-const { app, ipcMain, session } = require("electron");
-const { CHANNELS } = require("./channels");
+const { app, session } = require("electron");
+const { CHANNELS, INVOKE } = require("./channels");
+const ipc = require("./ipc");
+const theme = require("./theme");
 
 /** The shared preload, which kit.start() registers on the app's session. */
 const PRELOAD_PATH = path.join(__dirname, "..", "preload.js");
@@ -44,7 +48,7 @@ function start() {
     if (started) throw new Error("kit.start() was called twice.");
     started = true;
 
-    ipcMain.handle(CHANNELS.APP_GET_VERSION, () => app.getVersion());
+    ipc.handle(INVOKE.APP_GET_VERSION, () => app.getVersion());
 
     // On Linux, Electron's spell checker downloads its dictionaries from
     // Google's servers as each session starts, which tells them the user's
@@ -55,6 +59,7 @@ function start() {
 
     const ready = app.whenReady().then(() => {
         registerPreload(session.defaultSession);
+        theme.followTheme();
     });
     return { ready };
 }
