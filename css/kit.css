@@ -6,11 +6,158 @@
 
        <link rel="stylesheet" href="../node_modules/@diamonddigitaldev/electron-kit/css/kit.css">
 
-   The token layer (everything but the accent), the Bootstrap bridge, reduced
-   motion and each shared component's styles arrive here piece by piece. Until
-   then it holds one marker, which the kit's tests read to see it loaded.
+   It holds the house tokens, the Bootstrap bridge that binds the accent into
+   Bootstrap's primary, and reduced motion. Each shared component's styles join
+   it as the component does.
+
+   House rule: the accent is the only per-app difference. Everything here is
+   shared; each app's src/styles/accent.css sets the accent's eight values, and
+   this file reads nothing else of the app's:
+
+       --accent              the fill: primary buttons, progress, checked boxes
+       --accent-hover        the fill, hovered or pressed
+       --accent-rgb          --accent as r, g, b, for the washes
+       --accent-contrast     text and icons on the fill
+       --accent-text-light   accent text, and links on hover, in each theme
+       --accent-text-dark
+       --accent-link-light   links, in each theme
+       --accent-link-dark
+
+   Each pairing of those with the surfaces below meets WCAG 2.2 AA in both
+   themes: electron-kit/testing's assertAccentContrast() checks an app's file.
    ========================================================================== */
 
 :root {
-    --kit-css: 1;
+    /* -- Motion ------------------------------------------------------------
+       Micro is for hover and press on small controls, state for surfaces that
+       change meaning, default for everything else, enter for page load, and
+       ambient for pulses. Reduced motion, at the end, takes them to zero. */
+    --dur-micro:   120ms;
+    --dur-state:   0.2s;
+    --dur-default: 0.3s;
+    --dur-enter:   0.4s;
+    --dur-ambient: 2s;
+
+    --ease-micro:    ease;
+    --ease-state:    ease-in-out;
+    --ease-standard: cubic-bezier(0.4, 0, 0.2, 1);
+
+    /* -- Wash ladder ---------------------------------------------------------
+       Alphas for rgba(var(--accent-rgb), ...). Interaction: idle-hover fill,
+       active fill, hover border, active border. Semantic: the fill and border
+       of a tinted strip, such as a selection bar. */
+    --wash-hover-fill:    0.04;
+    --wash-active-fill:   0.06;
+    --wash-hover-border:  0.5;
+    --wash-active-border: 1;
+    --wash-semantic-fill:   0.1;
+    --wash-semantic-border: 0.3;
+
+    /* -- Radii -------------------------------------------------------------- */
+    --radius-control: 5px;
+    --radius-card:    8px;
+    --radius-zone:    12px;
+    --radius-pill:    50rem;
+
+    /* -- Opacity ------------------------------------------------------------ */
+    --opacity-disabled: 0.5;
+    --opacity-muted:    0.75;
+
+    /* -- Timings the JS side shares ----------------------------------------- */
+    --timing-debounce:       500ms;
+    --timing-progress-reset: 3000ms;
+    --timing-toast:          4500ms;
+
+    /* -- Scrollbar ---------------------------------------------------------- */
+    --scrollbar-width:       6px;
+    --scrollbar-thumb:       rgba(128, 128, 128, 0.3);
+    --scrollbar-thumb-hover: rgba(128, 128, 128, 0.5);
+}
+
+/* The accent's text and link shades for the theme in force. accent.css gives
+   each once per theme; the kit's styles read var(--accent-text) and
+   var(--accent-link). The bare :root is the light theme, as Bootstrap's is,
+   and a [data-bs-theme] on any element switches what's inside it. */
+:root,
+[data-bs-theme="light"] {
+    --accent-text: var(--accent-text-light);
+    --accent-link: var(--accent-link-light);
+}
+
+[data-bs-theme="dark"] {
+    --accent-text: var(--accent-text-dark);
+    --accent-link: var(--accent-link-dark);
+}
+
+/* -- The Bootstrap bridge ---------------------------------------------------
+   Bind the accent into Bootstrap's primary in both themes. Listing the bare
+   :root alongside both explicit themes covers a page with no data-bs-theme at
+   all. */
+:root,
+[data-bs-theme="light"],
+[data-bs-theme="dark"] {
+    --bs-primary:              var(--accent);
+    --bs-primary-rgb:          var(--accent-rgb);
+    --bs-link-color:           var(--accent-link);
+    --bs-link-hover-color:     var(--accent-text);
+    --bs-link-color-rgb:       var(--accent-rgb);
+    --bs-link-hover-color-rgb: var(--accent-rgb);
+    --bs-focus-ring-color:     rgba(var(--accent-rgb), 0.25);
+}
+
+/* Bootstrap colours a link from --bs-link-color-rgb, a triplet, so that
+   --bs-link-opacity can fade it. The accent's link shades are colours, not
+   triplets (a triplet each would double them), so links take them directly:
+   the fill's triplet above would fail AA as text in one theme or the other. */
+a {
+    color: var(--bs-link-color);
+}
+
+a:hover {
+    color: var(--bs-link-hover-color);
+}
+
+/* Bootstrap's progress bar sets --bs-progress-bar-bg to a literal #0d6efd
+   rather than to var(--bs-primary), so the accent is applied directly. A
+   label inside the bar sits on the fill. */
+.progress,
+.progress-stacked {
+    --bs-progress-bar-bg:    var(--accent);
+    --bs-progress-bar-color: var(--accent-contrast);
+}
+
+/* Bootstrap derives .btn-primary from literals of its own, not from
+   --bs-primary, so the button needs the accent applied directly: every colour
+   Bootstrap's .btn-primary sets. */
+.btn-primary {
+    --bs-btn-color:                 var(--accent-contrast);
+    --bs-btn-bg:                    var(--accent);
+    --bs-btn-border-color:          var(--accent);
+    --bs-btn-hover-color:           var(--accent-contrast);
+    --bs-btn-hover-bg:              var(--accent-hover);
+    --bs-btn-hover-border-color:    var(--accent-hover);
+    --bs-btn-focus-shadow-rgb:      var(--accent-rgb);
+    --bs-btn-active-color:          var(--accent-contrast);
+    --bs-btn-active-bg:             var(--accent-hover);
+    --bs-btn-active-border-color:   var(--accent-hover);
+    --bs-btn-disabled-color:        var(--accent-contrast);
+    --bs-btn-disabled-bg:           var(--accent);
+    --bs-btn-disabled-border-color: var(--accent);
+}
+
+/* -- Reduced motion ---------------------------------------------------------
+   When the system asks for less motion, everything timed by the --dur-*
+   tokens finishes at once: near zero rather than zero, so transitionend and
+   animationend still fire for code waiting on them. Ambient motion (a pulse,
+   which repeats forever) stops instead: at a near-zero duration it would
+   flicker, and a 0s animation isn't drawn at all. Bootstrap's own components
+   have reduced-motion rules of their own. */
+@media (prefers-reduced-motion: reduce) {
+    :root {
+        --dur-micro:   0.01ms;
+        --dur-state:   0.01ms;
+        --dur-default: 0.01ms;
+        --dur-enter:   0.01ms;
+        --dur-ambient: 0s;
+    }
 }

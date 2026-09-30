@@ -69,6 +69,53 @@ kit.ready.then(() => {
 <script src="../node_modules/@diamonddigitaldev/electron-kit/page/kit.js"></script>
 ```
 
+### The Accent
+
+The accent is the only thing that differs between the apps. Each app's `src/styles/accent.css` sets its
+eight values in one `:root` block, and `kit.css` reads nothing else of the app's:
+
+```css
+:root {
+    --accent:            #0d6efd;      /* the fill: primary buttons, progress, checked boxes */
+    --accent-hover:      #0b5ed7;      /* the fill, hovered or pressed */
+    --accent-rgb:        13, 110, 253; /* --accent as r, g, b, for the washes */
+    --accent-contrast:   #fff;         /* text and icons on the fill */
+    --accent-text-light: #0a58ca;      /* accent text, and links on hover, in each theme */
+    --accent-text-dark:  #8bb9fe;
+    --accent-link-light: #0d6efd;      /* links, in each theme */
+    --accent-link-dark:  #6ea8fe;
+}
+```
+
+`kit.css` gives the theme's pair as `var(--accent-text)` and `var(--accent-link)`, so an app never writes
+theme selectors. Every pairing meets WCAG 2.2 AA in both themes (4.5:1 for text, 3:1 for the parts of a
+control) on Bootstrap's page and nav rail surfaces, including the rail's active item under its accent
+wash. An app's tests check its own file:
+
+```js
+const { assertAccentContrast } = require("@diamonddigitaldev/electron-kit/testing");
+
+test("the accent meets WCAG 2.2 AA in both themes", () => {
+    assertAccentContrast("src/styles/accent.css");
+});
+```
+
+A failure names each pairing under AA and its ratio. For a new accent, the shades that pass follow
+Bootstrap's own link rules: the brand colour as the light link if it passes on white, or else the least
+shade of it that does; the light text shade 20% darker; the dark link the brand tinted 40%; the dark text
+shade 20% lighter again. White on the fill needs 4.5:1, so the hover goes darker, not lighter.
+
+### Tokens
+
+`kit.css` holds the house tokens: motion (`--dur-micro`, `--dur-state`, `--dur-default`, `--dur-enter`,
+`--dur-ambient` and the `--ease-*` curves), the wash ladder (`--wash-*`, alphas for
+`rgba(var(--accent-rgb), …)`), radii (`--radius-*`), opacity (`--opacity-disabled`, `--opacity-muted`), the
+timings the JS side shares (`--timing-*`) and the scrollbar. It binds the accent into Bootstrap's primary
+(`--bs-primary`, `.btn-primary`, links and `.progress`).
+
+Under `prefers-reduced-motion: reduce`, the `--dur-*` tokens go to 0.01ms, so anything timed by them
+finishes at once, and `--dur-ambient` goes to 0s, which stops a pulse rather than making it flicker.
+
 ## Development
 
 Node.js 24 or newer.
@@ -76,7 +123,7 @@ Node.js 24 or newer.
 ```bash
 npm install
 npm test            # unit and contract tests (node --test)
-npm run test:e2e    # real-Electron tests: Playwright drives demo/
+npm run test:e2e    # real-Electron tests and axe: Playwright drives demo/
 npm run demo        # launch the demo app
 ```
 

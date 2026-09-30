@@ -1,0 +1,13 @@
+/* Diamond File Converter's accent: its green, shaded 20% so that white text on
+   it passes AA (4.64:1; #28a745 gave 3.13:1), with a darker hover. */
+
+:root {
+    --accent:            #208637;
+    --accent-hover:      #1b722f;
+    --accent-rgb:        32, 134, 55;
+    --accent-contrast:   #fff;
+    --accent-text-light: #1a6b2c;
+    --accent-text-dark:  #98d5a5;
+    --accent-link-light: #208637;
+    --accent-link-dark:  #7eca8f;
+}

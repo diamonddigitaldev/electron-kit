@@ -1,0 +1,13 @@
+/* Diamond Media Player's accent: its purple, with a darker hover so that white
+   text still passes on it, and a tinted shade for text in the dark theme. */
+
+:root {
+    --accent:            #9740fb;
+    --accent-hover:      #8036d5;
+    --accent-rgb:        151, 64, 251;
+    --accent-contrast:   #fff;
+    --accent-text-light: #7933c9;
+    --accent-text-dark:  #cda3fd;
+    --accent-link-light: #9740fb;
+    --accent-link-dark:  #c18cfd;
+}

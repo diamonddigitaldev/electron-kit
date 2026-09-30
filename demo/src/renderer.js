@@ -20,7 +20,8 @@ async function init() {
         show("electron-api", async () => (window.electronAPI ? `Electron ${await window.electronAPI.getElectronVersion()}` : "Missing")),
         show("sandboxed", () => (window.electronAPI?.sandboxed ? "Yes" : "No")),
         show("kit-js", () => (window.kit ? "Loaded" : "Missing")),
-        show("kit-css", () => (getComputedStyle(document.documentElement).getPropertyValue("--kit-css").trim() === "1" ? "Loaded" : "Missing")),
+        // A token only kit.css sets.
+        show("kit-css", () => (getComputedStyle(document.documentElement).getPropertyValue("--radius-card").trim() === "8px" ? "Loaded" : "Missing")),
     ]);
 
     $("open-isolated").addEventListener("click", () => window.electronAPI.openIsolatedWindow());

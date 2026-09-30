@@ -1,0 +1,24 @@
+/* The demo's own styles: what an app on the kit writes for itself, from the
+   kit's tokens and its own accent. Linked after accent.css. */
+
+.accent-text {
+    color: var(--accent-text);
+    transition: color var(--dur-micro) var(--ease-micro);
+}
+
+/* A running dot, as the apps show beside work in progress. Under reduced
+   motion --dur-ambient is 0s, which stops it. */
+.pulse-dot {
+    display: inline-block;
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background-color: var(--accent);
+    animation: pulse-dot var(--dur-ambient) infinite var(--ease-state);
+}
+
+@keyframes pulse-dot {
+    0%   { opacity: 0.75; }
+    50%  { opacity: 0.4; }
+    100% { opacity: 0.75; }
+}
