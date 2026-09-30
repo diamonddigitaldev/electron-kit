@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">
+    <!-- The demo's logo: a diamond, in Bootstrap blue. -->
+    <path d="M12 2 22 12 12 22 2 12Z" fill="#0d6efd"/>
+    <path d="M12 6 18 12 12 18 6 12Z" fill="#fff" opacity=".35"/>
+</svg>

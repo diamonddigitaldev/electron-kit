@@ -18,7 +18,12 @@ const PRELOAD = path.join(__dirname, "..", "preload.js");
 /** The bridge's shape: each method, and the channel it invokes or listens on. */
 const BRIDGE = {
     getVersion: { invoke: INVOKE.APP_GET_VERSION },
+    getInfo: { invoke: INVOKE.APP_GET_INFO },
+    getSettings: { invoke: INVOKE.SETTINGS_GET },
+    setSettings: { invoke: INVOKE.SETTINGS_SET, args: [{ navCollapsed: true }] },
+    openExternal: { invoke: INVOKE.SHELL_OPEN_EXTERNAL, args: ["https://example.com/"] },
     onThemeChanged: { on: PUSH.THEME_CHANGED },
+    onShowView: { on: PUSH.VIEW_SHOW },
 };
 
 /** The bridge's methods that invoke ("invoke") or listen ("on"), as [name, channel]. */
@@ -54,11 +59,13 @@ test("kitAPI has exactly the shared bridge's methods", () => {
     }
 });
 
-test("each kitAPI method that asks invokes its shared channel, and nothing else", async () => {
+test("each kitAPI method that asks invokes its shared channel with what it was given, and nothing else", async () => {
     for (const [name, channel] of methodsThat("invoke")) {
         const { exposed, calls } = loadPreload(PRELOAD);
-        await exposed.kitAPI[name]();
-        assert.deepEqual(calls, [{ method: "invoke", channel, args: [] }], `kitAPI.${name}()`);
+        const args = BRIDGE[name].args ?? [];
+        // Anything beyond what the method takes goes nowhere.
+        await exposed.kitAPI[name](...args, "an extra argument");
+        assert.deepEqual(calls, [{ method: "invoke", channel, args }], `kitAPI.${name}()`);
     }
 });
 

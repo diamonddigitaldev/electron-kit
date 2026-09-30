@@ -18,7 +18,12 @@ const { contextBridge, ipcRenderer } = require("electron");
 
 const CH = {
     APP_GET_VERSION: "app:get-version",
+    APP_GET_INFO: "app:get-info",
+    SETTINGS_GET: "settings:get",
+    SETTINGS_SET: "settings:set",
+    SHELL_OPEN_EXTERNAL: "shell:open-external",
     THEME_CHANGED: "theme:changed",
+    VIEW_SHOW: "view:show",
 };
 
 /**
@@ -34,6 +39,16 @@ function on(channel, callback) {
 
 contextBridge.exposeInMainWorld("kitAPI", {
     getVersion: () => ipcRenderer.invoke(CH.APP_GET_VERSION),
+    // { name, version, repository, credits: { lines, donate } }: the Credits tab.
+    getInfo: () => ipcRenderer.invoke(CH.APP_GET_INFO),
+    // Every setting, the app's and the kit's, merged over their defaults.
+    getSettings: () => ipcRenderer.invoke(CH.SETTINGS_GET),
+    // Change some settings ({ navCollapsed: true }); resolves with every setting.
+    setSettings: (changes) => ipcRenderer.invoke(CH.SETTINGS_SET, changes),
+    // Open an http(s) link in the person's browser. Anything else is refused.
+    openExternal: (url) => ipcRenderer.invoke(CH.SHELL_OPEN_EXTERNAL, url),
     // "dark" or "light", on each change of the OS theme. page/theme.js applies it.
     onThemeChanged: (callback) => on(CH.THEME_CHANGED, callback),
+    // { view, tab? }, when the menu asks for a view (Settings, CmdOrCtrl+,). mountShell() shows it.
+    onShowView: (callback) => on(CH.VIEW_SHOW, callback),
 });

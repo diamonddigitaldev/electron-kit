@@ -7,8 +7,10 @@
        <link rel="stylesheet" href="../node_modules/@diamonddigitaldev/electron-kit/css/kit.css">
 
    It holds the house tokens, the Bootstrap bridge that binds the accent into
-   Bootstrap's primary, and reduced motion. Each shared component's styles join
-   it as the component does.
+   Bootstrap's primary and its form controls, focus rings, the shell (the nav
+   rail, the header and the Settings view, which kit.ui.mountShell() builds),
+   and reduced motion. Each shared component's styles join it as the
+   component does.
 
    House rule: the accent is the only per-app difference. Everything here is
    shared; each app's src/styles/accent.css sets the accent's eight values, and
@@ -67,6 +69,11 @@
     --timing-debounce:       500ms;
     --timing-progress-reset: 3000ms;
     --timing-toast:          4500ms;
+
+    /* -- Focus ring ---------------------------------------------------------
+       Drawn in the accent's text shade (the focus rings, below). */
+    --focus-ring-width:  2px;
+    --focus-ring-offset: 2px;
 
     /* -- Scrollbar ---------------------------------------------------------- */
     --scrollbar-width:       6px;
@@ -143,6 +150,310 @@ a:hover {
     --bs-btn-disabled-color:        var(--accent-contrast);
     --bs-btn-disabled-bg:           var(--accent);
     --bs-btn-disabled-border-color: var(--accent);
+}
+
+/* Bootstrap's form controls take their checked fill and focus colour from
+   literals of its own (#0d6efd, #86b7fe), not --bs-primary, so the accent is
+   applied directly. A checked box or switch is the fill, which meets 3:1 on
+   the page. */
+.form-check-input:checked,
+.form-check-input[type="checkbox"]:indeterminate {
+    background-color: var(--accent);
+    border-color: var(--accent);
+}
+
+/* An unchecked box or switch is drawn by its border, and a switch by its knob
+   too. Bootstrap's --bs-border-color border is 1.3:1 on the light page and
+   its knob 1.8:1, under the 3:1 a control's outline needs, so both take the
+   secondary text colour (over 4.5:1 in both themes). Bootstrap swaps the knob
+   for a blue one on focus; the focus ring below does that job instead. */
+.form-check-input {
+    border-color: var(--bs-secondary-color);
+}
+
+.form-switch .form-check-input:not(:checked),
+.form-switch .form-check-input:not(:checked):focus {
+    --bs-form-switch-bg: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='-4 -4 8 8'%3e%3ccircle r='3' fill='rgba%2833, 37, 41, 0.75%29'/%3e%3c/svg%3e");
+}
+
+[data-bs-theme="dark"] .form-switch .form-check-input:not(:checked),
+[data-bs-theme="dark"] .form-switch .form-check-input:not(:checked):focus {
+    --bs-form-switch-bg: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='-4 -4 8 8'%3e%3ccircle r='3' fill='rgba%28222, 226, 230, 0.75%29'/%3e%3c/svg%3e");
+}
+
+/* -- Focus rings --------------------------------------------------------------
+   Bootstrap draws focus as a soft glow: a quarter-opaque ring, well under the
+   3:1 a focus indicator needs against what's around it. The kit draws a solid
+   ring in the accent's text shade instead, which is over 4.5:1 on the page and
+   on the rail in both themes (assertAccentContrast() checks it). Keyboard
+   focus only (:focus-visible), except in a text field or a select, which show
+   where typing goes however they were focused. */
+.btn {
+    --bs-btn-focus-box-shadow: none;
+}
+
+:focus-visible,
+.btn:focus-visible,
+.nav-link:focus-visible,
+.form-check-input:focus-visible,
+.form-range:focus-visible {
+    outline: var(--focus-ring-width) solid var(--accent-text);
+    outline-offset: var(--focus-ring-offset);
+    box-shadow: none;
+}
+
+.form-check-input:focus {
+    border-color: var(--bs-secondary-color);
+    box-shadow: none;
+}
+
+.form-check-input:checked:focus {
+    border-color: var(--accent);
+}
+
+.form-control:focus,
+.form-select:focus {
+    border-color: var(--accent-text);
+    outline: var(--focus-ring-width) solid var(--accent-text);
+    outline-offset: 0;
+    box-shadow: none;
+}
+
+/* -- App frame -----------------------------------------------------------------
+   kit.ui.mountShell() builds it:
+
+       .app-frame                    flex row, the whole window
+       ├── nav#nav-rail.nav-rail     the app's sections, then Settings, then Collapse
+       └── .app-shell[data-view]     the column: the header, then main.app-content,
+                                     holding each view
+
+   The rail sits outside the padded column so it reaches the window's edge. */
+.app-frame {
+    display: flex;
+    height: 100vh;
+    overflow: hidden;
+}
+
+.app-shell {
+    display: flex;
+    flex-direction: column;
+    flex: 1 1 auto;
+    height: 100%;
+    /* Without this a long filename stretches the column and the whole window
+       scrolls sideways. */
+    min-width: 0;
+    padding: 1rem 1.25rem;
+    gap: 0.75rem;
+}
+
+.app-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+}
+
+.app-title {
+    margin: 0;
+    font-size: 1.25rem;
+    font-weight: 600;
+}
+
+/* The views, one showing at a time, under the header. A view taller than
+   the window scrolls here, rather than being cut off by the frame. The inset
+   (padding, taken back by the margin) keeps focus rings at its edges from
+   being clipped by the scrolling. */
+.app-content {
+    display: flex;
+    flex-direction: column;
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    padding: 4px;
+    margin: -4px;
+}
+
+/* A view that isn't showing. !important, so it never competes with the
+   app's own d-none inside a view, and each view keeps its state while hidden. */
+.kit-view-hidden {
+    display: none !important;
+}
+
+/* -- Nav rail --------------------------------------------------------------- */
+
+.nav-rail {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    flex-shrink: 0;
+    width: 168px;
+    padding: 1rem 0.5rem;
+    background-color: var(--bs-tertiary-bg);
+    border-right: 1px solid var(--bs-border-color);
+    transition: width var(--dur-state) var(--ease-state);
+}
+
+.nav-rail.collapsed {
+    width: 56px;
+}
+
+.nav-rail .nav-item,
+.nav-rail .nav-collapse {
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    width: 100%;
+    padding: 0.5rem 0.6rem;
+    border: 1px solid transparent;
+    border-radius: var(--radius-control);
+    background: none;
+    color: var(--bs-body-color);
+    font-size: 0.9rem;
+    /* The label's line box sets the item's height, and Bootstrap's 1.5 makes
+       it 21.6px against a 20px icon. Collapsing takes the label out of the
+       flow, so the item would shrink by 1.6px and every icon below it creep
+       up. Pinning the line box to the icon's height keeps both states alike. */
+    line-height: 20px;
+    text-align: left;
+    white-space: nowrap;
+    overflow: hidden;
+    cursor: pointer;
+    transition: background-color var(--dur-state) var(--ease-state),
+                border-color var(--dur-state) var(--ease-state);
+}
+
+.nav-rail .nav-item:hover,
+.nav-rail .nav-collapse:hover {
+    border-color: rgba(var(--accent-rgb), var(--wash-hover-border));
+    background-color: rgba(var(--accent-rgb), var(--wash-hover-fill));
+}
+
+/* The active item: the accent's text shade, not its fill. Every app's fill
+   is under 3:1 on the rail in one theme or the other; the text shade passes
+   4.5:1 on the rail's active wash in both (assertAccentContrast()). */
+.nav-rail .nav-item.active {
+    border-color: var(--accent-text);
+    background-color: rgba(var(--accent-rgb), var(--wash-active-fill));
+    color: var(--accent-text);
+}
+
+/* A little closer than elsewhere, so the ring fits the rail's gaps. */
+.nav-rail .nav-item:focus-visible,
+.nav-rail .nav-collapse:focus-visible {
+    outline: var(--focus-ring-width) solid var(--accent-text);
+    outline-offset: 1px;
+}
+
+.nav-rail .nav-icon {
+    font-size: 20px;
+    flex-shrink: 0;
+}
+
+/* Settings and Collapse sit at the bottom: Settings is a section, Collapse
+   isn't a destination at all. */
+.nav-rail .nav-settings {
+    margin-top: auto;
+}
+
+.nav-rail .nav-collapse {
+    color: var(--bs-secondary-color);
+}
+
+.nav-rail .nav-collapse .nav-icon {
+    transition: transform var(--dur-state) var(--ease-state);
+}
+
+.nav-rail.collapsed .nav-collapse .nav-icon {
+    transform: rotate(180deg);
+}
+
+/* Collapsed, the labels are hidden visually but stay in place for screen
+   readers, as each item's name: never display: none, which would leave an
+   item named by nothing (its glyph is aria-hidden). */
+.nav-rail.collapsed .nav-label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+    border: 0;
+}
+
+/* The collapse state saved last time is put in place at once, not animated. */
+.nav-rail-instant,
+.nav-rail-instant * {
+    transition: none !important;
+}
+
+/* -- Settings view --------------------------------------------------------------
+   Tabs across the top, under the view's heading: the app's own, then Update,
+   then Credits last. No save button: each change is kept as it's made. */
+.settings-view {
+    display: flex;
+    flex-direction: column;
+    flex: 1 1 auto;
+    min-height: 0;
+}
+
+.settings-title {
+    margin: 0 0 0.75rem;
+    font-size: 1.1rem;
+    font-weight: 600;
+}
+
+.settings-panes {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    padding: 1rem 0.25rem;
+}
+
+/* -- Credits tab ------------------------------------------------------------ */
+
+.credits-heading {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 1rem;
+}
+
+.credits-logo {
+    width: 24px;
+    height: 24px;
+    pointer-events: none;
+}
+
+.credits-name {
+    margin: 0;
+    font-size: 24px;
+}
+
+.credits hr {
+    margin: 20px 0;
+    border: 0;
+    border-top: 1px solid var(--bs-border-color);
+    opacity: 1;
+}
+
+.credits .credits-btn {
+    display: block;
+    width: 100%;
+    padding: 10px;
+    margin-top: 20px;
+    font-size: 16px;
+    background-color: var(--bs-secondary-bg);
+    color: var(--bs-body-color);
+    border: none;
+    border-radius: var(--radius-control);
+    transition: background-color var(--dur-default) var(--ease-standard);
+}
+
+.credits .credits-btn:hover {
+    background-color: var(--bs-tertiary-bg);
 }
 
 /* -- Reduced motion ---------------------------------------------------------

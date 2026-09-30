@@ -22,3 +22,10 @@
     50%  { opacity: 0.4; }
     100% { opacity: 0.75; }
 }
+
+/* The Controls section: Bootstrap's controls, one under another. */
+.demo-controls {
+    display: grid;
+    gap: 1rem;
+    max-width: 20rem;
+}

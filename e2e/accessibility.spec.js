@@ -1,7 +1,8 @@
 "use strict";
 
 // axe (@axe-core/playwright) on the demo's page in real Electron, against WCAG
-// 2.2 A and AA, in the light and dark themes: with the demo's own accent, and
+// 2.2 A and AA: every view and every Settings tab, with the rail expanded and
+// collapsed, in the light and dark themes, with the demo's own accent and
 // with each of the three apps' accents (test/fixtures/accents/), laid over the
 // demo's in turn. Each theme is switched as the OS switches it (nativeTheme,
 // from main), and the kit's theme.js draws the page in it.
@@ -25,27 +26,56 @@ async function violations(page) {
     return violations.flatMap((v) => v.nodes.map((node) => `${v.id}: ${node.target.join(" ")}: ${node.failureSummary.replace(/\s+/g, " ")}`));
 }
 
-test("axe finds nothing on the demo's page, in the light and dark themes", async ({ demo }) => {
+/** Each place in the demo axe checks: a rail item, and a Settings tab when it's Settings. */
+const PLACES = [["Overview"], ["Controls"], ["Settings", "General"], ["Settings", "Update"], ["Settings", "Credits"]];
+
+/**
+ * axe on every view and Settings tab, with the rail expanded and collapsed,
+ * in the theme the page is in now. Returns every violation, each line saying
+ * where it was found.
+ */
+async function everyPlace(demo, main, where) {
+    const found = [];
+    for (const collapsed of [false, true]) {
+        const toggle = main.getByRole("button", { name: collapsed ? "Collapse" : "Expand", exact: true });
+        if (await toggle.count()) await toggle.click();
+        for (const [view, tab] of PLACES) {
+            await main.getByRole("button", { name: view, exact: true }).click();
+            if (tab) await main.getByRole("tab", { name: tab }).click();
+            // Let the hover and the switch's transitions finish, so axe reads the colours at rest.
+            await main.mouse.move(0, 0);
+            await main.evaluate(() => Promise.all(document.getAnimations().filter((a) => a instanceof CSSTransition).map((a) => a.finished)));
+            const place = `${where}, ${collapsed ? "collapsed" : "expanded"}, ${tab ? `Settings > ${tab}` : view}`;
+            found.push(...(await violations(main)).map((line) => `${place}: ${line}`));
+        }
+    }
+    return found;
+}
+
+test("axe finds nothing in any view or Settings tab, collapsed or expanded, in the light and dark themes", async ({ demo }) => {
     const main = await demo.mainWindow();
+    const found = [];
     for (const theme of ["light", "dark"]) {
         await demo.useTheme(main, theme);
-        expect(await violations(main), `the ${theme} theme`).toEqual([]);
+        found.push(...await everyPlace(demo, main, `the ${theme} theme`));
     }
+    expect(found).toEqual([]);
 });
 
-test("axe finds nothing on the demo's page in each app's accent, in both themes", async ({ demo }) => {
-    const main = await demo.mainWindow();
-    for (const name of APP_ACCENTS) {
+for (const name of APP_ACCENTS) {
+    test(`axe finds nothing in any view or Settings tab in ${name}'s accent, collapsed or expanded, in both themes`, async ({ demo }) => {
+        const main = await demo.mainWindow();
         const content = fs.readFileSync(path.join(__dirname, "..", "test", "fixtures", "accents", `${name}.css`), "utf8");
         // Added last, after the demo's own accent.css, so it wins.
-        const style = await main.addStyleTag({ content });
+        await main.addStyleTag({ content });
+        const found = [];
         for (const theme of ["light", "dark"]) {
             await demo.useTheme(main, theme);
-            expect(await violations(main), `${name}'s accent, the ${theme} theme`).toEqual([]);
+            found.push(...await everyPlace(demo, main, `${name}'s accent, the ${theme} theme`));
         }
-        await style.evaluate((element) => element.remove());
-    }
-});
+        expect(found).toEqual([]);
+    });
+}
 
 test("axe catches an accent that fails AA, so a clean run means something", async ({ demo }) => {
     const main = await demo.mainWindow();
@@ -53,7 +83,17 @@ test("axe catches an accent that fails AA, so a clean run means something", asyn
     await main.addStyleTag({ content: ":root { --accent: #28a745; --accent-hover: #34d058; --accent-rgb: 40, 167, 69; --accent-text-light: #28a745; --accent-link-light: #5dd879; }" });
     await demo.useTheme(main, "light");
     const found = await violations(main);
-    for (const target of ["#accent-text", "#accent-link", "#open-isolated", "#accent-progress"]) {
+    for (const target of ["#accent-text", "#accent-link", "#sample-primary", "#accent-progress"]) {
         expect(found.some((line) => line.startsWith(`color-contrast: ${target}`)), `${target} in ${JSON.stringify(found, null, 2)}`).toBe(true);
     }
+});
+
+test("axe catches the rail's active item drawn in the fill, as it was before the kit, so the text shade is what passes", async ({ demo }) => {
+    const main = await demo.mainWindow();
+    const content = fs.readFileSync(path.join(__dirname, "..", "test", "fixtures", "accents", "media-player.css"), "utf8");
+    // Media Player's purple fill is 2.82:1 on the dark rail.
+    await main.addStyleTag({ content: `${content}\n.nav-rail .nav-item.active { color: var(--accent); }` });
+    await demo.useTheme(main, "dark");
+    const found = await violations(main);
+    expect(found.some((line) => line.startsWith('color-contrast: button[aria-current="page"] > .nav-label')), JSON.stringify(found, null, 2)).toBe(true);
 });
