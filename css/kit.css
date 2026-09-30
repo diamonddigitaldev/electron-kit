@@ -701,7 +701,9 @@ a:hover {
 /* -- Toasts -------------------------------------------------------------------
    Under the header, centred, one above another. Each is filled with its
    semantic colour, with black text on info and warning and white on success
-   and danger, and slides in 8px as it shows and out as it goes. */
+   and danger, and slides in 8px as it shows (an animation, so a toast is
+   drawn whole once it's in, whoever made it) and out as it goes
+   (.leaving). */
 .toast-host {
     position: fixed;
     top: 60px;
@@ -724,16 +726,20 @@ a:hover {
     border-radius: 6px;
     box-shadow: var(--bs-box-shadow);
     font-size: 0.875rem;
+    pointer-events: auto;
+    animation: kit-toast-in var(--dur-state) var(--ease-standard);
+}
+
+@keyframes kit-toast-in {
+    from { opacity: 0; transform: translateY(-8px); }
+    to   { opacity: 1; transform: none; }
+}
+
+.toast-note.leaving {
     opacity: 0;
     transform: translateY(-8px);
     transition: opacity var(--dur-state) var(--ease-standard),
                 transform var(--dur-state) var(--ease-standard);
-    pointer-events: auto;
-}
-
-.toast-note.toast-shown {
-    opacity: 1;
-    transform: none;
 }
 
 .toast-info    { background-color: #0dcaf0; border-color: #0aa2c0; color: #000; }

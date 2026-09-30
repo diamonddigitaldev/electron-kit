@@ -257,15 +257,30 @@ test("kit.ui.toast(): each type, a danger toast is an alert, the close button, a
     ]);
 });
 
-test("a toast slides in over --dur-state, and at once under reduced motion", async ({ demo }) => {
+test("a toast slides in and out over --dur-state, at once under reduced motion, and a toast drawn by the page's own code shows too", async ({ demo }) => {
     const main = await demo.mainWindow();
-    const duration = () => main.evaluate(() => {
-        const { element } = window.kit.ui.toast("Moving.", { timeout: 0 });
-        return getComputedStyle(element).transitionDuration;
+    const timings = () => main.evaluate(async () => {
+        const { element, close } = window.kit.ui.toast("Moving.", { timeout: 0 });
+        const arriving = getComputedStyle(element).animationDuration;
+        close();
+        return [arriving, getComputedStyle(element).transitionDuration];
     });
-    expect(await duration()).toBe("0.2s, 0.2s");
+    expect(await timings()).toEqual(["0.2s", "0.2s, 0.2s"]);
     await main.emulateMedia({ reducedMotion: "reduce" });
-    expect(await duration()).toBe("1e-05s, 1e-05s");
+    expect(await timings()).toEqual(["1e-05s", "1e-05s, 1e-05s"]);
+    await main.emulateMedia({ reducedMotion: null });
+
+    // A .toast-note an app's own code puts in the host (File Converter's, until it takes kit.ui.toast()) is drawn
+    // whole once it has arrived: nothing in kit.css leaves it hidden.
+    const opacity = await main.evaluate(async () => {
+        const note = document.createElement("div");
+        note.className = "toast-note toast-info";
+        note.textContent = "The app's own.";
+        document.getElementById("toast-host").append(note);
+        await Promise.all(note.getAnimations().map((a) => a.finished));
+        return getComputedStyle(note).opacity;
+    });
+    expect(opacity).toBe("1");
 });
 
 test("axe finds nothing on the Update tab with an update waiting, the dot and a toast, in both themes, collapsed and expanded", async ({ demo }) => {
