@@ -63,6 +63,8 @@ function createIsolatedWindow() {
         show: false,
         webPreferences: webPreferences({ partition: ISOLATED_PARTITION }),
     });
+    // A secondary window has no menu of its own: the house menu belongs to the main window.
+    win.removeMenu();
     win.once("ready-to-show", () => win.show());
     win.loadFile(path.join(__dirname, "isolated.html"));
 }

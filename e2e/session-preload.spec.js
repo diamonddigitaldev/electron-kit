@@ -104,3 +104,14 @@ test("the page loads the kit's CSS and page scripts from node_modules", async ({
     await expect(main.locator("#kit-css")).toHaveText("Loaded");
     await expect(main.locator("#kit-js")).toHaveText("Loaded");
 });
+
+test("the isolated window, a secondary window, has no menu; the main window keeps the house menu", async ({ demo }) => {
+    const main = await demo.mainWindow();
+    const isolated = await demo.openIsolatedWindow(main);
+    const menuOf = async (page) => {
+        const id = await (await demo.app.browserWindow(page)).evaluate((win) => win.id);
+        return demo.app.evaluate(({ BrowserWindow }, id) => ({ visible: BrowserWindow.fromId(id).isMenuBarVisible() }), id);
+    };
+    expect((await menuOf(isolated)).visible, "the isolated window shows no menu bar").toBe(false);
+    if (process.platform !== "darwin") expect((await menuOf(main)).visible, "the main window shows the house menu").toBe(true);
+});
