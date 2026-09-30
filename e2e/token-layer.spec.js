@@ -29,8 +29,8 @@ function accentColours(page) {
             link: style("accent-link").color,
             progress: style("accent-progress").backgroundColor,
             progressLabel: style("accent-progress").color,
-            button: style("open-isolated").backgroundColor,
-            buttonText: style("open-isolated").color,
+            button: style("sample-primary").backgroundColor,
+            buttonText: style("sample-primary").color,
         };
     });
 }
@@ -47,11 +47,14 @@ test("the page takes the accent through kit.css, with the light theme's shades",
         buttonText: rgb(ACCENT["--accent-contrast"]),
     });
 
-    // A hovered link and a hovered button take the hover shades.
-    await main.locator("#accent-link").hover();
-    await expect(main.locator("#accent-link")).toHaveCSS("color", rgb(ACCENT["--accent-text-light"]));
-    await main.locator("#open-isolated").hover();
-    await expect(main.locator("#open-isolated")).toHaveCSS("background-color", rgb(ACCENT["--accent-hover"]));
+    // A hovered link and a hovered button take the hover shades. Hovered again until it holds: on Linux
+    // every test's window shares one Xvfb display, and one opening on top takes the pointer away.
+    for (const [id, property, colour] of [["accent-link", "color", ACCENT["--accent-text-light"]], ["sample-primary", "background-color", ACCENT["--accent-hover"]]]) {
+        await expect(async () => {
+            await main.locator(`#${id}`).hover();
+            await expect(main.locator(`#${id}`)).toHaveCSS(property, rgb(colour), { timeout: 1_000 });
+        }).toPass({ timeout: 10_000 });
+    }
 });
 
 test("when the page's colour scheme turns dark it takes the dark theme's shades, and back", async ({ demo }) => {

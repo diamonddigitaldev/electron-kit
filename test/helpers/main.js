@@ -1,8 +1,9 @@
 "use strict";
 
-// Loads main/index.js under plain Node, with a stand-in for "electron", so the
-// main process's logic can be tested without launching Electron. Each call
-// loads a fresh copy, with a fresh stand-in.
+// Loads main/index.js under plain Node, with a stand-in for "electron" (and
+// for "electron-store", kept in memory), so the main process's logic can be
+// tested without launching Electron. Each call loads a fresh copy, with a
+// fresh stand-in.
 
 const EventEmitter = require("events");
 const Module = require("module");
@@ -48,24 +49,65 @@ function fakeNativeTheme() {
 }
 
 /** A window that records what's sent to its page. */
-function fakeWindow({ destroyed = false } = {}) {
+function fakeWindow({ destroyed = false, focused = false } = {}) {
     const sent = [];
     return {
         sent,
-        isDestroyed: () => destroyed,
+        destroyed,
+        focused,
+        isDestroyed() {
+            return this.destroyed;
+        },
         webContents: {
             send: (channel, ...args) => sent.push({ channel, args }),
         },
     };
 }
 
-function loadMain({ version = "1.2.3" } = {}) {
+// The kit requires electron-store when the settings are first used, after
+// loadMain() has returned, so its stand-in stays in place: the latest
+// loadMain()'s store.
+let currentStore = null;
+const load = Module._load;
+Module._load = function (request, ...rest) {
+    return request === "electron-store" && currentStore ? currentStore : load.call(this, request, ...rest);
+};
+
+/**
+ * electron-store, in memory: what's in `data` is what's on disk. `opened`
+ * counts the stores made.
+ */
+function fakeElectronStore(data) {
+    const counts = { opened: 0 };
+    class Store {
+        constructor() {
+            counts.opened++;
+        }
+        get(key) {
+            return data[key] === undefined ? undefined : structuredClone(data[key]);
+        }
+        set(key, value) {
+            data[key] = structuredClone(value);
+        }
+    }
+    return { module: { default: Store }, counts };
+}
+
+/**
+ * @param {{ version?: string, name?: string, stored?: Record<string, unknown> }} [options]
+ *   stored: what's already in the store's file, and what the store writes to.
+ */
+function loadMain({ version = "1.2.3", name = "Kit Demo", stored = {} } = {}) {
     const handlers = new Map();
     const listeners = new Map();
     const windows = [];
+    const opened = [];
+    const menus = { application: null };
+    const store = fakeElectronStore(stored);
     const electron = {
         app: {
             getVersion: () => version,
+            getName: () => name,
             getAppPath: () => APP_PATH,
             whenReady: () => Promise.resolve(),
             on(event, listener) {
@@ -79,6 +121,19 @@ function loadMain({ version = "1.2.3" } = {}) {
         },
         BrowserWindow: {
             getAllWindows: () => [...windows],
+            getFocusedWindow: () => windows.find((win) => win.focused) ?? null,
+        },
+        Menu: {
+            buildFromTemplate: (template) => ({ template }),
+            setApplicationMenu(menu) {
+                menus.application = menu;
+            },
+        },
+        shell: {
+            // Records what it was asked to open; opens nothing.
+            async openExternal(url) {
+                opened.push(url);
+            },
         },
         ipcMain: {
             handle(channel, handler) {
@@ -109,6 +164,7 @@ function loadMain({ version = "1.2.3" } = {}) {
         senderFrame: url === null ? null : { url },
     });
 
+    currentStore = store.module;
     const load = Module._load;
     Module._load = function (request, ...rest) {
         return request === "electron" ? electron : load.call(this, request, ...rest);
@@ -118,7 +174,7 @@ function loadMain({ version = "1.2.3" } = {}) {
         for (const key of Object.keys(require.cache)) {
             if (key.startsWith(path.dirname(MAIN) + path.sep)) delete require.cache[key];
         }
-        return { main: require(MAIN), electron, handlers, fakeSession, openWindow, eventFrom };
+        return { main: require(MAIN), electron, handlers, fakeSession, openWindow, eventFrom, opened, menus, stored, storeCounts: store.counts };
     } finally {
         Module._load = load;
     }

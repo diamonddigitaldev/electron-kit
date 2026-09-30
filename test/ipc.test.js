@@ -44,9 +44,9 @@ test("a shared handler answers the app's own page, in the UI session", async () 
 
 test("a shared handler refuses every sender that isn't the app's own page, and doesn't run", () => {
     const { main, electron, handlers, eventFrom } = loadMain();
+    main.start();
     let ran = 0;
     electron.app.getVersion = () => ++ran;
-    main.start();
     const getVersion = handlers.get(INVOKE.APP_GET_VERSION);
     for (const [name, url] of Object.entries(NOT_THE_APP)) {
         assert.throws(() => getVersion(eventFrom(url)), /answers "app:get-version" for the app's own page only/, name);

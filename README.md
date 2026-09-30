@@ -28,10 +28,10 @@ It's in early development and not published to npm yet.
 
 | Export | What it is |
 |---|---|
-| `@diamonddigitaldev/electron-kit/main` | `start()`, called once at the top of an app's `main.js` |
+| `@diamonddigitaldev/electron-kit/main` | `start(config)`, called once at the top of an app's `main.js` |
 | `@diamonddigitaldev/electron-kit/preload.js` | the shared bridge, `window.kitAPI`, registered on the app's session by `start()` |
 | `@diamonddigitaldev/electron-kit/page/theme.js` | the theme script, loaded in `<head>`: draws the page in the OS theme and follows it |
-| `@diamonddigitaldev/electron-kit/page/kit.js` | the page library, `window.kit`, loaded as a classic script |
+| `@diamonddigitaldev/electron-kit/page/kit.js` | the page library, `window.kit`, loaded as a classic script: `kit.ui.mountShell()` builds the nav rail, the header and the Settings view |
 | `@diamonddigitaldev/electron-kit/css/kit.css` | the shared styles, linked after Bootstrap and before the app's `accent.css` |
 | `@diamonddigitaldev/electron-kit/testing` | helpers for an app's tests |
 
@@ -45,7 +45,17 @@ the kit's preload on the app's default session with `session.registerPreloadScri
 that session also gets `window.kitAPI`. A window in another session or partition doesn't.
 
 ```js
-const kit = require("@diamonddigitaldev/electron-kit/main").start();
+const kit = require("@diamonddigitaldev/electron-kit/main").start({
+    settings: { defaults: { overwrite: false } },        // the app's own settings (The Settings)
+    credits: {                                           // the Credits tab (Settings and Credits)
+        lines: [
+            ["Created and maintained by ", { text: "Diamond Digital Development", href: "https://diamonddigital.dev" }, "."],
+            "This software is licensed under the Apache 2.0 license.",
+        ],
+        donate: "https://buymeacoff.ee/willtda",
+    },
+    menu: { items: [{ label: "Open Files", accelerator: "CmdOrCtrl+O", click: openFiles }] }, // (The Menu)
+});
 
 kit.ready.then(() => {
     const win = new BrowserWindow({
@@ -76,7 +86,12 @@ kit.ready.then(() => {
 | Channel | Kind | `window.kitAPI` |
 |---|---|---|
 | `app:get-version` | the page asks | `getVersion()`: the app's version |
+| `app:get-info` | the page asks | `getInfo()`: `{ name, version, repository, credits: { lines, donate } }`, for the Credits tab |
+| `settings:get` | the page asks | `getSettings()`: every setting, the app's and the kit's, over their defaults |
+| `settings:set` | the page asks | `setSettings(changes)`: changes some settings (`{ navCollapsed: true }`) and resolves with them all |
+| `shell:open-external` | the page asks | `openExternal(url)`: opens an `http(s)` link in the person's browser; anything else is refused |
 | `theme:changed` | the kit pushes | `onThemeChanged(callback)`: `"dark"` or `"light"` on each change of the OS theme; returns a function that stops listening |
+| `view:show` | the kit pushes | `onShowView(callback)`: `{ view, tab }` when the menu asks for a view; `mountShell()` listens for it |
 
 A pushed value reaches the callback on its own, never with the IPC event behind it.
 
@@ -89,6 +104,98 @@ call rejects:
 ```
 Error invoking remote method 'app:get-version': Error: electron-kit answers "app:get-version" for the app's own page only.
 ```
+
+### The Shell
+
+`kit.ui.mountShell()` builds the app's frame around its own sections: the nav rail (the app's sections,
+then **Settings** above **Collapse**), the header (the title and the app's toolbar), and the Settings view.
+Each section is one element in the app's `index.html`, which the kit moves into place:
+
+```js
+const shell = kit.ui.mountShell({
+    title:    "Diamond File Converter",
+    sections: [{ view: "convert", label: "Convert", icon: "swap_horiz", element: document.getElementById("convert-view") }],
+    toolbar:  document.getElementById("toolbar"),     // the header's controls, shared by every section
+    settingsTabs: [{ id: "general", label: "General", render: (pane) => { /* the app's own settings */ } }],
+    credits:  { logo: "assets/logo.png" },             // beside the app's name on the Credits tab
+    onViewChange: (view) => {},
+});
+await shell.ready;                                     // the saved settings and the Credits tab are in
+shell.showView("convert");                             // or shell.showSettings("update", { focus: true })
+```
+
+```
+.app-frame                    the whole window
+├── nav#nav-rail.nav-rail     the app's sections, then Settings, then Collapse
+└── .app-shell[data-view]     the header, then main.app-content, holding each view
+```
+
+- One view shows at a time. The active rail item has `.active` and `aria-current="page"`, and is drawn in
+  the accent's text shade, which meets 4.5:1 on the rail in both themes (the fill doesn't, for any app). A
+  hidden view keeps its state; the kit hides it with a class of its own, so it never competes with the
+  app's `d-none`.
+- **Collapse** has `aria-expanded` and is remembered (`navCollapsed`, in the settings). Collapsed, the
+  labels are hidden visually but stay each item's accessible name, and become its tooltip. Every Material
+  Icons glyph is `aria-hidden`.
+- The shared markup is built with `createElement` and `textContent`, never HTML strings.
+
+### Settings and Credits
+
+The Settings view has tabs across the top (Bootstrap's `nav-tabs`, with `role="tablist"`; the arrow keys,
+Home and End move between them, and only the selected tab is in the Tab order): the app's own tabs, then
+**Update**, then **Credits**, always last. There's no save button anywhere: a tab keeps each change through
+`setSettings()` as it's made. It's reached from the rail, and from the menu's `Settings` (`CmdOrCtrl+,`),
+which puts focus on the selected tab.
+
+**Update** shows the version running until the updater arrives. **Credits** replaces the old Credits
+window: the logo, the app's name and version, the `•` credit lines, then the donate line and `Donate on Buy
+Me a Coffee` and `View Source Code on GitHub`, all from `app:get-info`. The name and version are Electron's
+(the app's `package.json`); the repository is `start({ repository })`, or else the `package.json`'s. Each
+credit line is a sentence, or a list of parts with links as `{ text, href }`. Every link and button opens
+through `shell:open-external`, which opens `http(s)` links only; the page never follows a link itself.
+`start()` checks the credits and throws on a link that isn't `http(s)`, so a mistake shows at launch.
+
+### The Settings
+
+`start({ settings: { defaults } })` gives the app's own settings and their defaults. They're kept by
+`electron-store`, under one `settings` key in its default file (`config.json` in the app's `userData`
+folder), beside the kit's own: `navCollapsed`, off. What's stored is read over the defaults, so a setting
+added later appears with its default, and a stored value of the wrong kind is never handed out. A change
+must name a known setting and keep its kind (a boolean stays a boolean, a list a list), with JSON values
+only, or it's refused and nothing is stored. The main process has the same settings as
+`kit.settings.get()` and `kit.settings.set(changes)`. Migration between versions comes later.
+
+### The Menu
+
+`start()` sets the house menu: one top-level `Menu`, with the app's own items (`start({ menu: { items }
+})`) first:
+
+```
+Menu
+  <the app's items>
+  ──────────
+  Settings                 CmdOrCtrl+,
+  Check for Updates        (opens Settings > Update)
+  ──────────
+  Toggle Developer Tools   F12        (pre-releases only: a version with a "-")
+  ──────────
+  Exit                     Alt+F4
+```
+
+There's no Credits item: Credits is the last tab of Settings. On macOS the app's own menu comes first,
+with Quit in it. **Every accelerator needs a modifier other than Shift, or is a function key**: Electron
+registers a menu's accelerators for the whole window, text fields included, so a bare `C` (or `Shift+C`)
+would take that letter from everything typed. `start()` throws on a menu that breaks the rule, and an
+app's tests can check its template:
+
+```js
+const { assertNoBareAccelerators } = require("@diamonddigitaldev/electron-kit/testing");
+
+assertNoBareAccelerators(template);   // fails, naming each item with a bare accelerator
+```
+
+To press an accelerator in a Playwright test, send the key through `webContents.sendInputEvent()` from
+main: Playwright's own keyboard goes through DevTools, which never hands a key on to the menu.
 
 ### The Theme
 
@@ -146,8 +253,17 @@ shade 20% lighter again. White on the fill needs 4.5:1, so the hover goes darker
 `kit.css` holds the house tokens: motion (`--dur-micro`, `--dur-state`, `--dur-default`, `--dur-enter`,
 `--dur-ambient` and the `--ease-*` curves), the wash ladder (`--wash-*`, alphas for
 `rgba(var(--accent-rgb), …)`), radii (`--radius-*`), opacity (`--opacity-disabled`, `--opacity-muted`), the
-timings the JS side shares (`--timing-*`) and the scrollbar. It binds the accent into Bootstrap's primary
-(`--bs-primary`, `.btn-primary`, links and `.progress`).
+timings the JS side shares (`--timing-*`), the focus ring (`--focus-ring-width`, `--focus-ring-offset`) and
+the scrollbar. It binds the accent into Bootstrap's primary (`--bs-primary`, `.btn-primary`, links and
+`.progress`) and its form controls: a checked box or switch is the fill.
+
+### Focus Rings and Controls
+
+Bootstrap draws focus as a soft glow, a quarter-opaque ring, which is well under the 3:1 a focus indicator
+needs. `kit.css` draws every focus ring as a solid 2px ring in the accent's text shade instead (keyboard
+focus only, except in a text field or a select), over 4.5:1 on the page and the rail in both themes. An
+unchecked box or switch is drawn in the secondary text colour, not Bootstrap's 1.3:1 border colour, so its
+outline meets 3:1 too.
 
 Under `prefers-reduced-motion: reduce`, the `--dur-*` tokens go to 0.01ms, so anything timed by them
 finishes at once, and `--dur-ambient` goes to 0s, which stops a pulse rather than making it flicker.

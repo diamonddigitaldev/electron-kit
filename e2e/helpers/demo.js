@@ -5,7 +5,8 @@
 // Each test gets its own run of demo/ with the demo's own Electron build,
 // through Playwright's _electron:
 // - with --user-data-dir set to a temporary profile, so it never reads or
-//   writes yours;
+//   writes yours (the kit's settings file included); demo.relaunch() quits
+//   and launches it again on the same profile, to see what it remembers;
 // - without ELECTRON_RUN_AS_NODE, which some shells set, and which makes
 //   Electron run as plain Node;
 // - with --no-proxy-server. Without it, Electron looks for a proxy by itself
@@ -118,6 +119,24 @@ class Demo {
     }
 
     /**
+     * Press a key in a page's window as the OS delivers it, through
+     * webContents.sendInputEvent(), so a key the page doesn't use goes on to
+     * the menu's accelerators. Playwright's keyboard types through DevTools,
+     * which marks its keys never to reach the menu.
+     * @param {import("@playwright/test").Page} page
+     * @param {string} key - One key, as Electron's keyCode names it: ",", "A", "F12".
+     * @param {("control" | "shift" | "alt" | "meta")[]} [modifiers]
+     */
+    async pressKeys(page, key, modifiers = []) {
+        const id = await (await this.app.browserWindow(page)).evaluate((win) => win.id);
+        await this.app.evaluate(({ BrowserWindow }, { id, key, modifiers }) => {
+            const { webContents } = BrowserWindow.fromId(id);
+            webContents.sendInputEvent({ type: "keyDown", keyCode: key, modifiers });
+            webContents.sendInputEvent({ type: "keyUp", keyCode: key, modifiers });
+        }, { id, key, modifiers });
+    }
+
+    /**
      * Switch the theme as the OS would, from the main process
      * (nativeTheme.themeSource): "dark", "light", or "system" to follow the OS again.
      */
@@ -155,31 +174,49 @@ class Demo {
 const test = base.extend({
     demo: async ({}, use) => {
         const root = fs.mkdtempSync(path.join(os.tmpdir(), "electron-kit-demo-"));
-        const netLog = path.join(root, "netlog.json");
-        const switches = [`--user-data-dir=${path.join(root, "profile")}`, "--no-proxy-server", `--log-net-log=${netLog}`];
+        const profile = path.join(root, "profile");
         const env = { ...process.env };
         delete env.ELECTRON_RUN_AS_NODE;
-
-        const app = await electron.launch({
-            ...(PACKAGED ? { executablePath: PACKAGED, args: switches } : { executablePath: electronPath(), args: [...switches, DEMO_DIR] }),
-            env,
-            colorScheme: null,
-        });
         const toServers = [];
-        app.context().on("request", (request) => {
-            if (toServer(request.url())) toServers.push(request.url());
-        });
+        const netLogs = [];
+
         // A hung app gets 10 s to quit, so the teardown can't hang with it.
-        const close = () => Promise.race([app.close().catch(() => {}), sleep(10_000)]);
+        const close = (running) => Promise.race([running.close().catch(() => {}), sleep(10_000)]);
+
+        /** Launch the demo on the test's profile, with a net log of its own. */
+        async function launch() {
+            const netLog = path.join(root, `netlog-${netLogs.length + 1}.json`);
+            netLogs.push(netLog);
+            const switches = [`--user-data-dir=${profile}`, "--no-proxy-server", `--log-net-log=${netLog}`];
+            const launched = await electron.launch({
+                ...(PACKAGED ? { executablePath: PACKAGED, args: switches } : { executablePath: electronPath(), args: [...switches, DEMO_DIR] }),
+                env,
+                colorScheme: null,
+            });
+            launched.context().on("request", (request) => {
+                if (toServer(request.url())) toServers.push(request.url());
+            });
+            return launched;
+        }
+
+        const demo = new Demo(await launch());
+        demo.profile = profile;
+        /** Quit the demo and launch it again on the same profile, as a person would the next day. */
+        demo.relaunch = async () => {
+            await close(demo.app);
+            demo.app = await launch();
+        };
 
         try {
-            await use(new Demo(app));
+            await use(demo);
             expect.soft(toServers, "requests the demo made to servers").toEqual([]);
             // Quitting finishes the net log.
-            await close();
-            expect.soft(outsideLookups(netLog), "names the demo looked up beyond this machine (its net log)").toEqual([]);
+            await close(demo.app);
+            for (const netLog of netLogs) {
+                expect.soft(outsideLookups(netLog), `names the demo looked up beyond this machine (${path.basename(netLog)})`).toEqual([]);
+            }
         } finally {
-            await close();
+            await close(demo.app);
             try {
                 fs.rmSync(root, { recursive: true, force: true, maxRetries: 5 });
             } catch (err) {

@@ -14,11 +14,27 @@ const { ISOLATED_PARTITION } = require("../demo/src/constants");
 
 const REFUSED = /electron-kit answers "app:get-version" for the app's own page only/;
 
+/** Each call of the kit's bridge that asks main something, and the channel it asks on. */
+const ASKS = {
+    "getVersion()": "app:get-version",
+    "getInfo()": "app:get-info",
+    "getSettings()": "settings:get",
+    "setSettings({ navCollapsed: true })": "settings:set",
+    "openExternal(\"https://example.com/\")": "shell:open-external",
+};
+
 /** What a page's kitAPI.getVersion() comes to: { version }, or { refused } with the error it rejects with. */
 const askVersion = (page) => page.evaluate(() => window.kitAPI.getVersion().then(
     (version) => ({ version }),
     (err) => ({ refused: err.message }),
 ));
+
+/** What each of ASKS comes to in a page: "answered", or the error it rejects with. */
+const askEverything = (page) => page.evaluate((calls) => Promise.all(calls.map((call) => {
+    // Each call is one of the lines above, run against the page's kitAPI.
+    const run = new Function("kitAPI", `return kitAPI.${call};`);
+    return run(window.kitAPI).then(() => "answered", (err) => err.message);
+})), Object.keys(ASKS));
 
 /** The app's version, as the main process has it. */
 const appVersion = (demo) => demo.app.evaluate(({ app }) => app.getVersion());
@@ -36,6 +52,28 @@ test("a page in the app's session that isn't the app's own has kitAPI, and is re
         expect((await askVersion(page)).refused, url).toMatch(REFUSED);
     }
     expect(await askVersion(main)).toEqual({ version: await appVersion(demo) });
+});
+
+test("every shared handler refuses a page that isn't the app's own, and does nothing for it", async ({ demo }) => {
+    const main = await demo.mainWindow();
+    // shell.openExternal stood in for, so a call that got through would be seen, and would open nothing.
+    await demo.app.evaluate(({ shell }) => {
+        globalThis.openedUrls = [];
+        shell.openExternal = async (url) => {
+            globalThis.openedUrls.push(url);
+        };
+    });
+    const before = await main.evaluate(() => window.kitAPI.getSettings());
+
+    const page = await demo.openWindowAt("data:text/html,<title>Not the App</title><p>Not the app's page.</p>");
+    const results = await askEverything(page);
+    Object.entries(ASKS).forEach(([call, channel], i) => {
+        expect(results[i], call).toMatch(new RegExp(`electron-kit answers "${channel}" for the app's own page only`));
+    });
+    expect(await demo.app.evaluate(() => globalThis.openedUrls), "nothing was opened").toEqual([]);
+    expect(await main.evaluate(() => window.kitAPI.getSettings()), "no setting changed").toEqual(before);
+    // The app's own page is answered for every one of them.
+    expect(await askEverything(main)).toEqual(Object.keys(ASKS).map(() => "answered"));
 });
 
 test("the app's own page in another session is refused, even with kitAPI there", async ({ demo }) => {

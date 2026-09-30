@@ -9,13 +9,18 @@
 //
 // assertAccentContrast() checks an app's src/styles/accent.css: every pairing
 // of the accent with the kit's surfaces meets WCAG 2.2 AA in both themes
-// (accent.js, with the maths in contrast.js). The contract and window helpers
-// join them later.
+// (accent.js, with the maths in contrast.js).
+//
+// assertNoBareAccelerators() fails a menu template with an accelerator that
+// has no modifier but Shift and isn't a function key (the kit's menu builder
+// refuses one too). The contract and window helpers join them later.
 
 const fs = require("fs");
 const vm = require("vm");
+const assert = require("assert");
 const accent = require("./accent");
 const contrast = require("./contrast");
+const { bareAccelerators, describeBare } = require("../main/accelerators");
 
 /** What a sandboxed preload may require. Anything else throws there. */
 const SANDBOX_MODULES = Object.freeze(["electron", "events", "timers", "url"]);
@@ -84,4 +89,19 @@ function loadPreload(file) {
     return { required, exposed, calls };
 }
 
-module.exports = { loadPreload, SANDBOX_MODULES, ...accent, ...contrast };
+/**
+ * Fail if a menu template, submenus included, has an accelerator Electron
+ * would take from every text field: one with no modifier but Shift (or AltGr)
+ * that isn't a function key. Each one is named in the failure.
+ * @param {Electron.MenuItemConstructorOptions[]} template - What the app passes to Menu.buildFromTemplate().
+ */
+function assertNoBareAccelerators(template) {
+    if (!Array.isArray(template)) throw new TypeError("assertNoBareAccelerators() takes a menu template: a list of menu items.");
+    const found = bareAccelerators(template);
+    if (found.length) {
+        throw new assert.AssertionError({ message: `The menu has ${found.length === 1 ? "an accelerator" : `${found.length} accelerators`} with no modifier:
+${describeBare(found)}` });
+    }
+}
+
+module.exports = { loadPreload, assertNoBareAccelerators, SANDBOX_MODULES, ...accent, ...contrast };

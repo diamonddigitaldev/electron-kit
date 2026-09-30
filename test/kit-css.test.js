@@ -38,6 +38,8 @@ const TOKENS = {
     "--timing-debounce": "500ms",
     "--timing-progress-reset": "3000ms",
     "--timing-toast": "4500ms",
+    "--focus-ring-width": "2px",
+    "--focus-ring-offset": "2px",
     "--scrollbar-width": "6px",
     "--scrollbar-thumb": "rgba(128, 128, 128, 0.3)",
     "--scrollbar-thumb-hover": "rgba(128, 128, 128, 0.5)",
@@ -172,4 +174,53 @@ test("under reduced motion every duration token goes to (near) zero, and the amb
 
 test("kit.css has no at-rule but reduced motion", () => {
     assert.deepEqual(Object.keys(KIT_AT_RULES), [REDUCED_MOTION]);
+});
+
+test("the rail's active item is drawn in the accent's text shade, never its fill (every app's fill is under 3:1 on the rail in one theme)", () => {
+    const active = rule(".nav-rail .nav-item.active");
+    assert.equal(active.color, "var(--accent-text)");
+    assert.equal(active["border-color"], "var(--accent-text)");
+    assert.equal(active["background-color"], "rgba(var(--accent-rgb), var(--wash-active-fill))");
+    for (const { selector, declarations } of KIT_RULES.filter((r) => r.selector.includes(".nav-rail"))) {
+        for (const [name, value] of Object.entries(declarations)) {
+            assert.doesNotMatch(value, /var\(--accent\)/, `${selector} { ${name} } uses the fill`);
+        }
+    }
+});
+
+test("a collapsed rail hides its labels visually, never with display: none, so each item keeps its name", () => {
+    const hidden = rule(".nav-rail.collapsed .nav-label");
+    assert.equal(hidden.position, "absolute");
+    assert.equal(hidden.width, "1px");
+    assert.equal(hidden.height, "1px");
+    assert.equal(hidden.overflow, "hidden");
+    assert.equal(hidden["clip-path"], "inset(50%)");
+    for (const { selector, declarations } of KIT_RULES.filter((r) => r.selector.includes("nav-label"))) {
+        assert.notEqual(declarations.display, "none", selector);
+        assert.notEqual(declarations.visibility, "hidden", selector);
+    }
+});
+
+test("every focus ring the kit draws is a solid ring in the accent's text shade, and Bootstrap's glow is gone", () => {
+    const ring = "var(--focus-ring-width) solid var(--accent-text)";
+    const rings = KIT_RULES.filter((r) => Object.hasOwn(r.declarations, "outline") && r.declarations.outline !== "none");
+    assert.ok(rings.length >= 3);
+    for (const { selector, declarations } of rings) assert.equal(declarations.outline, ring, selector);
+    const focus = rule(":focus-visible, .btn:focus-visible, .nav-link:focus-visible, .form-check-input:focus-visible, .form-range:focus-visible");
+    assert.equal(focus["box-shadow"], "none");
+    assert.equal(rule(".btn")["--bs-btn-focus-box-shadow"], "none");
+    assert.equal(rule(".form-control:focus, .form-select:focus")["box-shadow"], "none");
+    // Nothing that can take focus goes without a ring.
+    assert.deepEqual(KIT_RULES.filter((r) => r.declarations.outline === "none" || r.declarations.outline === "0").map((r) => r.selector), []);
+});
+
+test("checked boxes and switches fill with the accent, and unchecked ones are outlined in the secondary text colour", () => {
+    assert.deepEqual(rule('.form-check-input:checked, .form-check-input[type="checkbox"]:indeterminate'), {
+        "background-color": "var(--accent)",
+        "border-color": "var(--accent)",
+    });
+    assert.equal(rule(".form-check-input")["border-color"], "var(--bs-secondary-color)");
+    // The switch's knob, in each theme's secondary text colour: Bootstrap's own at .75, not its .25.
+    assert.match(rule(".form-switch .form-check-input:not(:checked), .form-switch .form-check-input:not(:checked):focus")["--bs-form-switch-bg"], /rgba%2833, 37, 41, 0\.75%29/);
+    assert.match(rule('[data-bs-theme="dark"] .form-switch .form-check-input:not(:checked), [data-bs-theme="dark"] .form-switch .form-check-input:not(:checked):focus')["--bs-form-switch-bg"], /rgba%28222, 226, 230, 0\.75%29/);
 });

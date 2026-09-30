@@ -12,4 +12,9 @@ const IPC = Object.freeze({
 /** The partition the isolated window runs in. The kit's preload is never registered on it. */
 const ISOLATED_PARTITION = "demo-isolated";
 
-module.exports = { IPC, ISOLATED_PARTITION };
+/** The demo's own settings and their defaults, which the kit keeps beside its own. */
+const SETTINGS_DEFAULTS = Object.freeze({
+    showAccentSample: true,
+});
+
+module.exports = { IPC, ISOLATED_PARTITION, SETTINGS_DEFAULTS };

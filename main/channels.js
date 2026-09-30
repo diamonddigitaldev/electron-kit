@@ -12,11 +12,16 @@
 /** Channels the page invokes and the kit answers (ipcMain.handle), each after checking its sender (ipc.js). */
 const INVOKE = Object.freeze({
     APP_GET_VERSION: "app:get-version",
+    APP_GET_INFO: "app:get-info",
+    SETTINGS_GET: "settings:get",
+    SETTINGS_SET: "settings:set",
+    SHELL_OPEN_EXTERNAL: "shell:open-external",
 });
 
 /** Channels the kit pushes to the page (webContents.send), which the page only listens to. */
 const PUSH = Object.freeze({
     THEME_CHANGED: "theme:changed",
+    VIEW_SHOW: "view:show",
 });
 
 /** Every shared channel. */
