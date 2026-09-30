@@ -1,12 +1,14 @@
 "use strict";
 
 // kit.start(): it registers the shared preload on the app's default session
-// once the app is ready, and answers the shared bridge's channels.
+// once the app is ready, and answers the shared bridge's channels. Who each
+// handler answers is test/ipc.test.js; the theme push, test/theme.test.js.
 
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const path = require("path");
-const { loadMain } = require("./helpers/main");
+const { loadMain, appPage } = require("./helpers/main");
+const { INVOKE } = require("../main/channels");
 
 const PRELOAD = path.join(__dirname, "..", "preload.js");
 
@@ -24,15 +26,15 @@ test("the preload path is this package's preload.js", () => {
 });
 
 test("kit.start() answers app:get-version with the app's version", async () => {
-    const { main, handlers } = loadMain({ version: "2.0.0-beta.2" });
+    const { main, handlers, eventFrom } = loadMain({ version: "2.0.0-beta.2" });
     main.start();
-    assert.equal(await handlers.get("app:get-version")(), "2.0.0-beta.2");
+    assert.equal(await handlers.get("app:get-version")(eventFrom(appPage())), "2.0.0-beta.2");
 });
 
-test("kit.start() answers every shared channel, and only those", () => {
+test("kit.start() answers every shared channel the page invokes, and only those", () => {
     const { main, handlers } = loadMain();
     main.start();
-    assert.deepEqual([...handlers.keys()].sort(), Object.values(main.CHANNELS).sort());
+    assert.deepEqual([...handlers.keys()].sort(), Object.values(INVOKE).sort());
 });
 
 test("kit.start() refuses to run twice", () => {

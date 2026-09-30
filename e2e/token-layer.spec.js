@@ -2,10 +2,13 @@
 
 // The token layer (css/kit.css) in real Electron: the demo's page takes its
 // accent through the kit, with each theme's text and link shades, and under
-// reduced motion the kit's durations go to near zero and its pulse stops.
+// reduced motion the kit's durations go to near zero and its pulse stops. The
+// theme is switched for real: as the OS switches it (nativeTheme, from main),
+// or through the page's prefers-color-scheme (emulated), and the kit's
+// theme.js draws the page in it.
 
 const path = require("path");
-const { test, expect } = require("./helpers/demo");
+const { test, expect, showsTheme } = require("./helpers/demo");
 const { readAccent, parseColor } = require("../testing");
 
 const ACCENT = readAccent(path.join(__dirname, "..", "demo", "src", "styles", "accent.css"));
@@ -16,12 +19,6 @@ const rgb = (color) => {
     const { r, g, b } = parseColor(color);
     return `rgb(${r}, ${g}, ${b})`;
 };
-
-/** Switch the page's theme as the kit's theme script will, and wait for its transitions to finish. */
-async function setTheme(page, theme) {
-    await page.evaluate((theme) => document.documentElement.setAttribute("data-bs-theme", theme), theme);
-    await page.evaluate(() => Promise.all(document.getAnimations().filter((a) => a instanceof CSSTransition).map((a) => a.finished)));
-}
 
 /** The colours the page painted its accent parts in. */
 function accentColours(page) {
@@ -40,6 +37,7 @@ function accentColours(page) {
 
 test("the page takes the accent through kit.css, with the light theme's shades", async ({ demo }) => {
     const main = await demo.mainWindow();
+    await demo.useTheme(main, "light");
     expect(await accentColours(main)).toEqual({
         text: rgb(ACCENT["--accent-text-light"]),
         link: rgb(ACCENT["--accent-link-light"]),
@@ -56,15 +54,17 @@ test("the page takes the accent through kit.css, with the light theme's shades",
     await expect(main.locator("#open-isolated")).toHaveCSS("background-color", rgb(ACCENT["--accent-hover"]));
 });
 
-test("under data-bs-theme=dark the page takes the dark theme's shades, and back", async ({ demo }) => {
+test("when the page's colour scheme turns dark it takes the dark theme's shades, and back", async ({ demo }) => {
     const main = await demo.mainWindow();
-    await setTheme(main, "dark");
+    await main.emulateMedia({ colorScheme: "dark" });
+    await showsTheme(main, "dark");
     expect(await accentColours(main)).toMatchObject({
         text: rgb(ACCENT["--accent-text-dark"]),
         link: rgb(ACCENT["--accent-link-dark"]),
         button: rgb(ACCENT["--accent"]),
     });
-    await setTheme(main, "light");
+    await main.emulateMedia({ colorScheme: "light" });
+    await showsTheme(main, "light");
     expect(await accentColours(main)).toMatchObject({
         text: rgb(ACCENT["--accent-text-light"]),
         link: rgb(ACCENT["--accent-link-light"]),
