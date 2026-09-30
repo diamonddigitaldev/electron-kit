@@ -76,7 +76,7 @@ test("Collapse has aria-expanded; collapsed, the labels are hidden visually but 
     await collapse.click();
     const expand = rail.getByRole("button", { name: "Expand", exact: true });
     await expect(expand).toHaveAttribute("aria-expanded", "false");
-    await expect.poll(async () => (await rail.boundingBox()).width).toBe(56);
+    await expect.poll(async () => (await rail.boundingBox()).width).toBe(57);
     // Still named, and still there to press, by the same names.
     expect(await railNames(main)).toEqual(["Overview", "Controls", "Settings", "Expand"]);
     for (const name of ["Overview", "Controls", "Settings", "Expand"]) {
@@ -91,7 +91,7 @@ test("Collapse has aria-expanded; collapsed, the labels are hidden visually but 
 
     await expand.click();
     await expect(collapse).toHaveAttribute("aria-expanded", "true");
-    await expect.poll(async () => (await rail.boundingBox()).width).toBe(168);
+    await expect.poll(async () => (await rail.boundingBox()).width).toBe(169);
     await expect(rail.getByRole("button", { name: "Overview", exact: true })).not.toHaveAttribute("title");
 });
 
@@ -112,7 +112,7 @@ test("the collapsed rail and the app's own settings are remembered at the next l
     await expect(rail).toHaveClass(/\bcollapsed\b/);
     await expect(rail.getByRole("button", { name: "Expand", exact: true })).toHaveAttribute("aria-expanded", "false");
     // Put in place at once, not animated from wide to narrow.
-    expect((await rail.boundingBox()).width).toBe(56);
+    expect((await rail.boundingBox()).width).toBe(57);
     await expect(main.getByLabel("Show the accent sample")).not.toBeChecked();
     await expect(main.locator("#accent-sample")).toBeHidden();
 });
@@ -235,7 +235,7 @@ test("each rail icon is drawn centred: in its item when collapsed, and on the it
     for (const collapsed of [false, true]) {
         if (collapsed) {
             await rail.getByRole("button", { name: "Collapse", exact: true }).click();
-            await expect.poll(async () => (await rail.boundingBox()).width).toBe(56);
+            await expect.poll(async () => (await rail.boundingBox()).width).toBe(57);
         }
         // Clear of every item, so none is drawn hovered.
         await main.mouse.move(400, 300);
@@ -253,6 +253,30 @@ test("each rail icon is drawn centred: in its item when collapsed, and on the it
             if (collapsed && Math.abs(x) > 0.75) problems.push(`${where}: ${x.toFixed(2)}px off centre across`);
             // On whole pixels, so the glyph isn't smeared across two.
             if (!Number.isInteger(icon.x - box.x) || !Number.isInteger(icon.y - box.y)) problems.push(`${where}: its icon sits at a fraction of a pixel`);
+        }
+    }
+    expect(problems).toEqual([]);
+});
+
+test("each rail item has as much rail on its right, up to the edge's line, as on its left, collapsed and expanded", async ({ demo }) => {
+    // The rail's edge is a 1px line drawn inside it, so an item centred in the whole rail
+    // would sit a pixel nearer the line, which its border makes plain (Will's review of DFC).
+    const main = await demo.mainWindow();
+    const rail = main.getByRole("navigation", { name: "Sections" });
+    const problems = [];
+    for (const collapsed of [false, true]) {
+        if (collapsed) {
+            await rail.getByRole("button", { name: "Collapse", exact: true }).click();
+            await expect.poll(async () => (await rail.boundingBox()).width).toBe(57);
+        }
+        const edge = await rail.evaluate((r) => getComputedStyle(r).boxShadow);
+        if (!/inset -1px 0px 0px/.test(edge) && !/-1px 0px 0px 0px .*inset/.test(edge)) problems.push(`the edge isn't a 1px inset line: ${edge}`);
+        const box = await rail.boundingBox();
+        for (const name of ["Overview", "Controls", "Settings", collapsed ? "Expand" : "Collapse"]) {
+            const item = await rail.getByRole("button", { name, exact: true }).boundingBox();
+            const left = item.x - box.x;
+            const right = box.x + box.width - 1 - (item.x + item.width);
+            if (left !== right) problems.push(`${collapsed ? "collapsed" : "expanded"} "${name}": ${left}px of rail on its left, ${right}px on its right`);
         }
     }
     expect(problems).toEqual([]);
@@ -406,13 +430,13 @@ test("the rail closes and opens smoothly: the icons never move, and the labels f
         return frames;
     }, name);
 
-    for (const [name, from, to] of [["Collapse", 168, 56], ["Expand", 56, 168]]) {
+    for (const [name, from, to] of [["Collapse", 169, 57], ["Expand", 57, 169]]) {
         const frames = await watch(name);
         const where = `${name}: ${JSON.stringify(frames.map((f) => [Math.round(f.width), f.icons[0], Math.round(f.opacity * 100) / 100]))}`;
         expect(frames[0].width, where).toBe(from);
         expect(frames.at(-1).width, where).toBe(to);
         // It animated: the rail passed through widths in between.
-        expect(frames.some((f) => f.width > 56 && f.width < 168), where).toBe(true);
+        expect(frames.some((f) => f.width > 57 && f.width < 169), where).toBe(true);
         // No icon moved at all, in any frame, and nor did the labels.
         for (const i of frames[0].icons.keys()) expect(new Set(frames.map((f) => f.icons[i])).size, `${where}: icon ${i}`).toBe(1);
         expect(new Set(frames.map((f) => f.labelLeft)).size, `${where}: the label`).toBe(1);
