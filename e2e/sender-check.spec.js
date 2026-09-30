@@ -91,3 +91,20 @@ test("the app's own page in another session is refused, even with kitAPI there",
     expect((await askVersion(isolated)).refused).toMatch(REFUSED);
     expect(await askVersion(main)).toEqual({ version: await appVersion(demo) });
 });
+
+test("the app's own channels, through kit.ipc.handle(), refuse a page that isn't the app's own", async ({ demo }) => {
+    const main = await demo.mainWindow();
+    // As a window of the demo's navigated away: the demo's own preload runs there, so the page has electronAPI.
+    const page = await demo.openWindowAt("data:text/html,<title>Not the App</title><p>Not the app's page.</p>", { appPreload: true });
+    expect(await demo.bridgesOf(page)).toMatchObject({ kitAPI: "object", electronAPI: "object" });
+    const windows = () => demo.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().length);
+    const before = await windows();
+
+    const refused = await page.evaluate(() => window.electronAPI.openIsolatedWindow().then(() => "answered", (err) => err.message));
+    expect(refused).toMatch(/"demo:open-isolated-window" is answered for the app's own page only/);
+    expect(await windows(), "no window was opened").toBe(before);
+
+    // The demo's own page is answered.
+    await demo.openIsolatedWindow(main);
+    expect(await windows()).toBe(before + 1);
+});
