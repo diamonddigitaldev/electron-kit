@@ -173,8 +173,8 @@ test("under reduced motion every duration token goes to (near) zero, and the amb
     }
 });
 
-test("kit.css has no at-rule but the tick's drawing and reduced motion", () => {
-    assert.deepEqual(Object.keys(KIT_AT_RULES).sort(), ["@keyframes kit-tick-draw", REDUCED_MOTION].sort());
+test("kit.css has no at-rule but the tick's drawing, a toast's arrival and reduced motion", () => {
+    assert.deepEqual(Object.keys(KIT_AT_RULES).sort(), ["@keyframes kit-tick-draw", "@keyframes kit-toast-in", REDUCED_MOTION].sort());
 });
 
 test("a ticked checkbox draws its tick, short stroke then long, timed by a token; unticking keeps its spring", () => {

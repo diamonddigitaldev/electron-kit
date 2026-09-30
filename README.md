@@ -266,6 +266,33 @@ The state, from `getUpdateStatus()` and `onUpdateStatus()`:
 The version rules are `require("@diamonddigitaldev/electron-kit/main").version` (`parse`, `compare`,
 `channelOf`, `isOfferableUpdate` and the rest), for an app's own use.
 
+### Building
+
+An app's electron-builder config extends the kit's, in its `package.json`:
+
+```json
+"build": {
+    "extends": "@diamonddigitaldev/electron-kit/builder/base.json",
+    "appId": "com.diamonddigitaldev.<app>",
+    "productName": "<App>",
+    "publish": { "provider": "github", "owner": "diamonddigitaldev", "repo": "<App>" }
+}
+```
+
+`builder/base.json` gives every app the same builds: NSIS on Windows, in the Start menu's `Diamond
+Digital Development` folder; AppImage, `.deb` and `.rpm` on Linux, built on Linux; and
+`generateUpdatesFilesForAllChannels`, so each release carries the update file of every channel it belongs
+to (a finished release `latest.yml`, `beta.yml` and `alpha.yml`; a beta `beta.yml` and `alpha.yml`; an
+alpha `alpha.yml`; each with `-linux` for Linux). **Never attach `latest.yml` to a pre-release**, or it's
+offered to everyone on Stable. The app gives its own identity, files, icons, file associations and
+`publish` (where the updater looks).
+
+electron-builder merges `extends` deeply (checked in its source, 26.15): objects key by key, with the
+app's values winning, and **lists joined, never replaced**. So an app can add a target to the base's lists,
+but can't take one away; the base holds only what every app ships. A `.deb` or `.rpm` names its maintainer
+from `package.json`'s `author` email, unless `build.linux.maintainer` gives one. An app's tests check
+the config with `assertBuildExtendsKit(require("../package.json"))` from `electron-kit/testing`.
+
 ### The Menu
 
 `start()` sets the house menu: one top-level `Menu`, with the app's own items (`start({ menu: { items }

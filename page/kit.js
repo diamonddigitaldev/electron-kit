@@ -335,7 +335,7 @@
     /** Each toast type's glyph. */
     const TOAST_ICONS = { info: "info", success: "check_circle", warning: "warning", danger: "error" };
 
-    /** The toast host: made the first time a toast shows, a polite live region. */
+    /** The toast host: the page's own #toast-host if it has one, else made the first time a toast shows, a polite live region. */
     function toastHost() {
         return document.getElementById("toast-host")
             ?? document.body.appendChild(el("div", { className: "toast-host", attrs: { id: "toast-host", "aria-live": "polite" } }));
@@ -365,9 +365,6 @@
             close,
         ]);
         toastHost().append(note);
-        // Drawn once where it starts, then moved in, so it slides.
-        note.getBoundingClientRect();
-        note.classList.add("toast-shown");
 
         let timer = null;
         let closed = false;
@@ -375,7 +372,7 @@
             if (closed) return;
             closed = true;
             clearTimeout(timer);
-            note.classList.remove("toast-shown");
+            note.classList.add("leaving");
             const gone = () => note.remove();
             note.addEventListener("transitionend", gone, { once: true });
             // In case nothing transitions (reduced motion, a hidden page).
