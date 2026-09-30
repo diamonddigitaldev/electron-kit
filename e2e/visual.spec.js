@@ -137,7 +137,7 @@ const STATES = {
         await main.getByRole("button", { name: "Overview", exact: true }).click();
         const rail = main.getByRole("navigation", { name: "Sections" });
         await rail.getByRole("button", { name: "Collapse", exact: true }).click();
-        await expect.poll(async () => (await rail.boundingBox()).width).toBe(56);
+        await expect.poll(async () => (await rail.boundingBox()).width).toBe(57);
         await fromTheTop(main);
         await tab(main, 2);
         await expect(main.getByRole("button", { name: "Controls", exact: true })).toBeFocused();

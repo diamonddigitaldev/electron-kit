@@ -382,18 +382,20 @@ a:hover {
     flex-direction: column;
     gap: 0.25rem;
     flex-shrink: 0;
-    width: 168px;
-    padding: 1rem 0.5rem;
+    width: 169px;
+    /* The edge is a 1px shadow drawn inside the rail, at its right, so the
+       right padding is 1px more than the left: an item then has 8px of rail
+       each side of it, up to the edge's line, and looks centred with its
+       border showing. The items are an even 40px wide when collapsed, and a
+       centred 20px icon lands on whole pixels. */
+    padding: 1rem 9px 1rem 8px;
     background-color: var(--bs-tertiary-bg);
-    /* The edge is a shadow drawn inside the rail, not a border, so it takes
-       nothing from the width: the items are an even 40px wide when collapsed,
-       and a centred 20px icon lands on whole pixels. */
     box-shadow: inset -1px 0 0 var(--bs-border-color);
     transition: width var(--dur-state) var(--ease-state);
 }
 
 .nav-rail.collapsed {
-    width: 56px;
+    width: 57px;
 }
 
 .nav-rail .nav-item,
@@ -405,7 +407,7 @@ a:hover {
     width: 100%;
     /* Whole pixels, so the icon lands on the pixel grid. 9px, with the 1px
        border and the rail's 8px, puts the icon's left edge 18px in: centred
-       in the 56px collapsed rail, and in the same place expanded, so the icon
+       in the collapsed rail's 56px of surface, and in the same place expanded, so the icon
        never moves as the rail opens or closes. */
     padding: 8px 9px;
     border: 1px solid transparent;
