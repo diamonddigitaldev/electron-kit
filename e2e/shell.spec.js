@@ -84,15 +84,10 @@ test("Collapse has aria-expanded; collapsed, the labels are hidden visually but 
         await expect(item).toBeVisible();
         await expect(item).toHaveAttribute("title", name);
     }
-    // Hidden visually, not display: none (which would take the name with it).
-    const labels = await rail.locator(".nav-label").evaluateAll((spans) => spans.map((s) => {
-        const style = getComputedStyle(s);
-        return { display: style.display, width: s.getBoundingClientRect().width, clipPath: style.clipPath };
-    }));
-    for (const label of labels) {
-        expect(label.display).not.toBe("none");
-        expect(label).toMatchObject({ width: 1, clipPath: "inset(50%)" });
-    }
+    // Faded out and clipped by the narrow item, not display: none (which would take the name with it).
+    await expect.poll(() => rail.locator(".nav-label").evaluateAll((spans) => spans.map((s) => getComputedStyle(s).opacity))).toEqual(["0", "0", "0", "0"]);
+    const labels = await rail.locator(".nav-label").evaluateAll((spans) => spans.map((s) => getComputedStyle(s).display));
+    for (const display of labels) expect(display).not.toBe("none");
 
     await expand.click();
     await expect(collapse).toHaveAttribute("aria-expanded", "true");
@@ -381,4 +376,48 @@ test("a checkbox's tick is drawn when ticked and springs away when unticked, a s
     for (const duration of [...await durations(box, "::after"), ...await durations(toggle, "::before")]) expect(duration).toBeLessThan(1);
     await toggle.uncheck();
     expect((await drawn(toggle, "::before")).x).toBe(off.x);
+});
+
+test("the rail closes and opens smoothly: the icons never move, and the labels fade as the rail narrows", async ({ demo }) => {
+    const main = await demo.mainWindow();
+    const rail = main.getByRole("navigation", { name: "Sections" });
+    await main.mouse.move(400, 300);
+
+    /** Press a rail button from the page and record every frame until the rail stops moving. */
+    const watch = (name) => rail.evaluate(async (nav, name) => {
+        const button = [...nav.querySelectorAll("button")].find((b) => b.querySelector(".nav-label").textContent === name);
+        const icons = [...nav.querySelectorAll(".nav-icon")];
+        const label = nav.querySelector(".nav-item .nav-label");
+        const frames = [];
+        const sample = () => frames.push({
+            width: nav.getBoundingClientRect().width,
+            // Centres: the Collapse chevron turns as it goes, which widens its box but never moves its centre.
+            icons: icons.map((i) => { const r = i.getBoundingClientRect(); return Math.round((r.left + r.right) * 50) / 100; }),
+            labelLeft: label.getBoundingClientRect().left,
+            opacity: Number(getComputedStyle(label).opacity),
+        });
+        sample();
+        button.click();
+        const end = performance.now() + 600;
+        while (performance.now() < end) {
+            await new Promise(requestAnimationFrame);
+            sample();
+        }
+        return frames;
+    }, name);
+
+    for (const [name, from, to] of [["Collapse", 168, 56], ["Expand", 56, 168]]) {
+        const frames = await watch(name);
+        const where = `${name}: ${JSON.stringify(frames.map((f) => [Math.round(f.width), f.icons[0], Math.round(f.opacity * 100) / 100]))}`;
+        expect(frames[0].width, where).toBe(from);
+        expect(frames.at(-1).width, where).toBe(to);
+        // It animated: the rail passed through widths in between.
+        expect(frames.some((f) => f.width > 56 && f.width < 168), where).toBe(true);
+        // No icon moved at all, in any frame, and nor did the labels.
+        for (const i of frames[0].icons.keys()) expect(new Set(frames.map((f) => f.icons[i])).size, `${where}: icon ${i}`).toBe(1);
+        expect(new Set(frames.map((f) => f.labelLeft)).size, `${where}: the label`).toBe(1);
+        // The labels faded through values in between rather than vanishing, ending hidden or shown.
+        expect(frames.some((f) => f.opacity > 0.05 && f.opacity < 0.95), where).toBe(true);
+        expect(frames.at(-1).opacity, where).toBe(name === "Collapse" ? 0 : 1);
+    }
 });

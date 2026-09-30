@@ -203,17 +203,20 @@ test("the rail's active item is drawn in the accent's text shade, never its fill
     }
 });
 
-test("a collapsed rail hides its labels visually, never with display: none, so each item keeps its name", () => {
-    const hidden = rule(".nav-rail.collapsed .nav-label");
-    assert.equal(hidden.position, "absolute");
-    assert.equal(hidden.width, "1px");
-    assert.equal(hidden.height, "1px");
-    assert.equal(hidden.overflow, "hidden");
-    assert.equal(hidden["clip-path"], "inset(50%)");
+test("a collapsed rail fades its labels as the rail closes, never removing them, so each item keeps its name and nothing jumps", () => {
+    assert.deepEqual(rule(".nav-rail.collapsed .nav-label"), { opacity: "0" });
+    assert.equal(rule(".nav-rail .nav-label").transition, "opacity var(--dur-state) var(--ease-state)");
+    // The narrowing item clips the label, rather than the label changing its layout.
+    const item = rule(".nav-rail .nav-item, .nav-rail .nav-collapse");
+    assert.equal(item.overflow, "hidden");
+    assert.equal(item["white-space"], "nowrap");
     for (const { selector, declarations } of KIT_RULES.filter((r) => r.selector.includes("nav-label"))) {
         assert.notEqual(declarations.display, "none", selector);
         assert.notEqual(declarations.visibility, "hidden", selector);
+        assert.ok(!declarations.position, `${selector} takes the label out of the flow`);
     }
+    // Nothing about an item's layout changes when the rail collapses: only its width does.
+    assert.deepEqual(KIT_RULES.filter((r) => /\.collapsed \.nav-(item|collapse)(,|$)/.test(r.selector)).map((r) => r.selector), []);
 });
 
 test("every focus ring the kit draws is a solid ring in the accent's text shade, and Bootstrap's glow is gone", () => {

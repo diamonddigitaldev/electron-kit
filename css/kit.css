@@ -403,8 +403,11 @@ a:hover {
     align-items: center;
     gap: 0.6rem;
     width: 100%;
-    /* Whole pixels, so the icon lands on the pixel grid rather than across it. */
-    padding: 8px 10px;
+    /* Whole pixels, so the icon lands on the pixel grid. 9px, with the 1px
+       border and the rail's 8px, puts the icon's left edge 18px in: centred
+       in the 56px collapsed rail, and in the same place expanded, so the icon
+       never moves as the rail opens or closes. */
+    padding: 8px 9px;
     border: 1px solid transparent;
     border-radius: var(--radius-control);
     background: none;
@@ -456,13 +459,6 @@ a:hover {
     text-align: center;
 }
 
-/* Collapsed, each item is its icon alone, centred in the item. */
-.nav-rail.collapsed .nav-item,
-.nav-rail.collapsed .nav-collapse {
-    justify-content: center;
-    padding-inline: 0;
-}
-
 /* Settings and Collapse sit at the bottom: Settings is a section, Collapse
    isn't a destination at all. */
 .nav-rail .nav-settings {
@@ -481,19 +477,17 @@ a:hover {
     transform: rotate(180deg);
 }
 
-/* Collapsed, the labels are hidden visually but stay in place for screen
-   readers, as each item's name: never display: none, which would leave an
-   item named by nothing (its glyph is aria-hidden). */
+/* The labels stay where they are as the rail closes: the narrowing item
+   clips them, and they fade out over the same time (and back in as it
+   opens). Collapsed, they're still there for screen readers, as each item's
+   name: never display: none, which would leave an item named by nothing (its
+   glyph is aria-hidden). */
+.nav-rail .nav-label {
+    transition: opacity var(--dur-state) var(--ease-state);
+}
+
 .nav-rail.collapsed .nav-label {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    padding: 0;
-    margin: -1px;
-    overflow: hidden;
-    clip-path: inset(50%);
-    white-space: nowrap;
-    border: 0;
+    opacity: 0;
 }
 
 /* The collapse state saved last time is put in place at once, not animated. */
