@@ -173,8 +173,22 @@ test("under reduced motion every duration token goes to (near) zero, and the amb
     }
 });
 
-test("kit.css has no at-rule but reduced motion", () => {
-    assert.deepEqual(Object.keys(KIT_AT_RULES), [REDUCED_MOTION]);
+test("kit.css has no at-rule but the tick's drawing and reduced motion", () => {
+    assert.deepEqual(Object.keys(KIT_AT_RULES).sort(), ["@keyframes kit-tick-draw", REDUCED_MOTION].sort());
+});
+
+test("a ticked checkbox draws its tick, short stroke then long, timed by a token; unticking keeps its spring", () => {
+    const { rules } = rulesOf(KIT_AT_RULES["@keyframes kit-tick-draw"]);
+    assert.deepEqual(rules.map((r) => [r.selector, r.declarations["clip-path"]]), [
+        ["0%", "inset(75% 100% 0 0)"],     // nothing
+        ["40%", "inset(75% 0 0 0)"],       // the short stroke, drawn to the corner
+        ["100%", "inset(0 0 0 0)"],        // then the long one, up
+    ]);
+    const drawing = rule('.form-check-input[type="checkbox"]:not([role="switch"])[data-kit-tick="draw"]:checked::after');
+    assert.equal(drawing.animation, "kit-tick-draw var(--dur-default) var(--ease-standard) both");
+    assert.equal(drawing.transition, "none");
+    // Unticking isn't drawn: the tick shrinks away on the spring.
+    assert.equal(rule('.form-check-input[type="checkbox"]:not([role="switch"])::after').transition, "transform var(--dur-state) var(--ease-spring)");
 });
 
 test("the rail's active item is drawn in the accent's text shade, never its fill (every app's fill is under 3:1 on the rail in one theme)", () => {

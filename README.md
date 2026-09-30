@@ -265,8 +265,10 @@ Bootstrap draws focus as a soft glow, a quarter-opaque ring, which is well under
 needs. `kit.css` draws every focus ring as a solid 2px ring in the accent's text shade instead (keyboard
 focus only, except in a text field or a select), over 4.5:1 on the page and the rail in both themes.
 
-Checkboxes and switches are drawn by the kit rather than by Bootstrap's still images. A checked box fills
-with the accent and its tick springs in; a switch's knob slides across with a little overshoot and
+Checkboxes and switches are drawn by the kit rather than by Bootstrap's still images. A box someone ticks
+fills with the accent and its tick is drawn, short stroke then long (`kit.js` asks for the drawing on the
+change a person makes, so a box checked by the page, or shown again, has its tick there already), and
+unticked, the tick springs away; a switch's knob slides across with a little overshoot and
 stretches while it's pressed; both give a little when pressed, and their border takes the accent's text
 shade on hover. Unchecked, they're drawn in the secondary text colour, not Bootstrap's 1.3:1 border colour,
 so their outline meets 3:1 too. All of it is timed by the `--dur-*` tokens and the `--ease-spring` curve,

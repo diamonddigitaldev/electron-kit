@@ -211,6 +211,24 @@ a:hover {
     transform: translate(-50%, -60%) rotate(45deg) scale(1);
 }
 
+/* Ticked by a person, the tick is drawn as a pen would: its short stroke
+   down to the corner, then its long one up. The tick is the L's bottom and
+   right borders, so revealing the L from its bottom-left corner rightward,
+   then upward, draws it. kit.js marks the box (data-kit-tick) when it's
+   ticked and clears the mark once the tick is drawn, so a box checked by the
+   page, or shown again, has its tick already there. Unticking still shrinks
+   it away with the spring above. */
+.form-check-input[type="checkbox"]:not([role="switch"])[data-kit-tick="draw"]:checked::after {
+    transition: none;
+    animation: kit-tick-draw var(--dur-default) var(--ease-standard) both;
+}
+
+@keyframes kit-tick-draw {
+    0%   { clip-path: inset(75% 100% 0 0); }
+    40%  { clip-path: inset(75% 0 0 0); }
+    100% { clip-path: inset(0 0 0 0); }
+}
+
 /* Neither: a bar across the middle. */
 .form-check-input[type="checkbox"]:not([role="switch"]):indeterminate::after {
     width: 0.56em;
