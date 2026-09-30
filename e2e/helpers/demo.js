@@ -130,7 +130,12 @@ class Demo {
     async pressKeys(page, key, modifiers = []) {
         const id = await (await this.app.browserWindow(page)).evaluate((win) => win.id);
         await this.app.evaluate(({ BrowserWindow }, { id, key, modifiers }) => {
-            const { webContents } = BrowserWindow.fromId(id);
+            const win = BrowserWindow.fromId(id);
+            const { webContents } = win;
+            // A page that isn't focused drops the keys. On Linux every test's window shares one Xvfb
+            // display, and another opening on top takes the focus.
+            win.focus();
+            webContents.focus();
             webContents.sendInputEvent({ type: "keyDown", keyCode: key, modifiers });
             webContents.sendInputEvent({ type: "keyUp", keyCode: key, modifiers });
         }, { id, key, modifiers });

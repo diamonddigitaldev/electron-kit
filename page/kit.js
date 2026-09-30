@@ -109,26 +109,48 @@
     // -- The Settings view -----------------------------------------------------
 
     /**
-     * The Settings view: a heading, Bootstrap's tabs (role="tablist", arrow
-     * keys, Home and End), and a pane per tab, each keeping its state while
-     * hidden.
+     * The Settings view: a heading, the tabs (role="tablist", arrow keys, Home
+     * and End), and a pane per tab, each keeping its state while hidden. The
+     * tabs sit on a thin line, and a thicker accent bar under the selected
+     * one slides to the next tab chosen, taking its text's width.
      * @param {{ id: string, label: string, render: (pane: HTMLElement) => void }[]} tabs
      */
     function buildSettings(tabs) {
         const view = el("section", { className: "settings-view", attrs: { "aria-labelledby": "settings-title" } });
-        const tablist = el("ul", { className: "nav nav-tabs", attrs: { role: "tablist", "aria-labelledby": "settings-title" } });
+        const tablist = el("div", { className: "settings-tabs", attrs: { role: "tablist", "aria-labelledby": "settings-title" } });
+        const indicator = el("span", { className: "settings-tab-indicator", attrs: { "aria-hidden": "true" } });
         const panes = el("div", { className: "tab-content settings-panes" });
         view.append(el("h2", { className: "settings-title", text: "Settings", attrs: { id: "settings-title" } }), tablist, panes);
 
         const buttons = tabs.map(({ id, label }) => {
             const button = el("button", {
-                className: "nav-link",
+                className: "settings-tab",
                 text: label,
                 attrs: { type: "button", role: "tab", id: `settings-tab-${id}`, "aria-controls": `settings-pane-${id}`, "data-tab": id },
             });
-            tablist.append(el("li", { className: "nav-item", attrs: { role: "presentation" } }, [button]));
+            tablist.append(button);
             return button;
         });
+        tablist.append(indicator);
+
+        /**
+         * Put the bar under the selected tab, at its text's width. Animated
+         * when the selection moves; at once when the tabs are first laid out,
+         * or change size (the view shown, the fonts loaded).
+         */
+        function placeIndicator({ animate }) {
+            const button = buttons.find((b) => b.getAttribute("aria-selected") === "true");
+            if (!button || !button.offsetWidth) return;
+            tablist.classList.toggle("settings-tabs-instant", !animate);
+            indicator.style.setProperty("--indicator-x", `${button.offsetLeft}px`);
+            indicator.style.setProperty("--indicator-width", `${button.offsetWidth}px`);
+            if (!animate) {
+                // Let the jump land, then allow the next move to animate.
+                indicator.getBoundingClientRect();
+                requestAnimationFrame(() => tablist.classList.remove("settings-tabs-instant"));
+            }
+        }
+        new ResizeObserver(() => placeIndicator({ animate: false })).observe(tablist);
         const paneOf = new Map(tabs.map(({ id }) => {
             const pane = el("div", { className: "tab-pane", attrs: { role: "tabpanel", id: `settings-pane-${id}`, "aria-labelledby": `settings-tab-${id}`, tabindex: "0" } });
             panes.append(pane);
@@ -141,12 +163,12 @@
             if (index === -1) return;
             buttons.forEach((button, i) => {
                 const selected = i === index;
-                button.classList.toggle("active", selected);
                 button.setAttribute("aria-selected", String(selected));
                 button.tabIndex = selected ? 0 : -1;
                 paneOf.get(tabs[i].id).classList.toggle("active", selected);
                 paneOf.get(tabs[i].id).classList.toggle("show", selected);
             });
+            placeIndicator({ animate: true });
             if (focus) buttons[index].focus();
         }
 
@@ -164,7 +186,7 @@
         });
 
         select(tabs[0].id);
-        return { view, select, pane: (id) => paneOf.get(id), selected: () => tabs[buttons.findIndex((b) => b.classList.contains("active"))].id };
+        return { view, select, pane: (id) => paneOf.get(id), selected: () => tabs[buttons.findIndex((b) => b.getAttribute("aria-selected") === "true")].id };
     }
 
     /** The Update tab, until the updater arrives: the version running. */

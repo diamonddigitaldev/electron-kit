@@ -23,6 +23,7 @@ const TOKENS = {
     "--ease-micro": "ease",
     "--ease-state": "ease-in-out",
     "--ease-standard": "cubic-bezier(0.4, 0, 0.2, 1)",
+    "--ease-spring": "cubic-bezier(0.34, 1.56, 0.64, 1)",
     "--wash-hover-fill": "0.04",
     "--wash-active-fill": "0.06",
     "--wash-hover-border": "0.5",
@@ -220,7 +221,33 @@ test("checked boxes and switches fill with the accent, and unchecked ones are ou
         "border-color": "var(--accent)",
     });
     assert.equal(rule(".form-check-input")["border-color"], "var(--bs-secondary-color)");
-    // The switch's knob, in each theme's secondary text colour: Bootstrap's own at .75, not its .25.
-    assert.match(rule(".form-switch .form-check-input:not(:checked), .form-switch .form-check-input:not(:checked):focus")["--bs-form-switch-bg"], /rgba%2833, 37, 41, 0\.75%29/);
-    assert.match(rule('[data-bs-theme="dark"] .form-switch .form-check-input:not(:checked), [data-bs-theme="dark"] .form-switch .form-check-input:not(:checked):focus')["--bs-form-switch-bg"], /rgba%28222, 226, 230, 0\.75%29/);
+    // The switch's knob: the secondary text colour when off, the fill's text colour when on.
+    assert.equal(rule(".form-switch .form-check-input::before")["background-color"], "var(--bs-secondary-color)");
+    assert.equal(rule(".form-switch .form-check-input:checked::before")["background-color"], "var(--accent-contrast)");
+    // The tick, in the fill's text colour.
+    assert.equal(rule('.form-check-input[type="checkbox"]:not([role="switch"])::after').border, "solid var(--accent-contrast)");
+});
+
+test("the tick and the knob are drawn by the kit, spring into place, and are timed by the tokens that reduced motion takes to zero", () => {
+    // Bootstrap's images, which can't move, are gone.
+    assert.equal(rule('.form-check-input[type="checkbox"]:not([role="switch"])')["background-image"], "none");
+    assert.equal(rule(".form-switch .form-check-input")["background-image"], "none");
+    const tick = rule('.form-check-input[type="checkbox"]:not([role="switch"])::after');
+    assert.match(tick.transform, /scale\(0\)$/);
+    assert.match(rule('.form-check-input[type="checkbox"]:not([role="switch"]):checked::after').transform, /scale\(1\)$/);
+    assert.equal(tick.transition, "transform var(--dur-state) var(--ease-spring)");
+    assert.match(rule(".form-switch .form-check-input::before").transition, /^transform var\(--dur-state\) var\(--ease-spring\)/);
+    // Every animated control is timed by a --dur-* token, never a literal.
+    for (const { selector, declarations } of KIT_RULES.filter((r) => r.selector.includes("form-check-input"))) {
+        if (declarations.transition) assert.doesNotMatch(declarations.transition.replace(/var\(--dur-[a-z]+\)/g, ""), /\d(ms|s)/, selector);
+    }
+});
+
+test("the Settings tabs sit on a thin line, with a bar in the accent's fill that moves by transition", () => {
+    assert.equal(rule(".settings-tabs")["border-bottom"], "1px solid var(--bs-border-color)");
+    const bar = rule(".settings-tab-indicator");
+    assert.equal(bar["background-color"], "var(--accent)");
+    assert.equal(bar.width, "var(--indicator-width, 0)");
+    assert.equal(bar.transform, "translateX(var(--indicator-x, 0))");
+    assert.equal(bar.transition.replace(/\s+/g, " "), "transform var(--dur-default) var(--ease-standard), width var(--dur-default) var(--ease-standard)");
 });
