@@ -4,6 +4,9 @@ name: CI
 # minutes count double. So every push runs everything on Ubuntu, and Windows
 # joins on pull requests, and when the workflow is run by hand.
 #
+# The release workflow runs all of it (workflow_call), on Ubuntu and Windows,
+# before it stages anything.
+#
 # Run by hand with "Update the visual baselines" ticked, it runs only the
 # visual spec, on Windows, and uploads the images it takes
 # (docs/development.md, Visual Tests).
@@ -17,6 +20,7 @@ on:
         description: Update the visual baselines (runs only the visual spec, on Windows, and uploads its images)
         type: boolean
         default: false
+  workflow_call:
 
 permissions:
   contents: read

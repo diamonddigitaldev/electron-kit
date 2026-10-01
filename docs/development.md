@@ -23,6 +23,20 @@ Ubuntu for every push and on Windows too for pull requests ([`ci.yml`](../.githu
 fails if the kit's version in `package.json`, `package-lock.json`, `demo/package-lock.json` and the badge at
 the top of the root README don't agree, so change them together.
 
+## Releases
+
+Publishing a GitHub release runs [`release.yml`](../.github/workflows/release.yml). The release's tag must be
+the version in `package.json`, made from `master`, and a pre-release exactly when the version has a pre-release
+part (`0.1.0-beta.2`), and that version mustn't be on npm yet. It runs everything above on Ubuntu and Windows,
+then stages the package on npm with provenance, through npm's trusted publishing, so no npm token is kept in
+GitHub. Pre-releases are tagged `next`, finished releases `latest`. A staged version isn't on npm until a
+maintainer approves it there, with two-factor authentication. Run by hand
+(`gh workflow run release.yml --ref <branch>`), it's a dry run: npm's dry run of publishing, which lists every
+file the package would hold.
+
+The first version, `0.1.0-beta.1`, was published by hand: npm only lets a trusted publisher be set up for a
+package that's already on npm.
+
 ## Visual Tests
 
 `e2e/visual.spec.js` compares the demo's window with committed images, in
