@@ -23,7 +23,8 @@ async function started(options = {}, { argv = [process.execPath, APP_PATH], ...l
     process.argv = argv;
     try {
         const kit = loaded.main.start(options);
-        await kit.ready;
+        // A second launch never becomes ready: it's quitting.
+        if (load.firstInstance !== false) await kit.ready;
         return { ...loaded, kit };
     } finally {
         process.argv = real;
@@ -173,6 +174,22 @@ test("start() takes the single-instance lock before anything is ready; a second 
     assert.equal(many.calls.lock, 0);
     assert.equal(many.kit.primary, true);
     assert.throws(() => loadMain().main.start({ singleInstance: "yes" }), /singleInstance must be true or false/);
+});
+
+test("a second launch writes no log, so the first's debug.log stays whole, and never becomes ready", async () => {
+    const fs = require("fs");
+    const os = require("os");
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "electron-kit-second-"));
+    try {
+        fs.writeFileSync(path.join(dir, "debug.log"), "the first launch's log\n");
+        const second = await started({ log: "file" }, { firstInstance: false, userData: dir });
+        assert.equal(fs.readFileSync(path.join(dir, "debug.log"), "utf8"), "the first launch's log\n");
+        const settled = await Promise.race([second.kit.ready.then(() => "ready"), new Promise((resolve) => setTimeout(() => resolve("waiting"), 50))]);
+        assert.equal(settled, "waiting", "a second launch's ready never comes, so the app makes no window there");
+        assert.equal(second.created.length, 0);
+    } finally {
+        fs.rmSync(dir, { recursive: true, force: true });
+    }
 });
 
 // -- Files ---------------------------------------------------------------------------------

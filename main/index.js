@@ -103,14 +103,19 @@ function start(config = {}) {
 
     // Every option is checked before anything is registered.
     const { mode } = logging.checkLog(config.log);
+    if (config.singleInstance !== undefined && typeof config.singleInstance !== "boolean") throw new Error("kit.start(): singleInstance must be true or false.");
+    if (config.files !== undefined && typeof config.files !== "boolean") throw new Error("kit.start(): files must be true or false.");
+
+    // One instance, before anything else: a second launch hands its argv over
+    // and quits, and writes nothing. Its log is the console's only, or it
+    // would empty the first's debug.log as it started.
+    const primary = config.singleInstance === false ? true : instance.takeLock();
     const log = logging.createLog({
-        mode,
-        dir: mode === "file" ? app.getPath("userData") : undefined,
+        mode: primary ? mode : null,
+        dir: mode === "file" && primary ? app.getPath("userData") : undefined,
         banner: `${config.name ?? app.getName()} ${app.getVersion()} started`,
     });
     const settings = store.createSettings({ ...config.settings, log });
-    if (config.singleInstance !== undefined && typeof config.singleInstance !== "boolean") throw new Error("kit.start(): singleInstance must be true or false.");
-    if (config.files !== undefined && typeof config.files !== "boolean") throw new Error("kit.start(): files must be true or false.");
     const credits = info.checkInfo({ credits: config.credits, repository: config.repository, name: config.name });
     const updates = updater.createUpdater({ options: updater.checkUpdates(config.updates), app, settings, send: sendUpdateStatus });
     const template = menu.menuTemplate({
@@ -120,8 +125,6 @@ function start(config = {}) {
     });
     started = true;
 
-    // One instance, before any window: a second launch hands its argv over and quits.
-    const primary = config.singleInstance === false ? true : instance.takeLock();
     let windows = null;
     const files = instance.createFiles({ files: config.files === true, main: () => windows.main(), log });
     windows = windowing.createWindows({ bounds: settings.bounds, onMainCreated: files.mainCreated });
@@ -160,7 +163,8 @@ function start(config = {}) {
         if (BrowserWindow.getAllWindows().length === 0) windows.reopen();
     });
 
-    const ready = app.whenReady().then(() => {
+    // A second launch is quitting: its ready never comes, so the app makes no window there.
+    const ready = !primary ? new Promise(() => {}) : app.whenReady().then(() => {
         registerPreload(session.defaultSession);
         menu.setMenu(template);
         theme.followTheme();
