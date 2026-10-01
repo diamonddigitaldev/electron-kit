@@ -225,17 +225,23 @@ const test = base.extend({
         demo.profile = profile;
         /** Launch the demo again on the same profile with these files; it hands them over and quits. */
         demo.launchSecond = (files) => new Promise((resolve, reject) => {
-            const switches = [`--user-data-dir=${profile}`, "--no-proxy-server"];
+            // On Linux the launch Playwright makes runs without Chromium's SUID sandbox helper, which a plain
+            // spawn aborts on ("not configured correctly"), so the second launch is started the same way.
+            const switches = [`--user-data-dir=${profile}`, "--no-proxy-server", ...(process.platform === "linux" ? ["--no-sandbox"] : [])];
             const child = PACKAGED
-                ? spawn(PACKAGED, [...switches, ...files], { env, stdio: "ignore" })
-                : spawn(electronPath(), [...switches, DEMO_DIR, ...files], { env, stdio: "ignore" });
+                ? spawn(PACKAGED, [...switches, ...files], { env, stdio: ["ignore", "ignore", "pipe"] })
+                : spawn(electronPath(), [...switches, DEMO_DIR, ...files], { env, stdio: ["ignore", "ignore", "pipe"] });
+            let stderr = "";
+            child.stderr.on("data", (chunk) => (stderr += chunk));
             const timer = setTimeout(() => {
                 child.kill();
                 reject(new Error("The second launch didn't quit within 15 s."));
             }, 15_000);
             child.on("error", reject);
-            child.on("exit", (code) => {
+            child.on("exit", (code, signal) => {
                 clearTimeout(timer);
+                if (code !== 0) console.error(`The second launch exited with ${code ?? signal}:
+${stderr}`);
                 resolve(code);
             });
         });
