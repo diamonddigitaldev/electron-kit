@@ -1182,17 +1182,21 @@
     }
 
     /**
-     * The line after a batch has run: "3 files converted, 1 failed, 2 cancelled",
-     * or "Nothing converted".
-     * @param {{ done?: number, failed?: number, cancelled?: number }} counts
+     * The line after a batch has run: "3 files converted, 1 failed, 1 skipped,
+     * 2 cancelled", or "Nothing converted". Skipped (the person chose to leave
+     * it out) and cancelled (the run was stopped) are told apart. The first
+     * count names the item.
+     * @param {{ done?: number, failed?: number, skipped?: number, cancelled?: number }} counts
      * @param {{ one: string, many?: string, done: string }} words - the item ("file") and what done means ("converted").
      */
-    function summarise({ done = 0, failed = 0, cancelled = 0 } = {}, { one, many, done: doneWord } = {}) {
+    function summarise({ done = 0, failed = 0, skipped = 0, cancelled = 0 } = {}, { one, many, done: doneWord } = {}) {
         if (typeof one !== "string" || typeof doneWord !== "string") throw new Error("kit.format.summarise(): words must name the item (one) and what done is (done).");
         const parts = [];
-        if (done > 0) parts.push(`${countOf(done, one, many)} ${doneWord}`);
-        if (failed > 0) parts.push(`${groupDigits(failed)} failed`);
-        if (cancelled > 0) parts.push(`${groupDigits(cancelled)} cancelled`);
+        const count = (n) => (parts.length === 0 ? countOf(n, one, many) : groupDigits(n));
+        if (done > 0) parts.push(`${count(done)} ${doneWord}`);
+        if (failed > 0) parts.push(`${count(failed)} failed`);
+        if (skipped > 0) parts.push(`${count(skipped)} skipped`);
+        if (cancelled > 0) parts.push(`${count(cancelled)} cancelled`);
         return parts.length > 0 ? parts.join(", ") : `Nothing ${doneWord}`;
     }
 

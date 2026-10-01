@@ -347,7 +347,7 @@ can't happen:
 | `formatBytes(bytes)` | `"512 B"`, `"1.5 KB"`, `"12 MB"`: binary units, one decimal below 10; `null` if unknown |
 | `formatEta(seconds)` | `"45s"`, `"2m 05s"`, `"1h 02m"`; `null` if unknown |
 | `formatDuration(seconds)` | `"9:05"`, `"1:02:03"`; `null` if unknown |
-| `summarise({ done, failed, cancelled }, { one, done })` | `"3 files converted, 1 failed, 2 cancelled"`, or `"Nothing converted"` |
+| `summarise({ done, failed, skipped, cancelled }, { one, done })` | `"3 files converted, 1 failed, 1 skipped, 2 cancelled"` (the first count names the item: `"5 files skipped"`), or `"Nothing converted"` |
 
 A file loaded both in the page and under Node (a module of helpers its tests require) takes the same helpers
 under Node from `require("@diamonddigitaldev/electron-kit/format")`, which runs `kit.js`'s own code, so the
