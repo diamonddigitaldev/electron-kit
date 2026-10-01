@@ -218,7 +218,7 @@ test("confirm()'s batch form resolves the choice and the box, Escape gives the c
     const buttons = dialog.locator(".kit-dialog-footer .btn");
     await expect(buttons).toHaveText(["Cancel All", "Skip This File", "Overwrite", "Save as New"]);
     expect(await buttons.evaluateAll((els) => els.map((el) => el.className))).toEqual([
-        "btn btn-outline-secondary", "btn btn-outline-secondary", "btn btn-outline-secondary", "btn btn-primary",
+        "btn btn-secondary", "btn btn-secondary", "btn btn-secondary", "btn btn-primary",
     ]);
     // The safe answer takes the focus.
     await expect(dialog.getByRole("button", { name: "Save as New" })).toBeFocused();
@@ -369,4 +369,54 @@ test("under reduced motion a prompt comes and goes at once, as a toast does", as
     await main.evaluate(() => window.kit.ui.toast("A toast.", { action: { label: "Show Them", items: () => ["a"] } }));
     const toast = main.locator("#toast-host .toast-note");
     expect(parseFloat(await toast.evaluate((el) => getComputedStyle(el).animationDuration))).toBeLessThan(0.001);
+});
+
+test("a prompt looks like Dropgate's Upload Security Warning: the body, a small grey detail, a filled Cancel, the glyph in a warning's colour", async ({ demo }) => {
+    const main = await demo.mainWindow();
+    await ask(main, {
+        title: "Upload Security Warning",
+        body: "This server does not support end-to-end encryption.",
+        detail: "The server administrator may be able to access your file contents.",
+        confirmLabel: "Upload Anyway",
+        variant: "warning",
+        icon: "warning",
+    });
+    const dialog = main.getByRole("alertdialog", { name: "Upload Security Warning" });
+    await expect(dialog).toHaveAccessibleDescription("This server does not support end-to-end encryption. The server administrator may be able to access your file contents.");
+    await expect(dialog.locator(".kit-dialog-detail")).toBeVisible();
+    await expect(dialog.locator(".kit-dialog-icon")).toHaveClass(/\btext-warning\b/);
+    await expect(dialog.locator(".kit-dialog-footer .btn")).toHaveText(["Cancel", "Upload Anyway"]);
+    await settled(main);
+    const look = await dialog.evaluate((d) => {
+        const style = (sel) => getComputedStyle(d.querySelector(sel));
+        return {
+            shadow: getComputedStyle(d).boxShadow,
+            body: style(".kit-dialog-text").color === getComputedStyle(d).color,
+            detailSmaller: parseFloat(style(".kit-dialog-detail").fontSize) < parseFloat(style(".kit-dialog-text").fontSize),
+            cancel: d.querySelector(".kit-dialog-footer .btn").className,
+            padding: [style(".kit-dialog-header").padding, style(".kit-dialog-body").padding, style(".kit-dialog-footer").padding],
+        };
+    });
+    expect(look).toEqual({ shadow: "none", body: true, detailSmaller: true, cancel: "btn btn-secondary", padding: ["16px", "16px", "12px"] });
+    await main.keyboard.press("Escape");
+    await expect(dialog).toBeHidden();
+
+    // Without a detail, there's no empty line; a plain prompt's glyph is the accent's.
+    await ask(main, { title: "Clear the List", body: "Every card goes.", confirmLabel: "Clear" });
+    const plain = main.getByRole("alertdialog", { name: "Clear the List" });
+    await expect(plain.locator(".kit-dialog-detail")).toBeHidden();
+    await expect(plain).toHaveAccessibleDescription("Every card goes.");
+    await expect(plain.locator(".kit-dialog-icon")).not.toHaveClass(/text-/);
+    await main.keyboard.press("Escape");
+    expect(await answers(main)).toEqual([false, false]);
+    expect(await main.evaluate(() => { try { window.kit.ui.confirm({ title: "A", body: "B", detail: "" }); return "asked"; } catch (err) { return err.message; } }))
+        .toBe("kit.ui.confirm(): detail must be text, or left out.");
+});
+
+test("a prompt slides down 50px into place, as Bootstrap's modal does", async ({ demo }) => {
+    const main = await demo.mainWindow();
+    await ask(main, FILE_EXISTS);
+    const frames = await main.locator("dialog[open]").evaluate((d) => d.getAnimations().map((a) => a.effect.getKeyframes().map((k) => k.transform)));
+    expect(frames).toEqual([["translateY(-50px)", "none"]]);
+    await main.keyboard.press("Escape");
 });

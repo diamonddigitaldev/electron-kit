@@ -164,6 +164,7 @@ const STATES = {
             window.kit.ui.confirm({
                 title: "File Already Exists",
                 body: "clip.mp4 already exists.",
+                detail: "A file with this name is already in the destination.",
                 icon: "file_copy",
                 choices: [
                     { value: "cancelAll", label: "Cancel All" },
