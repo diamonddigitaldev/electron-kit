@@ -149,7 +149,7 @@ Each section is one element in the app's `index.html`, which the kit moves into 
 const shell = kit.ui.mountShell({
     title:    "Diamond File Converter",
     sections: [{ view: "convert", label: "Convert", icon: "swap_horiz", element: document.getElementById("convert-view") }],
-    toolbar:  document.getElementById("toolbar"),     // the header's controls, shared by every section
+    toolbar:  document.getElementById("toolbar"),     // the header's controls, shared by every section, hidden on Settings
     settingsTabs: [{ id: "general", label: "General", render: (pane) => { /* the app's own settings */ } }],
     credits:  { logo: "assets/logo.png" },             // beside the app's name on the Credits tab
     onViewChange: (view) => {},
@@ -171,6 +171,8 @@ shell.showView("convert");                             // or shell.showSettings(
 - **Collapse** has `aria-expanded` and is remembered (`navCollapsed`, in the settings). Collapsed, the
   labels are hidden visually but stay each item's accessible name, and become its tooltip. Every Material
   Icons glyph is `aria-hidden`.
+- The toolbar is for the app's sections, so it's hidden on Settings (still taking its room, so the header
+  doesn't move), and out of the Tab order there.
 - The shared markup is built with `createElement` and `textContent`, never HTML strings.
 
 ### Settings and Credits
@@ -182,11 +184,16 @@ the accent's fill under it that slides to the next tab chosen and takes its text
 `setSettings()` as it's made. It's reached from the rail, and from the menu's `Settings` (`CmdOrCtrl+,`),
 which puts focus on the selected tab.
 
-**Update**, top to bottom: the app's name and version; `Check for Updates` (disabled while a check or
-download runs, or with no updater), with a status line under it (`role="status"`, its height kept) and
-`Download Update` when there's an update to download; the `Download updates automatically` switch, on by
-default; and the `Update channel`, `Stable`, `Beta` or `Alpha`, each with its help line. Each change is kept
-as it's made, and a new channel checks again. The menu's `Check for Updates` opens this tab and runs a check.
+**Update** is two cards in a readable column (36rem at most). The first is headed with the version running
+(`Version 2.0.0`), then a status line (`role="status"`, its height kept), then `Check for Updates` (disabled
+while a check or download runs, or with no updater) and, when there's an update to download, `Download
+Update` beside it. In "Version x is available.", "Version x" is a link to that release's page on GitHub,
+opened in the browser. "Checking for updates…" shows for a second at least, so a check that fails at once still
+looks pressed. A failed check says why, in Bootstrap's warning shade (it passes): "You seem to be offline.",
+"The newest release has no update files yet." or "Try again later."; a failed download is in the danger
+shade. The second card, **Preferences**, holds the `Download updates automatically` switch, on by default,
+whose help says what it does on and what it does off, and the `Update channel`, `Stable`, `Beta` or
+`Alpha`, each with its help line. Each change is kept as it's made, and a new channel checks again. The menu's `Check for Updates` opens this tab and runs a check.
 While an update waits (`dot` in the updater's state), a **yellow dot** shows on the rail's Settings item (at
 its end, or on the corner of its glyph when the rail is collapsed) and on the Update tab. Its ring holds 3:1
 on the light rail, where the yellow alone is 1.55:1, and "Update available" becomes part of the item's and the
@@ -340,7 +347,7 @@ can't happen:
 | `formatBytes(bytes)` | `"512 B"`, `"1.5 KB"`, `"12 MB"`: binary units, one decimal below 10; `null` if unknown |
 | `formatEta(seconds)` | `"45s"`, `"2m 05s"`, `"1h 02m"`; `null` if unknown |
 | `formatDuration(seconds)` | `"9:05"`, `"1:02:03"`; `null` if unknown |
-| `summarise({ done, failed, cancelled }, { one, done })` | `"3 files converted, 1 failed, 2 cancelled"`, or `"Nothing converted"` |
+| `summarise({ done, failed, skipped, cancelled }, { one, done })` | `"3 files converted, 1 failed, 1 skipped, 2 cancelled"` (the first count names the item: `"5 files skipped"`), or `"Nothing converted"` |
 
 A file loaded both in the page and under Node (a module of helpers its tests require) takes the same helpers
 under Node from `require("@diamonddigitaldev/electron-kit/format")`, which runs `kit.js`'s own code, so the
@@ -470,15 +477,18 @@ false }` turns that off), and whenever the page asks (`checkForUpdates()`). It m
 - **No ID of the install is sent.** electron-updater sends a random ID with every request
   (`x-user-staging-id`), for staged rollouts; the kit sends `00000000-0000-0000-0000-000000000000` instead.
   electron-updater still keeps its own in `userData` (`.updaterId`), but it never leaves the machine.
+- **A failed check or download is logged** as one warning (`start({ log })`, redacted like every line):
+  the channel, the reason, and the error's code and first line.
 
 The state, from `getUpdateStatus()` and `onUpdateStatus()`:
 
 | Field | What it is |
 |---|---|
 | `state` | `"unavailable"`, `"idle"`, `"checking"`, `"none"` (up to date), `"available"`, `"downloading"`, `"downloaded"` or `"error"` |
-| `reason` | for `"unavailable"`: `"off"` (no `updates` option) or `"not-packaged"` (run from source) |
+| `reason` | for `"unavailable"`: `"off"` (no `updates` option) or `"not-packaged"` (run from source); for a failed check: `"offline"`, `"no-files"` (the release has no update files) or `"other"` |
 | `error` | for `"error"`: `"check"` or `"download"` |
 | `version` | the update found, or `null` |
+| `tag` | its release's tag where the server has one (GitHub), or `null`: the Update tab links "Version x" in "Version x is available." to the release's page, `<repository>/releases/tag/<tag>` (the version when there's no tag), when the repository is on GitHub |
 | `percent` | the download's, 0–100, or `null` |
 | `dot` | whether the update dot shows |
 | `auto` | whether it downloaded by itself (the page shows a toast then) |
@@ -502,11 +512,18 @@ An app's electron-builder config extends the kit's, in its `package.json`:
 
 `builder/base.json` gives every app the same builds: NSIS on Windows, in the Start menu's `Diamond
 Digital Development` folder; AppImage, `.deb` and `.rpm` on Linux, built on Linux; and
-`generateUpdatesFilesForAllChannels`, so each release carries the update file of every channel it belongs
-to (a finished release `latest.yml`, `beta.yml` and `alpha.yml`; a beta `beta.yml` and `alpha.yml`; an
-alpha `alpha.yml`; each with `-linux` for Linux). **Never attach `latest.yml` to a pre-release**, or it's
-offered to everyone on Stable. The app gives its own identity, files, icons, file associations and
-`publish` (where the updater looks).
+`generateUpdatesFilesForAllChannels`, which writes each channel's own update file for an update server
+that has no releases of its own (a `generic` one). The app gives its own identity, files, icons, file
+associations and `publish` (where the updater looks).
+
+**Every release carries its update files, pre-releases too.** With GitHub (`publish.provider: "github"`),
+electron-builder writes one update file whatever the version, `latest.yml` (`latest-linux.yml` on Linux),
+and the updater finds each channel's release by its tag (checked in both their sources, 26.15 and 6.8):
+Stable reads the latest finished release (GitHub's "latest", never a pre-release); Beta and Alpha read the
+newest release in their channel or above it, and take its `latest.yml` when it has no `beta.yml` or
+`alpha.yml`. So attach `latest.yml`, `latest-linux.yml` and each installer's `.blockmap` to every release,
+beside the installers. A release without them can't be checked: the Update tab says "The newest release
+has no update files yet." (and the log says `ERR_UPDATER_CHANNEL_FILE_NOT_FOUND`).
 
 electron-builder merges `extends` deeply (checked in its source, 26.15): objects key by key, with the
 app's values winning, and **lists joined, never replaced**. So an app can add a target to the base's lists,
@@ -661,10 +678,11 @@ from npm; `npm run demo` and `npm run test:e2e` refresh that copy first.
 ### Visual Tests
 
 `e2e/visual.spec.js` compares the demo's window with committed images, in
-`e2e/visual.spec.js-snapshots/`, using Playwright's `toHaveScreenshot()`. It takes 32 images:
+`e2e/visual.spec.js-snapshots/`, using Playwright's `toHaveScreenshot()`. It takes 40 images:
 
 | State | Accents | Themes |
 |---|---|---|
+| Settings > Update with an update waiting (and the dot), downloading, ready to install, and after a failed check | the demo's | light and dark |
 | Settings on its General, Update and Credits tabs | the demo's | light and dark |
 | Controls at rest (the box ticked, the switch off) | the demo's | light and dark |
 | Controls toggled by keyboard (the box unticked, the switch on and focused) | the demo's and each app's | light and dark |

@@ -5,7 +5,9 @@
 // the images are taken on a Windows CI runner, so they show Segoe UI as most
 // people see it, and Linux runs every other test without them.
 //
-// Ten states, each a whole window:
+// Fourteen states, each a whole window:
+// - Settings > Update with an update waiting (and the dot), downloading, ready
+//   to install, and after a check that failed;
 // - Settings on its General, Update and Credits tabs;
 // - Controls at rest (the box ticked, the switch off), and toggled by keyboard
 //   (the box unticked, the switch on and focused);
@@ -14,16 +16,16 @@
 //   with Save as New focused by keyboard; and, last, since it replaces the
 //   Overview, a section of files (the drop zone, a bar whose amount isn't
 //   known, the action bar with Convert focused by keyboard).
-// All ten in the demo's accent, in the light and dark themes. The two that
+// All fourteen in the demo's accent, in the light and dark themes. The two that
 // show the most accent (the rail, and Controls toggled) again in each of the
-// three apps' accents (test/fixtures/accents/), in both themes. 32 images.
+// three apps' accents (test/fixtures/accents/), in both themes. 40 images.
 //
 // So that an image only changes when the look does: the window's page is
 // 760 x 600 at a scale factor of 1, drawn without the GPU; motion is reduced, so every transition ends
 // at once, and Playwright stops any animation left; the caret is hidden and the
 // mouse parked where nothing hovers; the pulse dot and the Electron version
 // (which a dependency update changes) are masked, and so are the Update tab's
-// Check for Updates and status line, which differ when the demo is packaged. The demo's own version is
+// Check for Updates and status line at rest, which differ when the demo is packaged. The demo's own version is
 // 0.0.0 in demo/package.json, so the Update and Credits tabs show it as it is.
 //
 // The images are made on the runner, not on a developer's machine: run the CI
@@ -74,8 +76,24 @@ async function openDemo(demo, theme, accent) {
     return main;
 }
 
+/** The updater's state at rest, as main/updater.js reports it (update-tab.spec.js's). */
+const IDLE = { state: "idle", reason: null, version: null, percent: null, dot: false, auto: false, error: null, current: "0.0.0", channel: "stable" };
+
+/** Push a state to the page on update:status, as the kit's updater does. */
+const pushUpdate = (demo, status) => demo.app.evaluate(({ BrowserWindow }, status) => {
+    for (const win of BrowserWindow.getAllWindows()) win.webContents.send("update:status", status);
+}, { ...IDLE, ...status });
+
+/** The Update tab's states pictured, each pushed as the updater would push it. */
+const UPDATE_STATES = {
+    "update-available": [{ state: "available", version: "0.1.0", dot: true }, "Version 0.1.0 is available."],
+    "update-downloading": [{ state: "downloading", version: "0.1.0", percent: 45, dot: true }, "Downloading version 0.1.0… 45%"],
+    "update-ready": [{ state: "downloaded", version: "0.1.0", percent: 100, dot: true }, /has downloaded/],
+    "update-check-failed": [{ state: "error", error: "check", reason: "no-files" }, /no update files/],
+};
+
 /** Compare the window with its image, once it's still: the mouse parked, fonts loaded, nothing moving. */
-async function looksLike(main, name) {
+async function looksLike(main, name, { pushed = false } = {}) {
     // Over the header's empty middle, where nothing reacts to a hover.
     await main.mouse.move(WIDTH / 2, 12);
     await main.evaluate(async () => {
@@ -99,7 +117,8 @@ async function looksLike(main, name) {
 
         // The Update tab's Check for Updates and its status line differ between a run from source (disabled, "Updates
         // are checked in the installed app.") and a packaged one (ready to check); update-tab.spec.js checks both.
-        mask: [main.locator(".pulse-dot"), main.locator("#electron-api"), main.locator("#update-check"), main.locator("#update-status")],
+        // A state pushed to the page looks the same either way, so it isn't masked.
+        mask: [main.locator(".pulse-dot"), main.locator("#electron-api"), ...(pushed ? [] : [main.locator("#update-check"), main.locator("#update-status")])],
     });
 }
 
@@ -110,10 +129,22 @@ async function looksLike(main, name) {
  * collapsing the rail is remembered.
  */
 const STATES = {
-    ...Object.fromEntries(["General", "Update", "Credits"].map((name) => [`settings-${name.toLowerCase()}`, async (main) => {
-        await main.getByRole("button", { name: "Settings", exact: true }).click();
-        await main.getByRole("tab", { name }).click();
-        await expect(main.getByRole("tab", { name })).toHaveAttribute("aria-selected", "true");
+    // First, the Update tab's states, each with the dot where there is one; the at-rest Update tab then clears it.
+    ...Object.fromEntries(Object.entries(UPDATE_STATES).map(([state, [status, says]]) => [state, async (main, demo) => {
+        await main.locator(".nav-rail .nav-settings").click();
+        await main.getByRole("tab", { name: /^Update/ }).click();
+        await pushUpdate(demo, status);
+        await expect(main.locator("#update-status")).toHaveText(says);
+        await blur(main);
+    }])),
+    ...Object.fromEntries(["General", "Update", "Credits"].map((name) => [`settings-${name.toLowerCase()}`, async (main, demo) => {
+        await main.locator(".nav-rail .nav-settings").click();
+        if (name === "Update") {
+            await pushUpdate(demo, { state: "idle" });
+            await expect(main.locator(".update-dot:visible")).toHaveCount(0);
+        }
+        await main.getByRole("tab", { name, exact: name !== "Update" }).click();
+        await expect(main.getByRole("tab", { name, exact: name !== "Update" })).toHaveAttribute("aria-selected", "true");
         await blur(main);
     }])),
     "controls-rest": async (main) => {
@@ -218,8 +249,8 @@ for (const [accent, states] of PLAN) {
             const main = await openDemo(demo, theme, accent);
             for (const state of states) {
                 await test.step(state, async () => {
-                    await STATES[state](main);
-                    await looksLike(main, `${accent ?? "demo"}-${theme}-${state}`);
+                    await STATES[state](main, demo);
+                    await looksLike(main, `${accent ?? "demo"}-${theme}-${state}`, { pushed: state in UPDATE_STATES });
                 });
             }
         });

@@ -54,6 +54,32 @@ const STAGING_ID = "00000000-0000-0000-0000-000000000000";
 const LAUNCH_CHECK_DELAY = 5000;
 
 /**
+ * Chromium's and Node's errors for a request that found no network to go
+ * out on. A refused or reset connection isn't one of them: a server was
+ * reached, and said no.
+ */
+const OFFLINE_ERRORS = /\bnet::ERR_(INTERNET_DISCONNECTED|NAME_NOT_RESOLVED|NAME_RESOLUTION_FAILED|NETWORK_CHANGED|ADDRESS_UNREACHABLE|CONNECTION_TIMED_OUT|TIMED_OUT)\b|\b(ENOTFOUND|EAI_AGAIN|ETIMEDOUT|ENETUNREACH|EHOSTUNREACH)\b/;
+
+/**
+ * Why a check failed, as the Update tab says it:
+ * - "offline": the computer has no network (online false), or the request
+ *   found none;
+ * - "no-files": the release was found, but has no update files for the
+ *   channel (electron-updater's ERR_UPDATER_CHANNEL_FILE_NOT_FOUND: a release
+ *   published without its latest.yml);
+ * - "other": anything else (a server down, a rate limit, a broken feed).
+ * @param {unknown} err
+ * @param {boolean} [online] - Electron's net.isOnline(), if known
+ * @returns {"offline" | "no-files" | "other"}
+ */
+function checkFailureOf(err, online = true) {
+    if (!online) return "offline";
+    if (err?.code === "ERR_UPDATER_CHANNEL_FILE_NOT_FOUND") return "no-files";
+    if (OFFLINE_ERRORS.test(`${err?.code ?? ""} ${err?.message ?? ""}`)) return "offline";
+    return "other";
+}
+
+/**
  * Check kit.start()'s updates option. Throws on a mistake.
  * @param {unknown} updates
  * @returns {{ checkOnLaunch: boolean } | null} null for no updater.
@@ -97,19 +123,24 @@ function applyChannel(autoUpdater, channel) {
  *   send: (status: object) => void,
  *   load?: () => import("electron-updater").AppUpdater,
  *   schedule?: (run: () => void, ms: number) => void,
+ *   log?: { warn(...args: unknown[]): void },
+ *   isOnline?: () => boolean,
  * }} deps
  *   options: what checkUpdates() returned. send: pushes a status to the
  *   app's windows. load: electron-updater's autoUpdater, unless a test
  *   stands one in; it's called once, when the updater starts in a packaged
- *   app. schedule: the launch check's timer.
+ *   app. schedule: the launch check's timer. log: the kit's log, which
+ *   redacts what it writes; a failed check or download is a warning there.
+ *   isOnline: whether the computer has a network, after a failed check.
  */
-function createUpdater({ options, app, settings, send, load = loadAutoUpdater, schedule = unrefTimeout }) {
+function createUpdater({ options, app, settings, send, load = loadAutoUpdater, schedule = unrefTimeout, log = null, isOnline = electronIsOnline }) {
     const current = app.getVersion();
 
     /** What the page is told: see status() below. */
     let state = options ? "idle" : "unavailable";
     let reason = options ? null : "off";
     let found = null;
+    let tag = null;
     let percent = null;
     let dot = false;
     let auto = false;
@@ -123,13 +154,15 @@ function createUpdater({ options, app, settings, send, load = loadAutoUpdater, s
      * answers:
      * - state: "unavailable" (reason: "off", no updater; "not-packaged", run
      *   from source), "idle", "checking", "none" (up to date), "available",
-     *   "downloading", "downloaded" or "error" (error: "check" or "download");
-     * - version: the update found, if any; percent: the download's, 0–100;
+     *   "downloading", "downloaded" or "error" (error: "check" or "download";
+     *   a failed check's reason is checkFailureOf()'s);
+     * - version: the update found, if any, and tag, its release's tag where
+     *   the server has one (GitHub); percent: the download's, 0–100;
      * - dot: whether the update dot shows; auto: whether it downloaded by
      *   itself (the toast shows then).
      */
     function status() {
-        return { state, reason, version: found, percent, dot, auto, error, current, channel: channel() };
+        return { state, reason, version: found, tag, percent, dot, auto, error, current, channel: channel() };
     }
 
     function report() {
@@ -188,6 +221,7 @@ function createUpdater({ options, app, settings, send, load = loadAutoUpdater, s
         const chosen = channel();
         state = "checking";
         error = null;
+        reason = null;
         report();
         try {
             applyChannel(autoUpdater, chosen);
@@ -195,6 +229,8 @@ function createUpdater({ options, app, settings, send, load = loadAutoUpdater, s
             const candidate = result?.isUpdateAvailable ? result.updateInfo?.version : null;
             if (candidate && version.isOfferableUpdate(candidate, current, chosen)) {
                 found = candidate;
+                // The release's tag, where the server has one (GitHub): the Update tab links to its page.
+                tag = typeof result.updateInfo.tag === "string" ? result.updateInfo.tag : null;
                 state = "available";
                 if (settings.get().autoDownloadUpdates) {
                     // Resolves once it's downloaded; the check is done now.
@@ -206,12 +242,15 @@ function createUpdater({ options, app, settings, send, load = loadAutoUpdater, s
                 // Up to date, or what the server has isn't for this channel (a
                 // mis-tagged release) or isn't newer: nothing is offered.
                 found = null;
+                tag = null;
                 state = "none";
                 dot = false;
             }
-        } catch {
+        } catch (err) {
             state = "error";
             error = "check";
+            reason = checkFailureOf(err, isOnline());
+            log?.warn(`Update check failed (${chosen} channel, ${reason}): ${messageOf(err)}`);
         }
         report();
         return status();
@@ -238,7 +277,8 @@ function createUpdater({ options, app, settings, send, load = loadAutoUpdater, s
                 report();
                 return status();
             },
-            () => {
+            (err) => {
+                log?.warn(`Update download failed (version ${found}): ${messageOf(err)}`);
                 state = "error";
                 error = "download";
                 percent = null;
@@ -265,6 +305,7 @@ function createUpdater({ options, app, settings, send, load = loadAutoUpdater, s
                 autoUpdater.autoInstallOnAppQuit = false;
                 state = "idle";
                 found = null;
+                tag = null;
                 percent = null;
                 dot = false;
                 auto = false;
@@ -282,6 +323,25 @@ function createUpdater({ options, app, settings, send, load = loadAutoUpdater, s
     return { start, check, download, status, settingsChanged };
 }
 
+/**
+ * An error's code and the first line of its message, for the log:
+ * electron-updater puts the whole stack (and a feed's XML) in some messages.
+ * @param {unknown} err
+ */
+function messageOf(err) {
+    const first = String(err?.message ?? err ?? "unknown error").split(/\r?\n/, 1)[0].slice(0, 300);
+    return err?.code && !first.includes(err.code) ? `${err.code}: ${first}` : first;
+}
+
+/** Electron's net.isOnline(); true where it can't say (under plain Node, in the unit tests). */
+function electronIsOnline() {
+    try {
+        return require("electron").net?.isOnline?.() ?? true;
+    } catch {
+        return true;
+    }
+}
+
 /** electron-updater's autoUpdater, for this platform. */
 function loadAutoUpdater() {
     return require("electron-updater").autoUpdater;
@@ -292,4 +352,4 @@ function unrefTimeout(run, ms) {
     setTimeout(run, ms).unref?.();
 }
 
-module.exports = { createUpdater, checkUpdates, applyChannel, CHANNEL_SETTINGS, STAGING_ID, LAUNCH_CHECK_DELAY };
+module.exports = { createUpdater, checkUpdates, applyChannel, checkFailureOf, CHANNEL_SETTINGS, STAGING_ID, LAUNCH_CHECK_DELAY };

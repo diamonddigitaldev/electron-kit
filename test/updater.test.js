@@ -12,7 +12,7 @@ const EventEmitter = require("events");
 const assert = require("node:assert/strict");
 const fs = require("fs");
 const path = require("path");
-const { createUpdater, checkUpdates, applyChannel, STAGING_ID, LAUNCH_CHECK_DELAY } = require("../main/updater");
+const { createUpdater, checkUpdates, applyChannel, checkFailureOf, STAGING_ID, LAUNCH_CHECK_DELAY } = require("../main/updater");
 const { createSettings } = require("../main/store");
 const { startUpdateServer, realAutoUpdater } = require("./helpers/update-server");
 const { loadMain, appPage } = require("./helpers/main");
@@ -37,7 +37,7 @@ function memorySettings(stored = {}) {
  * electron-updater at an update server holding `channels`. Started, with its
  * launch check scheduled but not run.
  */
-async function updaterFor({ version, channels, stored = {}, isPackaged = true, options = { checkOnLaunch: true } }, t) {
+async function updaterFor({ version, channels, stored = {}, isPackaged = true, options = { checkOnLaunch: true }, online = true }, t) {
     const server = await startUpdateServer(channels);
     t.after(() => server.close());
     const { autoUpdater, dir } = realAutoUpdater({ version, url: server.url });
@@ -45,6 +45,7 @@ async function updaterFor({ version, channels, stored = {}, isPackaged = true, o
     const { settings, data } = memorySettings(stored);
     const sent = [];
     const scheduled = [];
+    const logged = [];
     let loads = 0;
     const updater = createUpdater({
         options,
@@ -56,9 +57,11 @@ async function updaterFor({ version, channels, stored = {}, isPackaged = true, o
             return autoUpdater;
         },
         schedule: (run, ms) => scheduled.push({ run, ms }),
+        log: { warn: (...args) => logged.push(args.join(" ")) },
+        isOnline: () => online,
     });
     updater.start();
-    return { updater, server, autoUpdater, settings, data, sent, scheduled, dir, loads: () => loads };
+    return { updater, server, autoUpdater, settings, data, sent, scheduled, logged, dir, loads: () => loads };
 }
 
 /** Wait for the updater to reach a state, from its pushes. */
@@ -224,6 +227,54 @@ test("a check that fails says so, and a download isn't offered", async (t) => {
     assert.equal((await updater.download()).state, "error", "there's nothing to download");
 });
 
+test("a failed check says why: a release with no update files, a server that's down, or no network", async (t) => {
+    // The server is up, but has no latest.yml: a release published without its update files.
+    const noFiles = await updaterFor({ version: "2.0.0", channels: {} }, t);
+    assert.equal((await noFiles.updater.check()).reason, "no-files");
+
+    // The server refuses: something answered, so the computer isn't offline.
+    const down = await updaterFor({ version: "2.0.0", channels: {} }, t);
+    await down.server.close();
+    assert.equal((await down.updater.check()).reason, "other");
+
+    // Electron says there's no network.
+    const offline = await updaterFor({ version: "2.0.0", channels: {}, online: false }, t);
+    assert.equal((await offline.updater.check()).reason, "offline");
+
+    // The next check starts afresh.
+    const checking = noFiles.updater.check();
+    assert.equal(noFiles.updater.status().reason, null);
+    await checking;
+});
+
+test("checkFailureOf() reads Chromium's and Node's errors, and a refused connection isn't offline", () => {
+    const failure = (message, code) => checkFailureOf(Object.assign(new Error(message), code ? { code } : {}));
+    assert.equal(failure("net::ERR_INTERNET_DISCONNECTED"), "offline");
+    assert.equal(failure("net::ERR_NAME_NOT_RESOLVED"), "offline");
+    assert.equal(failure("getaddrinfo ENOTFOUND github.com", "ENOTFOUND"), "offline");
+    assert.equal(failure("net::ERR_CONNECTION_REFUSED"), "other");
+    assert.equal(failure("connect ECONNREFUSED 127.0.0.1:1", "ECONNREFUSED"), "other");
+    assert.equal(failure("HttpError: 403 rate limit exceeded"), "other");
+    assert.equal(failure("Cannot find latest.yml", "ERR_UPDATER_CHANNEL_FILE_NOT_FOUND"), "no-files");
+    assert.equal(checkFailureOf(new Error("anything"), false), "offline", "Electron's own word wins");
+    assert.equal(checkFailureOf(undefined), "other");
+});
+
+test("a failed check, and a failed download, are logged as one line each: the channel, the reason and the error's first line", async (t) => {
+    const check = await updaterFor({ version: "2.0.0", channels: {} }, t);
+    await check.updater.check();
+    assert.equal(check.logged.length, 1);
+    assert.match(check.logged[0], /^Update check failed \(stable channel, no-files\): ERR_UPDATER_CHANNEL_FILE_NOT_FOUND: /);
+    assert.doesNotMatch(check.logged[0], /\n/, "no stack");
+
+    const download = await updaterFor({ version: "2.0.0", channels: { latest: { version: "2.1.0", sha512: "wrong" } } }, t);
+    await download.updater.check();
+    await reaches(download.sent, "error");
+    assert.equal(download.logged.length, 1);
+    assert.match(download.logged[0], /^Update download failed \(version 2\.1\.0\): /);
+    assert.doesNotMatch(download.logged[0], /\n/);
+});
+
 test("Download Update does nothing with no update found", async (t) => {
     const { updater, server } = await updaterFor({ version: "2.0.0", channels: { latest: "2.0.0" }, stored: { autoDownloadUpdates: false } }, t);
     assert.equal((await updater.download()).state, "idle");
@@ -320,7 +371,7 @@ test("kit.start() answers update:get-status, update:check and update:download, f
     const page = eventFrom(appPage());
     // Run by plain Node, the stand-in app isn't packaged.
     assert.deepEqual(await handlers.get(INVOKE.UPDATE_GET_STATUS)(page), {
-        state: "unavailable", reason: "not-packaged", version: null, percent: null, dot: false, auto: false, error: null, current: "2.0.0", channel: "stable",
+        state: "unavailable", reason: "not-packaged", version: null, tag: null, percent: null, dot: false, auto: false, error: null, current: "2.0.0", channel: "stable",
     });
     assert.equal((await handlers.get(INVOKE.UPDATE_CHECK)(page)).state, "unavailable");
     assert.equal((await handlers.get(INVOKE.UPDATE_DOWNLOAD)(page)).state, "unavailable");

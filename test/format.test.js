@@ -93,7 +93,12 @@ test("summarise() says how a batch went, in the app's words", () => {
     const words = { one: "file", done: "converted" };
     assert.equal(format.summarise({ done: 3, failed: 1, cancelled: 2 }, words), "3 files converted, 1 failed, 2 cancelled");
     assert.equal(format.summarise({ done: 1 }, words), "1 file converted");
-    assert.equal(format.summarise({ failed: 1200 }, words), "1,200 failed");
+    // The first count names the item, whichever it is.
+    assert.equal(format.summarise({ failed: 1200 }, words), "1,200 files failed");
+    assert.equal(format.summarise({ skipped: 5 }, words), "5 files skipped");
+    assert.equal(format.summarise({ done: 2, skipped: 3 }, words), "2 files converted, 3 skipped");
+    assert.equal(format.summarise({ done: 1, failed: 1, skipped: 1, cancelled: 2 }, words), "1 file converted, 1 failed, 1 skipped, 2 cancelled");
+    assert.equal(format.summarise({ cancelled: 1 }, words), "1 file cancelled");
     assert.equal(format.summarise({}, words), "Nothing converted");
     assert.equal(format.summarise({ done: 2 }, { one: "clip", done: "joined" }), "2 clips joined");
     assert.throws(() => format.summarise({ done: 1 }), /words must name the item/);
