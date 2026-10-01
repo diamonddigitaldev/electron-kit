@@ -371,7 +371,7 @@ test("kit.start() answers update:get-status, update:check and update:download, f
     const page = eventFrom(appPage());
     // Run by plain Node, the stand-in app isn't packaged.
     assert.deepEqual(await handlers.get(INVOKE.UPDATE_GET_STATUS)(page), {
-        state: "unavailable", reason: "not-packaged", version: null, percent: null, dot: false, auto: false, error: null, current: "2.0.0", channel: "stable",
+        state: "unavailable", reason: "not-packaged", version: null, tag: null, percent: null, dot: false, auto: false, error: null, current: "2.0.0", channel: "stable",
     });
     assert.equal((await handlers.get(INVOKE.UPDATE_CHECK)(page)).state, "unavailable");
     assert.equal((await handlers.get(INVOKE.UPDATE_DOWNLOAD)(page)).state, "unavailable");

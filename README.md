@@ -187,7 +187,8 @@ which puts focus on the selected tab.
 **Update** is two cards in a readable column (36rem at most). The first is headed with the version running
 (`Version 2.0.0`), then a status line (`role="status"`, its height kept), then `Check for Updates` (disabled
 while a check or download runs, or with no updater) and, when there's an update to download, `Download
-Update` beside it. "Checking for updates…" shows for a second at least, so a check that fails at once still
+Update` beside it. In "Version x is available.", "Version x" is a link to that release's page on GitHub,
+opened in the browser. "Checking for updates…" shows for a second at least, so a check that fails at once still
 looks pressed. A failed check says why, in Bootstrap's warning shade (it passes): "You seem to be offline.",
 "The newest release has no update files yet." or "Try again later."; a failed download is in the danger
 shade. The second card, **Preferences**, holds the `Download updates automatically` switch, on by default,
@@ -487,6 +488,7 @@ The state, from `getUpdateStatus()` and `onUpdateStatus()`:
 | `reason` | for `"unavailable"`: `"off"` (no `updates` option) or `"not-packaged"` (run from source); for a failed check: `"offline"`, `"no-files"` (the release has no update files) or `"other"` |
 | `error` | for `"error"`: `"check"` or `"download"` |
 | `version` | the update found, or `null` |
+| `tag` | its release's tag where the server has one (GitHub), or `null`: the Update tab links "Version x" in "Version x is available." to the release's page, `<repository>/releases/tag/<tag>` (the version when there's no tag), when the repository is on GitHub |
 | `percent` | the download's, 0–100, or `null` |
 | `dot` | whether the update dot shows |
 | `auto` | whether it downloaded by itself (the page shows a toast then) |

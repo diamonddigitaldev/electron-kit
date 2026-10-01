@@ -218,6 +218,24 @@
         other: "Couldn't check for updates. Try again later.",
     };
 
+    /**
+     * The page of the release an update comes from, on GitHub (where every
+     * app on the kit is published): the app's repository, and the release's
+     * tag (or its version, if the server gave no tag). Elsewhere, null.
+     * @param {string | null} repository - app:get-info's, an https URL
+     * @param {{ version: string | null, tag?: string | null }} status
+     */
+    function releasePage(repository, { version, tag }) {
+        if (!repository || !version) return null;
+        try {
+            const url = new URL(repository);
+            if (url.hostname !== "github.com") return null;
+            return `${url.origin}${url.pathname.replace(/\/+$/, "")}/releases/tag/${encodeURIComponent(tag ?? version)}`;
+        } catch {
+            return null;
+        }
+    }
+
     /** The least time "Checking for updates…" shows, so a check that fails at once still looks pressed. */
     const CHECK_SHOWN_FOR = 1000;
 
@@ -227,7 +245,7 @@
      * passing, and says why), a failed download is a danger.
      * @param {{ state: string, reason: string | null, error: string | null, version: string | null, percent: number | null }} status
      * @param {string} appName
-     * @returns {{ text: string, percent?: string, tone?: "warning" | "danger" }}
+     * @returns {{ text: string, percent?: string, tone?: "warning" | "danger", release?: { text: string, rest: string } }}
      */
     function updateMessage({ state, reason, error, version, percent }, appName) {
         switch (state) {
@@ -238,7 +256,8 @@
             case "none":
                 return { text: "You're up to date." };
             case "available":
-                return { text: `Version ${version} is available.` };
+                // "Version x" links to the release's page, where there is one (releasePage()).
+                return { text: `Version ${version} is available.`, release: { text: `Version ${version}`, rest: " is available." } };
             case "downloading":
                 return { text: `Downloading version ${version}…`, percent: ` ${percent ?? 0}%` };
             case "downloaded":
@@ -275,6 +294,7 @@
         const auto = el("input", { className: "form-check-input", attrs: { type: "checkbox", role: "switch", id: "update-auto", "aria-describedby": "update-auto-help" } });
         const autoHelp = el("div", { className: "form-text", attrs: { id: "update-auto-help" } });
         let appName = "";
+        let repository = null;
         const showAutoHelp = () => {
             autoHelp.textContent = auto.checked
                 ? `Updates download by themselves and are installed when you close ${appName}.`
@@ -324,6 +344,7 @@
         return {
             showInfo(info) {
                 appName = info.name;
+                repository = info.repository ?? null;
                 version.textContent = `Version ${info.version}`;
                 showAutoHelp();
             },
@@ -336,7 +357,9 @@
             /** Show the updater's state; returns whether the update dot shows. */
             showStatus(next, appName) {
                 const message = updateMessage(next, appName);
-                statusText.textContent = message.text;
+                const page = message.release && releasePage(repository, next);
+                if (page) statusText.replaceChildren(externalLink(message.release.text, page), message.release.rest);
+                else statusText.textContent = message.text;
                 statusPercent.textContent = message.percent ?? "";
                 // Bootstrap's emphasis shades, which hold AA on the page in both themes (its plain ones don't on dark).
                 status.classList.toggle("text-warning-emphasis", message.tone === "warning");

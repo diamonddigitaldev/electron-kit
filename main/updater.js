@@ -140,6 +140,7 @@ function createUpdater({ options, app, settings, send, load = loadAutoUpdater, s
     let state = options ? "idle" : "unavailable";
     let reason = options ? null : "off";
     let found = null;
+    let tag = null;
     let percent = null;
     let dot = false;
     let auto = false;
@@ -155,12 +156,13 @@ function createUpdater({ options, app, settings, send, load = loadAutoUpdater, s
      *   from source), "idle", "checking", "none" (up to date), "available",
      *   "downloading", "downloaded" or "error" (error: "check" or "download";
      *   a failed check's reason is checkFailureOf()'s);
-     * - version: the update found, if any; percent: the download's, 0–100;
+     * - version: the update found, if any, and tag, its release's tag where
+     *   the server has one (GitHub); percent: the download's, 0–100;
      * - dot: whether the update dot shows; auto: whether it downloaded by
      *   itself (the toast shows then).
      */
     function status() {
-        return { state, reason, version: found, percent, dot, auto, error, current, channel: channel() };
+        return { state, reason, version: found, tag, percent, dot, auto, error, current, channel: channel() };
     }
 
     function report() {
@@ -227,6 +229,8 @@ function createUpdater({ options, app, settings, send, load = loadAutoUpdater, s
             const candidate = result?.isUpdateAvailable ? result.updateInfo?.version : null;
             if (candidate && version.isOfferableUpdate(candidate, current, chosen)) {
                 found = candidate;
+                // The release's tag, where the server has one (GitHub): the Update tab links to its page.
+                tag = typeof result.updateInfo.tag === "string" ? result.updateInfo.tag : null;
                 state = "available";
                 if (settings.get().autoDownloadUpdates) {
                     // Resolves once it's downloaded; the check is done now.
@@ -238,6 +242,7 @@ function createUpdater({ options, app, settings, send, load = loadAutoUpdater, s
                 // Up to date, or what the server has isn't for this channel (a
                 // mis-tagged release) or isn't newer: nothing is offered.
                 found = null;
+                tag = null;
                 state = "none";
                 dot = false;
             }
@@ -300,6 +305,7 @@ function createUpdater({ options, app, settings, send, load = loadAutoUpdater, s
                 autoUpdater.autoInstallOnAppQuit = false;
                 state = "idle";
                 found = null;
+                tag = null;
                 percent = null;
                 dot = false;
                 auto = false;

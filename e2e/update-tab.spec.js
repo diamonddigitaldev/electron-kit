@@ -145,6 +145,41 @@ test("\"Checking for updates…\" shows for a second at least, with the button d
     await expect(status).toHaveText("You're up to date.", { timeout: 300 });
 });
 
+test("\"Version x\" in \"Version x is available.\" links to the release's page on GitHub, and opens it in the browser", async ({ demo }) => {
+    const main = await demo.mainWindow();
+    const pane = await openUpdate(main);
+    // Stand in for shell.openExternal: it records each URL, and opens nothing (credits.spec.js's).
+    await demo.app.evaluate(({ shell }) => {
+        globalThis.openedUrls = [];
+        shell.openExternal = async (url) => {
+            globalThis.openedUrls.push(url);
+        };
+    });
+    const status = pane.locator("#update-status");
+
+    // GitHub's tag, as electron-updater gives it.
+    await push(demo, { state: "available", version: "1.1.0", tag: "v1.1.0", dot: true });
+    await expect(status).toHaveText("Version 1.1.0 is available.");
+    const link = status.getByRole("link", { name: "Version 1.1.0" });
+    await expect(link).toHaveAttribute("href", "https://github.com/diamonddigitaldev/electron-kit/releases/tag/v1.1.0");
+    await link.click();
+    // With no tag, the version is the tag.
+    await push(demo, { state: "available", version: "1.2.0-beta.1", dot: true });
+    await status.getByRole("link", { name: "Version 1.2.0-beta.1" }).focus();
+    await main.keyboard.press("Enter");
+    await expect.poll(() => demo.app.evaluate(() => globalThis.openedUrls)).toEqual([
+        "https://github.com/diamonddigitaldev/electron-kit/releases/tag/v1.1.0",
+        "https://github.com/diamonddigitaldev/electron-kit/releases/tag/1.2.0-beta.1",
+    ]);
+    // The page never followed it itself.
+    expect(main.url()).toMatch(/^file:/);
+    expect(demo.app.windows()).toHaveLength(1);
+
+    // Only the available state links.
+    await push(demo, { state: "downloading", version: "1.2.0-beta.1", percent: 3, dot: true });
+    await expect(status.getByRole("link")).toHaveCount(0);
+});
+
 test("the switch's help says what each way does, and changes with it", async ({ demo }) => {
     const main = await demo.mainWindow();
     const pane = await openUpdate(main);
