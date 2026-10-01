@@ -22,13 +22,15 @@
 // check on who's asking as the shared ones. Every option is checked here, so a
 // mistake throws at launch. It keeps the app's log, redacted, in debug.log
 // with log: "file" (log.js), and migrates the settings once per version
-// (store.js). The rest of start() (single instance, windows) arrives piece by
-// piece.
+// (store.js). It takes the single-instance lock, makes the main window with
+// its bounds kept (windows.js), and pushes the files the app is opened with to
+// its page (instance.js).
 
 const path = require("path");
 const { app, BrowserWindow, session } = require("electron");
 const { CHANNELS, INVOKE, PUSH } = require("./channels");
 const info = require("./info");
+const instance = require("./instance");
 const ipc = require("./ipc");
 const logging = require("./log");
 const menu = require("./menu");
@@ -37,6 +39,7 @@ const store = require("./store");
 const theme = require("./theme");
 const updater = require("./updater");
 const version = require("./version");
+const windowing = require("./windows");
 
 /** The shared preload, which kit.start() registers on the app's session. */
 const PRELOAD_PATH = path.join(__dirname, "..", "preload.js");
@@ -64,6 +67,8 @@ function registerPreload(ses) {
  * @param {{
  *   settings?: { defaults?: Record<string, unknown>, version?: number, migrate?: (settings: object, from: number) => object, obsoleteKeys?: string[] },
  *   log?: "file",
+ *   singleInstance?: boolean,
+ *   files?: boolean,
  *   credits?: { lines?: (string | (string | { text: string, href: string })[])[], donate?: string },
  *   repository?: string,
  *   name?: string,
@@ -74,18 +79,24 @@ function registerPreload(ses) {
  *   wrote into it (updater.js). Without it there's no updater. log: "file"
  *   keeps the log in debug.log in userData (log.js); without it, the console
  *   only. settings.version, migrate and obsoleteKeys: the store's migration
- *   (store.js).
+ *   (store.js). singleInstance: false lets more than one run (it's one, by
+ *   default). files: the app takes files it's opened with (instance.js).
  * @returns {{
  *   ready: Promise<void>,
  *   settings: { get(): object, set(changes: object): object },
  *   ipc: { handle(channel: string, handler: (event: Electron.IpcMainInvokeEvent, ...args: any[]) => any): void },
  *   log: { error(...args: unknown[]): void, warn(...args: unknown[]): void, info(...args: unknown[]): void, debug(...args: unknown[]): void },
+ *   windows: { createMain(options: object): Electron.BrowserWindow, main(): Electron.BrowserWindow | null },
+ *   files: { open(paths: string[]): void },
+ *   primary: boolean,
  * }}
  *   ready resolves once the app is ready, the shared preload is registered and
  *   the menu set: create windows after it. settings are the app's settings,
  *   for its main process. ipc.handle() answers one of the app's own channels,
  *   for the app's own page only (ipc.js). log is the app's log, redacted
- *   (log.js).
+ *   (log.js). windows.createMain() makes the main window (windows.js).
+ *   files.open() hands the page files from the app's own menu. primary is
+ *   false in a second launch, which is quitting.
  */
 function start(config = {}) {
     if (started) throw new Error("kit.start() was called twice.");
@@ -98,6 +109,8 @@ function start(config = {}) {
         banner: `${config.name ?? app.getName()} ${app.getVersion()} started`,
     });
     const settings = store.createSettings({ ...config.settings, log });
+    if (config.singleInstance !== undefined && typeof config.singleInstance !== "boolean") throw new Error("kit.start(): singleInstance must be true or false.");
+    if (config.files !== undefined && typeof config.files !== "boolean") throw new Error("kit.start(): files must be true or false.");
     const credits = info.checkInfo({ credits: config.credits, repository: config.repository, name: config.name });
     const updates = updater.createUpdater({ options: updater.checkUpdates(config.updates), app, settings, send: sendUpdateStatus });
     const template = menu.menuTemplate({
@@ -106,6 +119,13 @@ function start(config = {}) {
         checkForUpdates: () => updates.check().catch(() => {}),
     });
     started = true;
+
+    // One instance, before any window: a second launch hands its argv over and quits.
+    const primary = config.singleInstance === false ? true : instance.takeLock();
+    let windows = null;
+    const files = instance.createFiles({ files: config.files === true, main: () => windows.main(), log });
+    windows = windowing.createWindows({ bounds: settings.bounds, onMainCreated: files.mainCreated });
+    files.listen({ isPackaged: app.isPackaged, appPath: app.getAppPath() });
 
     /** Change some settings, from the page or the app's main, and tell the updater. */
     function setSettings(changes) {
@@ -131,17 +151,31 @@ function start(config = {}) {
     // session and every partition, since it's in place before any is created.
     app.on("session-created", (ses) => ses.setSpellCheckerLanguages([]));
 
+    // The app quits with its last window, bar on macOS, where it stays until it's quit, and
+    // makes its main window again when it's activated with none.
+    app.on("window-all-closed", () => {
+        if (process.platform !== "darwin") app.quit();
+    });
+    app.on("activate", () => {
+        if (BrowserWindow.getAllWindows().length === 0) windows.reopen();
+    });
+
     const ready = app.whenReady().then(() => {
         registerPreload(session.defaultSession);
         menu.setMenu(template);
         theme.followTheme();
         updates.start();
+        // The files the app was launched with, once there's a window for them.
+        files.queue(instance.filePathsFromArgv(process.argv, { isPackaged: app.isPackaged, appPath: app.getAppPath() }));
     });
     return {
         ready,
         settings: { get: settings.get, set: setSettings },
         ipc: { handle: ipc.handleApp },
         log: { error: log.error, warn: log.warn, info: log.info, debug: log.debug },
+        windows: { createMain: windows.createMain, main: windows.main },
+        files: { open: files.open },
+        primary,
     };
 }
 

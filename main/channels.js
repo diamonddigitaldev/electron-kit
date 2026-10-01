@@ -26,6 +26,7 @@ const PUSH = Object.freeze({
     THEME_CHANGED: "theme:changed",
     VIEW_SHOW: "view:show",
     UPDATE_STATUS: "update:status",
+    FILES_OPENED: "files:opened",
 });
 
 /** Every shared channel. */

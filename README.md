@@ -57,17 +57,11 @@ const kit = require("@diamonddigitaldev/electron-kit/main").start({
     menu: { items: [{ label: "Open Files", accelerator: "CmdOrCtrl+O", click: openFiles }] }, // (The Menu)
 });
 
-kit.ready.then(() => {
-    const win = new BrowserWindow({
-        webPreferences: {
-            preload: path.join(__dirname, "preload.js"),
-            sandbox: true,
-            contextIsolation: true,
-            nodeIntegration: false,
-        },
-    });
-    win.loadFile(path.join(__dirname, "index.html"));
-});
+kit.ready.then(() => kit.windows.createMain({                 // (The Main Window)
+    page: path.join(__dirname, "index.html"),
+    size: { width: 1100, height: 780 },
+    webPreferences: { preload: path.join(__dirname, "preload.js") },
+}));
 ```
 
 ```html
@@ -101,6 +95,7 @@ name (`const kitApi = window.kitAPI;`), or use `window.kitAPI` where it's needed
 | `update:status` | the kit pushes | `onUpdateStatus(callback)`: the updater's state, on each change; to the app's own windows only |
 | `theme:changed` | the kit pushes | `onThemeChanged(callback)`: `"dark"` or `"light"` on each change of the OS theme; returns a function that stops listening |
 | `view:show` | the kit pushes | `onShowView(callback)`: `{ view, tab }` when the menu asks for a view; `mountShell()` listens for it |
+| `files:opened` | the kit pushes | `onFilesOpened(callback)`: the files the app was asked to open, as a list of paths (with `start({ files: true })`) |
 
 A pushed value reaches the callback on its own, never with the IPC event behind it.
 `kitAPI.getPathForFile(file)` asks no channel: it's Electron's `webUtils`, in the page, and gives a dropped
@@ -343,6 +338,51 @@ can't happen:
 | `formatDuration(seconds)` | `"9:05"`, `"1:02:03"`; `null` if unknown |
 | `summarise({ done, failed, cancelled }, { one, done })` | `"3 files converted, 1 failed, 2 cancelled"`, or `"Nothing converted"` |
 
+### The Main Window
+
+`kit.windows.createMain(options)` makes the app's main window, after `kit.ready`, and loads its page:
+
+```js
+kit.windows.createMain({
+    page: path.join(__dirname, "index.html"),
+    size: { width: 1100, height: 780 },             // the first time
+    min: { width: 880, height: 600 },
+    title: "Diamond File Converter",
+    icon: path.join(__dirname, "assets", "diamondfileconverter"),   // .ico, .icns or .png, by platform
+    webPreferences: { preload: path.join(__dirname, "preload.js") },
+});
+```
+
+- **Secure, always:** the house's web preferences, sandboxed and isolated with no Node in the page, are laid
+  over the app's. Asking for `nodeIntegration` (or Node in frames or workers), or turning `contextIsolation`,
+  the sandbox or `webSecurity` off, throws. Spell checking is off unless asked for.
+- **Its size and position are kept:** saved 500 ms after it's resized or moved, and as it closes, under
+  `windowBounds` beside the settings in `config.json` (File Converter's own key, so its saved bounds carry over).
+  They're put back at the next launch. The size is never under `min`. A saved position no longer on any
+  screen (a monitor unplugged) is dropped, and the window is centred. A maximised, minimised or full-screen
+  window keeps its last normal bounds.
+- **One main window:** asked for again while it's open, it's restored, shown and focused.
+- `kit.windows.main()` is the main window, or `null`.
+- The app quits when its last window closes, bar on macOS, where an app stays until it's quit and its main
+  window is made again when it's activated with none.
+
+A secondary window has no menu of its own (`win.removeMenu()`); the house menu belongs to the main window.
+
+### One Instance and Files
+
+`start()` takes the single-instance lock before any window, and sets the app's user model ID on Windows, so
+its windows group in the taskbar. A second launch hands its argv to the first and quits: `kit.primary` is
+`false` there. The first restores and focuses its main window. `start({ singleInstance: false })` lets more
+than one run.
+
+With `start({ files: true })`, the files the app is opened with reach its page as `files:opened`
+(`kitAPI.onFilesOpened(callback)`, a list of paths). That covers its own argv ("Open with"), a second launch's
+(Windows starts one process per file opened from Explorer), and macOS's `open-file`. Arrivals are gathered for
+500 ms and pushed as one, once the main window's page has loaded, so none is lost to a page still loading.
+From argv, a path is kept only if it isn't a switch, isn't the app's own folder, and is something on disk.
+The app's own Open Files hands its picks over with `kit.files.open(paths)`: at once, after any still being
+gathered.
+
 ### The Settings
 
 `start({ settings: { defaults } })` gives the app's own settings and their defaults. They're kept by
@@ -382,7 +422,8 @@ done, and a file written by a newer version is left as it is.
 each launch and starts with a banner (`=== Diamond File Converter 2.0.0 started at … ===`), so it's one run's.
 `kit.log.error()`, `warn()`, `info()` and `debug()` write a timed, levelled line and mirror it to the console.
 The `LOG_LEVEL` environment variable sets the least that's kept (`INFO` if it's not set). Without the option,
-the log goes to the console only. A file that can't be written stops being tried, and the app goes on.
+the log goes to the console only. A write that fails never throws into the app: it's said once on the
+console, and the next line tries again, since a file can be held for a moment (a virus scanner, on Windows).
 
 **Everything is redacted before it's written anywhere:**
 - A path keeps its file name only: `C:\Users\will\Videos\clip.mp4` is `…\clip.mp4`, and `/home/will/a.mp4`

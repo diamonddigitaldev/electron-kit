@@ -53,6 +53,14 @@ const STORE_KEY = "settings";
 /** The key the settings' version is stored under, beside them (File Converter's own). */
 const VERSION_KEY = "settingsSchema";
 
+/** The key the main window's bounds are stored under, beside the settings (File Converter's own). */
+const BOUNDS_KEY = "windowBounds";
+
+/** Whether a value is a window's bounds: a width and height, and a position or none. */
+const isBounds = (value) => isPlainObject(value)
+    && [value.width, value.height].every((n) => Number.isFinite(n) && n > 0)
+    && [value.x, value.y].every((n) => n === undefined || Number.isFinite(n));
+
 /** A value's kind: "array", "null", or its typeof. */
 const kindOf = (value) => (Array.isArray(value) ? "array" : value === null ? "null" : typeof value);
 
@@ -133,8 +141,9 @@ function checkMigration({ version, migrate, obsoleteKeys = [] }) {
     }
     if (!Number.isInteger(version) || version < 1) throw new Error("kit.start(): settings.version must be a whole number, from 1.");
     if (migrate !== undefined && typeof migrate !== "function") throw new Error("kit.start(): settings.migrate must be a function.");
-    if (!Array.isArray(obsoleteKeys) || !obsoleteKeys.every((key) => typeof key === "string" && key !== "" && key !== STORE_KEY && key !== VERSION_KEY)) {
-        throw new Error(`kit.start(): settings.obsoleteKeys must be a list of the store's other keys (not "${STORE_KEY}" or "${VERSION_KEY}").`);
+    const kept = [STORE_KEY, VERSION_KEY, BOUNDS_KEY];
+    if (!Array.isArray(obsoleteKeys) || !obsoleteKeys.every((key) => typeof key === "string" && key !== "" && !kept.includes(key))) {
+        throw new Error(`kit.start(): settings.obsoleteKeys must be a list of the store's other keys (not ${kept.map((k) => `"${k}"`).join(", ")}).`);
     }
 }
 
@@ -228,7 +237,25 @@ function createSettings({ defaults = {}, version, migrate, obsoleteKeys, log, op
         return next;
     }
 
-    return { get, set, defaults: all };
+    /**
+     * The main window's bounds (windows.js), kept beside the settings in the
+     * same file: { x, y, width, height }, or null if none are kept, or what's
+     * kept isn't bounds.
+     */
+    const bounds = {
+        get() {
+            stored();
+            const value = store.get(BOUNDS_KEY);
+            return isBounds(value) ? value : null;
+        },
+        set(value) {
+            if (!isBounds(value)) throw new Error("A window's bounds are a width and a height, and an x and a y or neither.");
+            stored();
+            store.set(BOUNDS_KEY, { ...value });
+        },
+    };
+
+    return { get, set, defaults: all, bounds };
 }
 
 /** electron-store, in its default file. It's ESM only; Node's require() loads it as a namespace. */
@@ -237,4 +264,4 @@ function openElectronStore() {
     return new Store();
 }
 
-module.exports = { createSettings, KIT_DEFAULTS, KIT_CHOICES, STORE_KEY, VERSION_KEY };
+module.exports = { createSettings, KIT_DEFAULTS, KIT_CHOICES, STORE_KEY, VERSION_KEY, BOUNDS_KEY };

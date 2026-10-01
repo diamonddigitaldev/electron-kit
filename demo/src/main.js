@@ -13,7 +13,7 @@
 // logs what it was opened with, which the log keeps without any folder.
 
 const path = require("path");
-const { app, BrowserWindow, ipcMain } = require("electron");
+const { BrowserWindow, ipcMain } = require("electron");
 const { IPC, ISOLATED_PARTITION, SETTINGS_DEFAULTS } = require("./constants");
 
 const kit = require("@diamonddigitaldev/electron-kit/main").start({
@@ -30,6 +30,8 @@ const kit = require("@diamonddigitaldev/electron-kit/main").start({
     },
     // debug.log in userData, redacted.
     log: "file",
+    // The files it's opened with (argv, a second launch) reach the page as files:opened.
+    files: true,
     credits: {
         lines: [
             ["Created and maintained by ", { text: "Diamond Digital Development", href: "https://diamonddigital.dev" }, "."],
@@ -58,18 +60,17 @@ const webPreferences = (extra = {}) => ({
     ...extra,
 });
 
+/** The main window: the kit's, its size and position kept between launches. */
 function createMainWindow() {
-    const win = new BrowserWindow({
-        width: 760,
-        height: 600,
-        minWidth: 480,
-        minHeight: 400,
+    const win = kit.windows.createMain({
+        page: path.join(__dirname, "index.html"),
+        size: { width: 760, height: 600 },
+        min: { width: 480, height: 400 },
         title: "electron-kit Demo",
         show: false,
-        webPreferences: webPreferences(),
+        webPreferences: { preload: path.join(__dirname, "preload.js") },
     });
     win.once("ready-to-show", () => win.show());
-    win.loadFile(path.join(__dirname, "index.html"));
 }
 
 function createIsolatedWindow() {
@@ -94,10 +95,6 @@ kit.ipc.handle(IPC.OPEN_ISOLATED_WINDOW, () => {
     createIsolatedWindow();
 });
 ipcMain.handle(IPC.GET_ELECTRON_VERSION, () => process.versions.electron);
-
-app.on("window-all-closed", () => {
-    if (process.platform !== "darwin") app.quit();
-});
 
 kit.ready.then(() => {
     kit.log.info("Opened with", JSON.stringify(process.argv));

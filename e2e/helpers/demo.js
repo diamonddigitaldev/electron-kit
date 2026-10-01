@@ -25,13 +25,18 @@
 // its executable), so the same tests check the packaged app.
 //
 // A spec can add switches of its own to every launch with
-// test.use({ demoSwitches: [...] }), as the visual spec pins the scale factor.
+// test.use({ demoSwitches: [...] }), as the visual spec pins the scale factor,
+// and files to open with test.use({ demoFiles: [...] }), after the app, as
+// "Open with" passes them. demo.launchSecond(files) launches the demo again on
+// the same profile, as a second "Open with" would, and resolves with its exit
+// code once it has handed its files over and quit.
 
 const { _electron: electron, test: base, expect } = require("@playwright/test");
 const fs = require("fs");
 const os = require("os");
 const path = require("path");
 const { createRequire } = require("module");
+const { spawn } = require("child_process");
 const { setTimeout: sleep } = require("timers/promises");
 const { outsideLookups } = require("./netlog");
 
@@ -188,7 +193,8 @@ class Demo {
 
 const test = base.extend({
     demoSwitches: [[], { option: true }],
-    demo: async ({ demoSwitches }, use) => {
+    demoFiles: [[], { option: true }],
+    demo: async ({ demoSwitches, demoFiles }, use) => {
         const root = fs.mkdtempSync(path.join(os.tmpdir(), "electron-kit-demo-"));
         const profile = path.join(root, "profile");
         const env = { ...process.env };
@@ -205,7 +211,7 @@ const test = base.extend({
             netLogs.push(netLog);
             const switches = [`--user-data-dir=${profile}`, "--no-proxy-server", `--log-net-log=${netLog}`, ...demoSwitches];
             const launched = await electron.launch({
-                ...(PACKAGED ? { executablePath: PACKAGED, args: switches } : { executablePath: electronPath(), args: [...switches, DEMO_DIR] }),
+                ...(PACKAGED ? { executablePath: PACKAGED, args: [...switches, ...demoFiles] } : { executablePath: electronPath(), args: [...switches, DEMO_DIR, ...demoFiles] }),
                 env,
                 colorScheme: null,
             });
@@ -217,6 +223,22 @@ const test = base.extend({
 
         const demo = new Demo(await launch());
         demo.profile = profile;
+        /** Launch the demo again on the same profile with these files; it hands them over and quits. */
+        demo.launchSecond = (files) => new Promise((resolve, reject) => {
+            const switches = [`--user-data-dir=${profile}`, "--no-proxy-server"];
+            const child = PACKAGED
+                ? spawn(PACKAGED, [...switches, ...files], { env, stdio: "ignore" })
+                : spawn(electronPath(), [...switches, DEMO_DIR, ...files], { env, stdio: "ignore" });
+            const timer = setTimeout(() => {
+                child.kill();
+                reject(new Error("The second launch didn't quit within 15 s."));
+            }, 15_000);
+            child.on("error", reject);
+            child.on("exit", (code) => {
+                clearTimeout(timer);
+                resolve(code);
+            });
+        });
         /** Quit the demo and launch it again on the same profile, as a person would the next day. */
         demo.relaunch = async () => {
             await close(demo.app);

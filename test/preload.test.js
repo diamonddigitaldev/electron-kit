@@ -28,6 +28,7 @@ const BRIDGE = {
     onUpdateStatus: { on: PUSH.UPDATE_STATUS },
     onThemeChanged: { on: PUSH.THEME_CHANGED },
     onShowView: { on: PUSH.VIEW_SHOW },
+    onFilesOpened: { on: PUSH.FILES_OPENED },
     // Asks no channel: Electron's webUtils answers it in the renderer.
     getPathForFile: { local: true },
 };
