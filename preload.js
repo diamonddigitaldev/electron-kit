@@ -66,7 +66,14 @@ contextBridge.exposeInMainWorld("kitAPI", {
     onShowView: (callback) => on(CH.VIEW_SHOW, callback),
     // string[]: the files the app was asked to open (argv, a second launch, open-file, its menu), 500 ms at a time.
     onFilesOpened: (callback) => on(CH.FILES_OPENED, callback),
-    // A dropped File's path on disk ("" for one that isn't a file on disk). One File at a time: a FileList
-    // can't cross the bridge. kit.ui.dropZone() uses it.
-    getPathForFile: (file) => webUtils.getPathForFile(file),
+    // A dropped File's path on disk ("" for one that isn't a file on disk, or isn't a File at all, which
+    // webUtils throws on: one odd item mustn't lose the whole drop). One File at a time: a FileList can't
+    // cross the bridge. kit.ui.dropZone() uses it.
+    getPathForFile: (file) => {
+        try {
+            return webUtils.getPathForFile(file);
+        } catch {
+            return "";
+        }
+    },
 });

@@ -82,6 +82,11 @@ test("kitAPI.getPathForFile() asks Electron's webUtils for one File's path, and 
     assert.deepEqual(calls, []);
 });
 
+test("kitAPI.getPathForFile() gives \"\" for anything webUtils throws on, rather than throwing into the page", () => {
+    const { exposed } = loadPreload(PRELOAD, { webUtils: { getPathForFile: () => { throw new TypeError("Not a File"); } } });
+    assert.equal(exposed.kitAPI.getPathForFile("not a file"), "");
+});
+
 test("each kitAPI method that listens hands its callback the payload alone, and can stop", () => {
     for (const [name, channel] of methodsThat("on")) {
         const { exposed, calls } = loadPreload(PRELOAD);
