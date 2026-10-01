@@ -4,8 +4,8 @@
 // control in a sensible order, and each one shows a focus ring that's solid,
 // 2px, and 3:1 or more against what's behind it (01 §4), in both themes,
 // with the rail expanded and collapsed, in the demo's accent and each app's.
-// Nothing here opens a modal or popover, so Escape and focus return wait for
-// the toast and confirm pieces (M3).
+// Nothing here opens a modal or popover: a prompt's keyboard (the focus kept
+// inside, Escape, the focus going back) is in prompts.spec.js.
 
 const fs = require("fs");
 const path = require("path");
