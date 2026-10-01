@@ -8,15 +8,28 @@
 // the demo's own preload. The isolated window runs in a partition of its own,
 // where the kit's preload is never registered: it gets electronAPI only.
 //
-// The demo passes the kit its own setting, its credits and its own menu item,
-// so every piece of the kit is in use.
+// The demo passes the kit its own setting (and a migration), its credits, its
+// own menu item and a log in a file, so every piece of the kit is in use. It
+// logs what it was opened with, which the log keeps without any folder.
 
 const path = require("path");
 const { app, BrowserWindow, ipcMain } = require("electron");
 const { IPC, ISOLATED_PARTITION, SETTINGS_DEFAULTS } = require("./constants");
 
 const kit = require("@diamonddigitaldev/electron-kit/main").start({
-    settings: { defaults: SETTINGS_DEFAULTS },
+    // Version 1 of the demo's settings: a store from before it loses the
+    // setting the demo dropped, and its old key.
+    settings: {
+        defaults: SETTINGS_DEFAULTS,
+        version: 1,
+        migrate: (settings) => {
+            delete settings.showGrid;
+            return settings;
+        },
+        obsoleteKeys: ["recentFiles"],
+    },
+    // debug.log in userData, redacted.
+    log: "file",
     credits: {
         lines: [
             ["Created and maintained by ", { text: "Diamond Digital Development", href: "https://diamonddigital.dev" }, "."],
@@ -86,4 +99,7 @@ app.on("window-all-closed", () => {
     if (process.platform !== "darwin") app.quit();
 });
 
-kit.ready.then(createMainWindow);
+kit.ready.then(() => {
+    kit.log.info("Opened with", JSON.stringify(process.argv));
+    createMainWindow();
+});

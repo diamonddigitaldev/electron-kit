@@ -14,8 +14,17 @@
 // a boolean), or it's refused and nothing is stored. A setting whose default
 // is null has no kind yet: it takes any JSON value.
 //
-// Migration between versions of the settings comes with the rest of the store
-// (M3).
+// Migration: an app whose settings change shape between versions gives them a
+// version (settings: { version, migrate, obsoleteKeys }). When the file was
+// last written by an older version, or by none, migrate(settings, from) is
+// handed what's stored and returns what's kept; every setting it drops is
+// logged by name, and so is each obsolete key the file still holds outside
+// the settings (a store of presets from v1), which is deleted. Then the
+// version is stored beside them, as settingsSchema, so it runs once per
+// version: an unconditional prune would eat a value a later version wrote, on
+// its next launch. It runs as the store is first opened, so nothing reads a
+// setting it's about to remove. A file written by a newer version is left as
+// it is.
 
 /** The kit's own settings, which every app has. */
 const KIT_DEFAULTS = Object.freeze({
@@ -40,6 +49,9 @@ const KIT_CHOICES = Object.freeze({
 
 /** The key the settings are stored under. */
 const STORE_KEY = "settings";
+
+/** The key the settings' version is stored under, beside them (File Converter's own). */
+const VERSION_KEY = "settingsSchema";
 
 /** A value's kind: "array", "null", or its typeof. */
 const kindOf = (value) => (Array.isArray(value) ? "array" : value === null ? "null" : typeof value);
@@ -110,18 +122,78 @@ function checkDefaults(defaults) {
 }
 
 /**
- * The app's settings.
- * @param {{ defaults?: Record<string, unknown>, open?: () => { get(key: string): unknown, set(key: string, value: unknown): void } }} [options]
- *   defaults: the app's own settings and their defaults. open: opens the
- *   store, electron-store unless a test stands one in. It's opened on first
- *   use, never before.
+ * Check the migration's options: a version (a whole number from 1), a migrate
+ * function, and the obsolete keys (names other than the settings' own). All
+ * optional, but migrate and obsoleteKeys need a version.
  */
-function createSettings({ defaults = {}, open = openElectronStore } = {}) {
+function checkMigration({ version, migrate, obsoleteKeys = [] }) {
+    if (version === undefined) {
+        if (migrate !== undefined || obsoleteKeys.length > 0) throw new Error("kit.start(): settings.migrate and settings.obsoleteKeys need a settings.version.");
+        return;
+    }
+    if (!Number.isInteger(version) || version < 1) throw new Error("kit.start(): settings.version must be a whole number, from 1.");
+    if (migrate !== undefined && typeof migrate !== "function") throw new Error("kit.start(): settings.migrate must be a function.");
+    if (!Array.isArray(obsoleteKeys) || !obsoleteKeys.every((key) => typeof key === "string" && key !== "" && key !== STORE_KEY && key !== VERSION_KEY)) {
+        throw new Error(`kit.start(): settings.obsoleteKeys must be a list of the store's other keys (not "${STORE_KEY}" or "${VERSION_KEY}").`);
+    }
+}
+
+/**
+ * Bring the store up to the settings' version, once (the top of this file).
+ * @param {{ get(key: string): unknown, set(key: string, value: unknown): void, delete(key: string): void }} store
+ * @param {{ version?: number, migrate?: (settings: object, from: number) => object, obsoleteKeys?: string[], log?: { info(...args: unknown[]): void } }} options
+ */
+function migrateStore(store, { version, migrate, obsoleteKeys = [], log }) {
+    if (version === undefined) return;
+    const from = store.get(VERSION_KEY);
+    const was = Number.isInteger(from) ? from : 0;
+    if (was >= version) return;
+
+    if (migrate) {
+        const before = store.get(STORE_KEY);
+        const settings = isPlainObject(before) ? before : {};
+        const after = migrate(structuredClone(settings), was);
+        if (!isPlainObject(after)) throw new Error("settings.migrate() must return the settings to keep, as an object.");
+        const removed = Object.keys(settings).filter((key) => !Object.hasOwn(after, key));
+        if (removed.length > 0) log?.info(`Settings version ${version}: removing ${removed.join(", ")}.`);
+        if (JSON.stringify(after) !== JSON.stringify(settings)) store.set(STORE_KEY, after);
+    }
+    for (const key of obsoleteKeys) {
+        if (store.get(key) !== undefined) {
+            log?.info(`Settings version ${version}: removing the store's obsolete key ${key}.`);
+            store.delete(key);
+        }
+    }
+    store.set(VERSION_KEY, version);
+}
+
+/**
+ * The app's settings.
+ * @param {{
+ *   defaults?: Record<string, unknown>,
+ *   version?: number,
+ *   migrate?: (settings: object, from: number) => object,
+ *   obsoleteKeys?: string[],
+ *   log?: { info(...args: unknown[]): void },
+ *   open?: () => { get(key: string): unknown, set(key: string, value: unknown): void, delete(key: string): void },
+ * }} [options]
+ *   defaults: the app's own settings and their defaults. version, migrate and
+ *   obsoleteKeys: the migration (the top of this file); log: where it says
+ *   what it removed. open: opens the store, electron-store unless a test
+ *   stands one in. It's opened on first use, never before, and migrated then.
+ */
+function createSettings({ defaults = {}, version, migrate, obsoleteKeys, log, open = openElectronStore } = {}) {
     checkDefaults(defaults);
+    checkMigration({ version, migrate, obsoleteKeys });
     const all = Object.freeze({ ...defaults, ...KIT_DEFAULTS });
     let store = null;
     const stored = () => {
-        store ??= open();
+        if (!store) {
+            const opened = open();
+            // A migration that throws is tried again at the next use, never skipped.
+            migrateStore(opened, { version, migrate, obsoleteKeys, log });
+            store = opened;
+        }
         const value = store.get(STORE_KEY);
         return isPlainObject(value) ? value : {};
     };
@@ -165,4 +237,4 @@ function openElectronStore() {
     return new Store();
 }
 
-module.exports = { createSettings, KIT_DEFAULTS, KIT_CHOICES, STORE_KEY };
+module.exports = { createSettings, KIT_DEFAULTS, KIT_CHOICES, STORE_KEY, VERSION_KEY };

@@ -353,7 +353,48 @@ added later appears with its default, and a stored value of the wrong kind is ne
 must name a known setting and keep its kind (a boolean stays a boolean, a list a list), with JSON values
 only, or it's refused and nothing is stored. A setting whose default is `null` means "not chosen yet", and
 takes any JSON value (File Converter's `concurrency: null`, the CPU count until someone picks one). The main process has the same settings as
-`kit.settings.get()` and `kit.settings.set(changes)`. Migration between versions comes later.
+`kit.settings.get()` and `kit.settings.set(changes)`.
+
+**Migration.** An app whose settings change shape between versions numbers them:
+
+```js
+settings: {
+    defaults: SETTINGS_DEFAULTS,
+    version: 2,                                      // a whole number, from 1
+    migrate: (settings, from) => {                   // what's stored; return what's kept
+        for (const key of ["outputRouting", "outputDir"]) delete settings[key];
+        return settings;
+    },
+    obsoleteKeys: ["presets", "pipelines"],          // the store's other keys, deleted
+},
+```
+
+When the file was last written by an older version, or by none (`from` is then `0`), `migrate` is handed
+what's stored, and every setting it drops is logged by name. Each obsolete key the file still holds is deleted
+and logged too. Then the version is stored beside the settings as `settingsSchema`, so it runs once per
+version: an unconditional prune would eat a value a later version wrote, on its next launch. It runs as the
+store is first opened, so nothing reads a setting it's about to remove. A migration that throws isn't marked
+done, and a file written by a newer version is left as it is.
+
+### The Log
+
+`start({ log: "file" })` keeps the app's log in `debug.log` in its `userData` folder. The file is emptied at
+each launch and starts with a banner (`=== Diamond File Converter 2.0.0 started at … ===`), so it's one run's.
+`kit.log.error()`, `warn()`, `info()` and `debug()` write a timed, levelled line and mirror it to the console.
+The `LOG_LEVEL` environment variable sets the least that's kept (`INFO` if it's not set). Without the option,
+the log goes to the console only. A file that can't be written stops being tried, and the app goes on.
+
+**Everything is redacted before it's written anywhere:**
+- A path keeps its file name only: `C:\Users\will\Videos\clip.mp4` is `…\clip.mp4`, and `/home/will/a.mp4`
+  is `…/a.mp4`. That covers a drive's, a share's, one from `/` or `~/`, and one inside JSON. A path runs on,
+  spaces and all, until a character no file name holds on Windows, the line's end, or another path, so a
+  folder is never left behind.
+- A URL keeps its scheme, host and path, and loses its query, its fragment and any user name, since a
+  Dropgate link's key is in its fragment. A `file:` URL keeps its file name only.
+- An `Error` is logged by its stack, redacted the same way.
+
+So an app can log the file it failed on, or the argv it was opened with, without the log saying where a
+person keeps their files.
 
 ### Updates
 

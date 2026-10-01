@@ -3,7 +3,8 @@
 // electron-kit's main-process entry, what an app's main.js requires:
 //
 //     const kit = require("@diamonddigitaldev/electron-kit/main").start({
-//         settings: { defaults: SETTINGS_DEFAULTS },     // the app's own settings
+//         settings: { defaults: SETTINGS_DEFAULTS },     // the app's own settings (and version, migrate)
+//         log:      "file",                               // debug.log in userData, redacted
 //         credits:  { lines: [...], donate: "https://…" }, // the Credits tab (info.js)
 //         menu:     { items: [/* Open Files… */] },       // the app's own menu items
 //         updates:  {},                                     // the app updates itself (updater.js)
@@ -19,14 +20,17 @@
 // updates option, runs the updater behind Settings > Update (updater.js). It
 // answers the app's own channels too, through kit.ipc.handle(), with the same
 // check on who's asking as the shared ones. Every option is checked here, so a
-// mistake throws at launch. The rest of start() (logging, single instance,
-// windows) arrives piece by piece.
+// mistake throws at launch. It keeps the app's log, redacted, in debug.log
+// with log: "file" (log.js), and migrates the settings once per version
+// (store.js). The rest of start() (single instance, windows) arrives piece by
+// piece.
 
 const path = require("path");
 const { app, BrowserWindow, session } = require("electron");
 const { CHANNELS, INVOKE, PUSH } = require("./channels");
 const info = require("./info");
 const ipc = require("./ipc");
+const logging = require("./log");
 const menu = require("./menu");
 const shell = require("./shell");
 const store = require("./store");
@@ -58,7 +62,8 @@ function registerPreload(ses) {
 /**
  * Start the kit. Call it once, at the top of main.js, before any window.
  * @param {{
- *   settings?: { defaults?: Record<string, unknown> },
+ *   settings?: { defaults?: Record<string, unknown>, version?: number, migrate?: (settings: object, from: number) => object, obsoleteKeys?: string[] },
+ *   log?: "file",
  *   credits?: { lines?: (string | (string | { text: string, href: string })[])[], donate?: string },
  *   repository?: string,
  *   name?: string,
@@ -66,22 +71,33 @@ function registerPreload(ses) {
  *   updates?: { checkOnLaunch?: boolean } | boolean,
  * }} [config]
  *   updates: the app updates itself, from the update server electron-builder
- *   wrote into it (updater.js). Without it there's no updater.
+ *   wrote into it (updater.js). Without it there's no updater. log: "file"
+ *   keeps the log in debug.log in userData (log.js); without it, the console
+ *   only. settings.version, migrate and obsoleteKeys: the store's migration
+ *   (store.js).
  * @returns {{
  *   ready: Promise<void>,
  *   settings: { get(): object, set(changes: object): object },
  *   ipc: { handle(channel: string, handler: (event: Electron.IpcMainInvokeEvent, ...args: any[]) => any): void },
+ *   log: { error(...args: unknown[]): void, warn(...args: unknown[]): void, info(...args: unknown[]): void, debug(...args: unknown[]): void },
  * }}
  *   ready resolves once the app is ready, the shared preload is registered and
  *   the menu set: create windows after it. settings are the app's settings,
  *   for its main process. ipc.handle() answers one of the app's own channels,
- *   for the app's own page only (ipc.js).
+ *   for the app's own page only (ipc.js). log is the app's log, redacted
+ *   (log.js).
  */
 function start(config = {}) {
     if (started) throw new Error("kit.start() was called twice.");
 
     // Every option is checked before anything is registered.
-    const settings = store.createSettings(config.settings);
+    const { mode } = logging.checkLog(config.log);
+    const log = logging.createLog({
+        mode,
+        dir: mode === "file" ? app.getPath("userData") : undefined,
+        banner: `${config.name ?? app.getName()} ${app.getVersion()} started`,
+    });
+    const settings = store.createSettings({ ...config.settings, log });
     const credits = info.checkInfo({ credits: config.credits, repository: config.repository, name: config.name });
     const updates = updater.createUpdater({ options: updater.checkUpdates(config.updates), app, settings, send: sendUpdateStatus });
     const template = menu.menuTemplate({
@@ -121,7 +137,12 @@ function start(config = {}) {
         theme.followTheme();
         updates.start();
     });
-    return { ready, settings: { get: settings.get, set: setSettings }, ipc: { handle: ipc.handleApp } };
+    return {
+        ready,
+        settings: { get: settings.get, set: setSettings },
+        ipc: { handle: ipc.handleApp },
+        log: { error: log.error, warn: log.warn, info: log.info, debug: log.debug },
+    };
 }
 
 /**
