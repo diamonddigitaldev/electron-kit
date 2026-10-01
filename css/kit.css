@@ -973,10 +973,14 @@ a:hover {
 }
 
 /* -- Prompts --------------------------------------------------------------------
-   kit.ui.confirm(): a native modal <dialog>, drawn as Bootstrap's centred
-   modal is (its surface, border, radius and shadow, a half-black backdrop,
-   no rules between header, body and footer), without Bootstrap's script. It
-   fades and drops in over --dur-default, and fades out (.leaving). */
+   kit.ui.confirm(): a native modal <dialog>, drawn as Dropgate's Upload
+   Security Warning, a Bootstrap centred modal, is (Will, D73): its surface,
+   border and radius with no shadow, a half-black backdrop, no rules between
+   header, body and footer, and Bootstrap's own spacing; the glyph beside the
+   title, in a warning's or a danger's colour for those; the body in the
+   page's text, and a detail under it, small and grey. Without Bootstrap's
+   script. It slides down 50px into place, as Bootstrap's does, over
+   --dur-default, and back up as it goes (.leaving). */
 .kit-dialog {
     width: min(500px, calc(100% - 1rem));
     padding: 0;
@@ -984,20 +988,19 @@ a:hover {
     border-radius: var(--bs-border-radius-lg);
     background-color: var(--bs-body-bg);
     color: var(--bs-body-color);
-    box-shadow: var(--bs-box-shadow);
 }
 
 .kit-dialog[open] {
-    animation: kit-dialog-in var(--dur-default) var(--ease-standard);
+    animation: kit-dialog-in var(--dur-default) ease-out;
 }
 
 .kit-dialog[open]::backdrop {
     background-color: rgb(0 0 0 / 0.5);
-    animation: kit-backdrop-in var(--dur-default) var(--ease-standard);
+    animation: kit-backdrop-in var(--dur-state) linear;
 }
 
 @keyframes kit-dialog-in {
-    from { opacity: 0; transform: translateY(-24px); }
+    from { opacity: 0; transform: translateY(-50px); }
     to   { opacity: 1; transform: none; }
 }
 
@@ -1008,14 +1011,14 @@ a:hover {
 
 .kit-dialog.leaving {
     opacity: 0;
-    transform: translateY(-24px);
-    transition: opacity var(--dur-state) var(--ease-standard),
-                transform var(--dur-state) var(--ease-standard);
+    transform: translateY(-50px);
+    transition: opacity var(--dur-state) linear,
+                transform var(--dur-default) ease-out;
 }
 
 .kit-dialog.leaving::backdrop {
     opacity: 0;
-    transition: opacity var(--dur-state) var(--ease-standard);
+    transition: opacity var(--dur-state) linear;
 }
 
 .kit-dialog-header {
@@ -1023,7 +1026,7 @@ a:hover {
     align-items: center;
     justify-content: space-between;
     gap: 0.5rem;
-    padding: 1rem 1rem 0.5rem;
+    padding: 1rem;
 }
 
 .kit-dialog-title {
@@ -1036,31 +1039,44 @@ a:hover {
     line-height: 1.5;
 }
 
-.kit-dialog-icon {
+/* The accent's text shade, unless the prompt is a warning or a danger
+   (.text-warning, .text-danger, Bootstrap's). */
+.kit-dialog-icon:not([class*="text-"]) {
     color: var(--accent-text);
 }
 
 .kit-dialog-body {
-    padding: 0 1rem 1rem;
+    padding: 1rem;
 }
 
 .kit-dialog-text {
     margin: 0;
+    overflow-wrap: anywhere;
+}
+
+.kit-dialog-detail {
+    margin: 1rem 0 0;
     color: var(--bs-secondary-color);
+    font-size: 0.875em;
     overflow-wrap: anywhere;
 }
 
 .kit-dialog-all {
-    margin: 0.75rem 0 0;
+    margin: 1rem 0 0;
 }
 
-/* Cancel first, on the left; the buttons wrap on a narrow window. */
+/* Cancel first, on the left; the buttons wrap on a narrow window. Bootstrap's
+   footer spacing: 0.75rem round the edge, and 0.25rem round each button. */
 .kit-dialog-footer {
     display: flex;
     flex-wrap: wrap;
+    align-items: center;
     justify-content: flex-end;
-    gap: 0.5rem;
-    padding: 0 1rem 1rem;
+    padding: 0.75rem;
+}
+
+.kit-dialog-footer > .btn {
+    margin: 0.25rem;
 }
 
 /* Bootstrap's close button glows on focus like its other controls; it takes

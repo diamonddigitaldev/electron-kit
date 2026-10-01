@@ -457,17 +457,18 @@
         const title = el("span", { attrs: { id: "kit-dialog-title" } });
         const closeButton = el("button", { className: "btn-close", attrs: { type: "button", "aria-label": "Close" } });
         const body = el("p", { className: "kit-dialog-text", attrs: { id: "kit-dialog-body" } });
+        const detail = el("p", { className: "kit-dialog-detail", attrs: { id: "kit-dialog-detail" } });
         const all = el("input", { className: "form-check-input", attrs: { type: "checkbox", id: "kit-dialog-all" } });
         const allLabel = el("label", { className: "form-check-label", attrs: { for: "kit-dialog-all" } });
         const allRow = el("div", { className: "form-check kit-dialog-all" }, [all, allLabel]);
         const footer = el("div", { className: "kit-dialog-footer" });
-        const dialog = el("dialog", { className: "kit-dialog", attrs: { role: "alertdialog", "aria-modal": "true", "aria-labelledby": "kit-dialog-title", "aria-describedby": "kit-dialog-body" } }, [
+        const dialog = el("dialog", { className: "kit-dialog", attrs: { role: "alertdialog", "aria-modal": "true", "aria-labelledby": "kit-dialog-title", "aria-describedby": "kit-dialog-body kit-dialog-detail" } }, [
             el("div", { className: "kit-dialog-header" }, [el("h2", { className: "kit-dialog-title" }, [glyph, title]), closeButton]),
-            el("div", { className: "kit-dialog-body" }, [body, allRow]),
+            el("div", { className: "kit-dialog-body" }, [body, detail, allRow]),
             footer,
         ]);
         document.body.append(dialog);
-        dialogParts = { dialog, glyph, title, closeButton, body, all, allLabel, allRow, footer };
+        dialogParts = { dialog, glyph, title, closeButton, body, detail, all, allLabel, allRow, footer };
         return dialogParts;
     }
 
@@ -480,9 +481,10 @@
         const fail = (message) => {
             throw new Error(`kit.ui.confirm(): ${message}`);
         };
-        const { title, body, icon: glyph = "help_outline", choices, applyToAll } = options ?? {};
+        const { title, body, detail = null, icon: glyph = "help_outline", choices, applyToAll } = options ?? {};
         if (typeof title !== "string" || title === "") fail("title must be the question, in Title Case.");
         if (typeof body !== "string" || body === "") fail("body must be text.");
+        if (detail !== null && (typeof detail !== "string" || detail === "")) fail("detail must be text, or left out.");
         if (typeof glyph !== "string" || glyph === "") fail("icon must be a Material Icons Round glyph.");
         const variant = (value, where) => {
             if (!BUTTON_VARIANTS.includes(value)) fail(`${where} must be one of ${BUTTON_VARIANTS.join(", ")}.`);
@@ -498,8 +500,10 @@
             // Something risky or destructive is confirmed on purpose: the focus starts on Cancel.
             const risky = ["warning", "danger"].includes(confirmVariant);
             return {
-                title, body, glyph, batch: false, applyToAll: null,
-                buttons: [{ value: false, label: cancelLabel, variant: "outline-secondary" }, { value: true, label: confirmLabel, variant: confirmVariant }],
+                title, body, detail, glyph, batch: false, applyToAll: null,
+                // The glyph takes a warning's or a danger's colour, as Dropgate's Upload Security Warning does.
+                tone: risky ? confirmVariant : null,
+                buttons: [{ value: false, label: cancelLabel, variant: "secondary" }, { value: true, label: confirmLabel, variant: confirmVariant }],
                 cancel: false,
                 focus: risky ? false : true,
             };
@@ -513,7 +517,7 @@
             if (values.has(value)) fail(`choices[${i}].value "${value}" is taken.`);
             values.add(value);
             if (typeof label !== "string" || label === "") fail(`choices[${i}].label must be text.`);
-            return { value, label, variant: variant(choice.variant ?? (value === options.defaultChoice ? "primary" : "outline-secondary"), `choices[${i}].variant`) };
+            return { value, label, variant: variant(choice.variant ?? (value === options.defaultChoice ? "primary" : "secondary"), `choices[${i}].variant`) };
         });
         const { cancel = buttons[0].value, defaultChoice = buttons[buttons.length - 1].value } = options;
         if (!values.has(cancel)) fail(`cancel "${cancel}" isn't one of the choices.`);
@@ -522,7 +526,7 @@
             fail("applyToAll must be true, or the checkbox's label.");
         }
         return {
-            title, body, glyph, batch: true, buttons, cancel, focus: defaultChoice,
+            title, body, detail, glyph, tone: null, batch: true, buttons, cancel, focus: defaultChoice,
             applyToAll: applyToAll === true ? "Apply to All Remaining" : applyToAll || null,
         };
     }
@@ -533,10 +537,13 @@
      */
     function ask(prompt) {
         const parts = confirmDialog();
-        const { dialog, glyph, title, closeButton, body, all, allLabel, allRow, footer } = parts;
+        const { dialog, glyph, title, closeButton, body, detail, all, allLabel, allRow, footer } = parts;
         glyph.textContent = prompt.glyph;
+        glyph.className = `material-icons-round kit-dialog-icon${prompt.tone ? ` text-${prompt.tone}` : ""}`;
         title.textContent = prompt.title;
         body.textContent = prompt.body;
+        detail.textContent = prompt.detail ?? "";
+        detail.hidden = !prompt.detail;
         allRow.hidden = !prompt.applyToAll;
         allLabel.textContent = prompt.applyToAll ?? "";
         all.checked = false;
@@ -613,11 +620,15 @@
      * while another shows waits until that's answered.
      *
      *     if (!await kit.ui.confirm({ title: "Large Frame Export", body: "This writes about 4,000 images.",
+     *                                 detail: "Narrow the range if that's more than you meant.",
      *                                 confirmLabel: "Write Them", variant: "warning", icon: "burst_mode" })) return;
      *
      * resolves true on the confirm button, and false every other way out:
      * Cancel, Escape, the backdrop, the close button. The focus starts on the
-     * confirm button, or on Cancel when the variant is warning or danger.
+     * confirm button, or on Cancel when the variant is warning or danger, when
+     * the glyph takes the variant's colour too. It's drawn as Dropgate's Upload
+     * Security Warning is: the body in the page's text, a detail under it in
+     * small grey text, Cancel a filled grey button.
      *
      * The batch form, for a question asked of each item in a batch, takes the
      * answers as choices, left to right, and an Apply to All Remaining checkbox:
@@ -632,8 +643,8 @@
      * It resolves { choice, all }: the choice's value, and whether the box was
      * ticked. cancel is the answer every other way out gives (the first choice
      * if not given); defaultChoice takes the focus, in btn-primary (the last
-     * choice if not given). Each choice is btn-outline-secondary unless it
-     * names its variant. Everything is text, never markup.
+     * choice if not given). Each choice is btn-secondary unless it names its
+     * variant. Everything is text, never markup.
      * @returns {Promise<boolean | { choice: string, all: boolean }>}
      */
     function confirm(options) {

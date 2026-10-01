@@ -229,8 +229,10 @@ until it's dismissed, unless it's given a `timeout`.
 ### Prompts
 
 `kit.ui.confirm(options)` asks a question only the person can answer, in a modal over the page, and resolves
-with the answer. It's a native modal `<dialog>` (`role="alertdialog"`) drawn as Bootstrap's centred modal,
-so it needs no Bootstrap script: the page behind can't be reached while it's open, Tab stays inside it,
+with the answer. It's drawn as Dropgate's Upload Security Warning, a Bootstrap centred modal, is: the glyph
+beside the title (in a warning's or a danger's colour for those), the body in the page's text, an optional
+`detail` under it in small grey text, Cancel a filled grey button, and Bootstrap's spacing, sliding down into
+place. It's a native modal `<dialog>` (`role="alertdialog"`), so it needs no Bootstrap script: the page behind can't be reached while it's open, Tab stays inside it,
 and the focus goes back to what had it once it closes. Prompts are asked one at a time: one asked while
 another shows waits until that one is answered. Everything in it is text, never markup.
 
@@ -238,13 +240,14 @@ another shows waits until that one is answered. Everything in it is text, never 
 const ok = await kit.ui.confirm({
     title: "Large Frame Export",                // Title Case
     body: `This writes about ${n} images.`,
+    detail: "Narrow the range if that's more than you meant.",   // optional
     confirmLabel: "Write Them",                 // "Confirm" if not given; cancelLabel is "Cancel"
     variant: "warning",                         // the confirm button's: "primary" if not given
     icon: "burst_mode",                         // "help_outline" if not given
 });
 ```
 
-It resolves `true` on the confirm button, and `false` every other way out: Cancel (first, on the left),
+It resolves `true` on the confirm button, and `false` every other way out: Cancel (first, on the left, `btn-secondary`),
 Escape, the backdrop or the close button. The focus starts on the confirm button, or on Cancel when the
 variant is `warning` or `danger`.
 
@@ -267,7 +270,7 @@ const { choice, all } = await kit.ui.confirm({
 ```
 
 It resolves `{ choice, all }`: the value of the choice made, and whether the box was ticked (it starts
-unticked each time). Each choice is `btn-outline-secondary` unless it names its `variant` (`primary`,
+unticked each time). Each choice is `btn-secondary` unless it names its `variant` (`primary`,
 `secondary`, `success`, `warning`, `danger`, `outline-secondary` or `outline-danger`). What the answers mean
 for the batch, such as a Cancel All ending the prompts still to come, is the app's. A mistake in the options
 throws before anything shows.
