@@ -22,7 +22,11 @@ installs. It holds what the apps share: main-process behaviour, a shared preload
 CSS on Bootstrap 5.3, and test helpers. A fix to shared UI or behaviour is made once, here, and each app
 takes it with a version bump.
 
-It's in early development and not published to npm yet.
+It's in early development. Its versions are betas for now, published under npm's `next` tag:
+
+```bash
+npm install @diamonddigitaldev/electron-kit@next
+```
 
 ## What It Holds
 
