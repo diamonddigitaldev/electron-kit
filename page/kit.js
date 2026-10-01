@@ -14,7 +14,7 @@
 //     const shell = kit.ui.mountShell({
 //         title:    "Diamond File Converter",
 //         sections: [{ view: "convert", label: "Convert", icon: "swap_horiz", element: $("convert-view") }],
-//         toolbar:  $("toolbar"),            // the header's controls, shared by every section
+//         toolbar:  $("toolbar"),            // the header's controls, shared by every section, hidden on Settings
 //         settingsTabs: [{ id: "general", label: "General", render: (pane) => { … } }],
 //         credits:  { logo: "assets/logo.png" },
 //         onViewChange: (view) => { … },
@@ -207,16 +207,27 @@
     /** The update channels, as the Update tab offers them, with the help line for each. */
     const UPDATE_CHANNELS = [
         { value: "stable", label: "Stable", help: "Finished releases only." },
-        { value: "beta", label: "Beta", help: "Betas and finished releases." },
-        { value: "alpha", label: "Alpha", help: "Every build, alphas included." },
+        { value: "beta", label: "Beta", help: "Beta and stable releases. Test new features early, issues are expected." },
+        { value: "alpha", label: "Alpha", help: "Alpha, beta, and stable releases. Unfinished features and many bugs, not recommended for most users." },
     ];
+
+    /** What a failed check says, for each of the updater's reasons (checkFailureOf() in main/updater.js). */
+    const CHECK_FAILURES = {
+        offline: "Couldn't check for updates. You seem to be offline.",
+        "no-files": "Couldn't check for updates. The newest release has no update files yet.",
+        other: "Couldn't check for updates. Try again later.",
+    };
+
+    /** The least time "Checking for updates…" shows, so a check that fails at once still looks pressed. */
+    const CHECK_SHOWN_FOR = 1000;
 
     /**
      * What the Update tab's status line says for the updater's state
-     * (main/updater.js), and whether it's an error.
+     * (main/updater.js), and its tone: a failed check is a warning (it's
+     * passing, and says why), a failed download is a danger.
      * @param {{ state: string, reason: string | null, error: string | null, version: string | null, percent: number | null }} status
      * @param {string} appName
-     * @returns {{ text: string, percent?: string, danger?: boolean }}
+     * @returns {{ text: string, percent?: string, tone?: "warning" | "danger" }}
      */
     function updateMessage({ state, reason, error, version, percent }, appName) {
         switch (state) {
@@ -234,35 +245,42 @@
                 return { text: `Version ${version} has downloaded and will be installed when you close ${appName}.` };
             case "error":
                 return error === "download"
-                    ? { text: `Version ${version} couldn't be downloaded.`, danger: true }
-                    : { text: "Couldn't check for updates. Try again later.", danger: true };
+                    ? { text: `Version ${version} couldn't be downloaded.`, tone: "danger" }
+                    : { text: CHECK_FAILURES[reason] ?? CHECK_FAILURES.other, tone: "warning" };
             default:
                 return { text: "" };
         }
     }
 
     /**
-     * The Update tab, top to bottom: the app and the version running, Check
-     * for Updates with its status line (a live region, its height kept, so
-     * nothing jumps) and Download Update when there's one to download, the
-     * automatic downloads switch, and the update channel. Each change is kept
-     * as it's made, and the kit's main process acts on it (a new channel
-     * checks again).
+     * The Update tab: two cards. The first, under the version running, says
+     * where the updates stand (a live region, its height kept, so nothing
+     * jumps), with Check for Updates and, when there's one to download,
+     * Download Update. The second holds the preferences: the automatic
+     * downloads switch, whose help says what each way does, and the update
+     * channel. Each change is kept as it's made, and the kit's main process
+     * acts on it (a new channel checks again).
      * @param {HTMLElement} pane
      * @returns {{ showInfo(info: object): void, showSettings(settings: object): void, showStatus(status: object, appName: string): boolean }}
      */
     function buildUpdate(pane) {
-        const version = el("p", { className: "update-version" });
+        const version = el("h3", { className: "update-version", attrs: { id: "update-version" } });
         const check = el("button", { className: "btn btn-secondary", text: "Check for Updates", attrs: { type: "button", id: "update-check" } });
         const statusText = el("span");
         // The percent is seen, not read out: a screen reader would announce every step of it.
         const statusPercent = el("span", { attrs: { "aria-hidden": "true" } });
         const status = el("p", { className: "update-status", attrs: { id: "update-status", role: "status" } }, [statusText, statusPercent]);
-        const download = el("button", { className: "btn btn-sm btn-primary update-download", text: "Download Update", attrs: { type: "button", id: "update-download", hidden: "" } });
+        const download = el("button", { className: "btn btn-primary update-download", text: "Download Update", attrs: { type: "button", id: "update-download", hidden: "" } });
 
         const auto = el("input", { className: "form-check-input", attrs: { type: "checkbox", role: "switch", id: "update-auto", "aria-describedby": "update-auto-help" } });
         const autoHelp = el("div", { className: "form-text", attrs: { id: "update-auto-help" } });
-        const channel = el("select", { className: "form-select form-select-sm update-channel", attrs: { id: "update-channel", "aria-describedby": "update-channel-help" } },
+        let appName = "";
+        const showAutoHelp = () => {
+            autoHelp.textContent = auto.checked
+                ? `Updates download by themselves and are installed when you close ${appName}.`
+                : "Updates are checked but not downloaded automatically. You'll be notified when one is available.";
+        };
+        const channel = el("select", { className: "form-select update-channel", attrs: { id: "update-channel", "aria-describedby": "update-channel-help" } },
             UPDATE_CHANNELS.map(({ value, label }) => el("option", { text: label, attrs: { value } })));
         const channelHelp = el("div", { className: "form-text", attrs: { id: "update-channel-help" } });
         const showChannelHelp = () => {
@@ -270,24 +288,34 @@
         };
         showChannelHelp();
 
+        const card = (labelledBy, children) => el("section", { className: "card update-card", attrs: { "aria-labelledby": labelledBy } }, [el("div", { className: "card-body" }, children)]);
         pane.replaceChildren(el("div", { className: "update-tab" }, [
-            version,
-            el("div", { className: "update-check" }, [check, status, download]),
-            el("div", { className: "update-row" }, [
-                el("div", { className: "form-check form-switch mb-0" }, [auto, el("label", { className: "form-check-label", text: "Download updates automatically", attrs: { for: "update-auto" } })]),
-                autoHelp,
+            card("update-version", [
+                version,
+                status,
+                el("div", { className: "update-actions" }, [check, download]),
             ]),
-            el("div", { className: "update-row" }, [
-                el("label", { className: "form-label", text: "Update channel", attrs: { for: "update-channel" } }),
-                channel,
-                channelHelp,
+            card("update-preferences", [
+                el("h3", { className: "update-card-title", text: "Preferences", attrs: { id: "update-preferences" } }),
+                el("div", { className: "update-row" }, [
+                    el("div", { className: "form-check form-switch mb-0" }, [auto, el("label", { className: "form-check-label", text: "Download updates automatically", attrs: { for: "update-auto" } })]),
+                    autoHelp,
+                ]),
+                el("div", { className: "update-row" }, [
+                    el("label", { className: "form-label", text: "Update channel", attrs: { for: "update-channel" } }),
+                    channel,
+                    channelHelp,
+                ]),
             ]),
         ]));
 
         const api = bridge();
         check.addEventListener("click", () => api?.checkForUpdates().catch(() => {}));
         download.addEventListener("click", () => api?.downloadUpdate().catch(() => {}));
-        auto.addEventListener("change", () => api?.setSettings({ autoDownloadUpdates: auto.checked }).catch(() => {}));
+        auto.addEventListener("change", () => {
+            showAutoHelp();
+            api?.setSettings({ autoDownloadUpdates: auto.checked }).catch(() => {});
+        });
         channel.addEventListener("change", () => {
             showChannelHelp();
             api?.setSettings({ updateChannel: channel.value }).catch(() => {});
@@ -295,11 +323,13 @@
 
         return {
             showInfo(info) {
-                version.textContent = `${info.name} ${info.version}`;
-                autoHelp.textContent = `Updates are installed when you close ${info.name}.`;
+                appName = info.name;
+                version.textContent = `Version ${info.version}`;
+                showAutoHelp();
             },
             showSettings(settings) {
                 auto.checked = settings.autoDownloadUpdates === true;
+                showAutoHelp();
                 if (UPDATE_CHANNELS.some((c) => c.value === settings.updateChannel)) channel.value = settings.updateChannel;
                 showChannelHelp();
             },
@@ -308,8 +338,9 @@
                 const message = updateMessage(next, appName);
                 statusText.textContent = message.text;
                 statusPercent.textContent = message.percent ?? "";
-                // Bootstrap's emphasis shade, which holds AA on the page in both themes (its plain danger doesn't on dark).
-                status.classList.toggle("text-danger-emphasis", Boolean(message.danger));
+                // Bootstrap's emphasis shades, which hold AA on the page in both themes (its plain ones don't on dark).
+                status.classList.toggle("text-warning-emphasis", message.tone === "warning");
+                status.classList.toggle("text-danger-emphasis", message.tone === "danger");
                 // A check can run unless there's no updater, one is running, or an update is downloading or waiting.
                 check.disabled = ["unavailable", "checking", "downloading", "downloaded"].includes(next.state);
                 download.hidden = !(next.state === "available" || (next.state === "error" && next.error === "download"));
@@ -715,6 +746,8 @@
             { id: "credits", label: "Credits" },
         ]);
         const views = new Map([...sections.map(({ view, element }) => [view, element]), ["settings", settings.view]]);
+        // The toolbar is for the app's sections: hidden on Settings (kit.css).
+        toolbar?.classList.add("app-toolbar");
         const shell = el("div", { className: "app-shell" }, [
             el("header", { className: "app-header" }, [el("h1", { className: "app-title", text: title }), toolbar]),
             el("main", { className: "app-content" }, [...views.values()]),
@@ -732,7 +765,21 @@
         const update = buildUpdate(settings.pane("update"));
         const dots = [updateDot(settingsItem), updateDot(settings.tab("update"))];
         let toasted = null;
+        // "Checking for updates…" shows for CHECK_SHOWN_FOR at least: what comes sooner waits for it (the latest only).
+        let checkingSince = 0;
+        let held = null;
         function showUpdate(status, { pushed = false } = {}) {
+            clearTimeout(held);
+            if (status.state === "checking") {
+                checkingSince = Date.now();
+            } else if (checkingSince) {
+                const wait = checkingSince + CHECK_SHOWN_FOR - Date.now();
+                if (wait > 0) {
+                    held = setTimeout(() => showUpdate(status, { pushed }), wait);
+                    return;
+                }
+                checkingSince = 0;
+            }
             const dot = update.showStatus(status, appName);
             for (const show of dots) show(dot);
             // One toast, when an update downloads by itself while the app is open.

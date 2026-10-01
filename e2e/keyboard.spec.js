@@ -50,9 +50,10 @@ test("in Settings, Tab reaches the selected tab only, then its pane, then the pa
     const main = await demo.mainWindow();
     await main.getByRole("button", { name: "Settings", exact: true }).click();
     await fromTheTop(main);
-    let stops = await walk(main, 8);
+    let stops = await walk(main, 7);
+    // The header's toolbar (Open Isolated Window) is hidden on Settings, so it isn't a stop.
     expect(stops.map((stop) => `${stop.role} ${stop.name}`)).toEqual([
-        "button Overview", "button Controls", "button Settings", "button Collapse", "button Open Isolated Window",
+        "button Overview", "button Controls", "button Settings", "button Collapse",
         "tab General", "tabpanel General", "switch Show the accent sample",
     ]);
     expect(ringProblems(stops)).toEqual([]);

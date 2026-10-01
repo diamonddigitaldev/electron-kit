@@ -626,33 +626,43 @@ a:hover {
 }
 
 /* -- Update tab ---------------------------------------------------------------
-   Top to bottom: the version, Check for Updates and its status line, then
-   the automatic downloads switch and the channel, each a row with a help
-   line. The status line keeps its height, so nothing below it jumps. */
+   Two cards in a readable column. The first: the version running, the status
+   line, then Check for Updates and Download Update side by side. The status
+   line keeps its height, so the buttons don't jump. The second: the
+   automatic downloads switch and the channel, each a row with a help line. */
 .update-tab {
     display: flex;
     flex-direction: column;
-    gap: 1.25rem;
-    max-width: 32rem;
+    gap: 1rem;
+    max-width: 36rem;
 }
 
-.update-version {
-    margin: 0;
-    font-weight: 500;
+.update-card {
+    border-radius: var(--radius-card);
 }
 
-.update-check {
+.update-card .card-body {
     display: flex;
     flex-direction: column;
-    align-items: flex-start;
-    gap: 0.5rem;
+    gap: 0.75rem;
 }
 
-/* Full width, so it's the same box whatever it says, or when it says nothing. */
+.update-version,
+.update-card-title {
+    margin: 0;
+    font-size: 1rem;
+    font-weight: 600;
+}
+
 .update-status {
-    align-self: stretch;
     min-height: 1.5em;
     margin: 0;
+}
+
+.update-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
 }
 
 .update-row .form-text {
@@ -665,7 +675,13 @@ a:hover {
 }
 
 .update-channel {
-    max-width: 12rem;
+    max-width: 16rem;
+}
+
+/* The header's toolbar is for the app's sections, so it's hidden on Settings:
+   hidden, not removed, so the header keeps its height and nothing moves. */
+.app-shell[data-view="settings"] .app-toolbar {
+    visibility: hidden;
 }
 
 /* -- Update dot ---------------------------------------------------------------

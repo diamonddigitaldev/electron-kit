@@ -42,7 +42,7 @@ test("the Update tab: the app and version, Check for Updates, automatic download
     const pane = await openUpdate(main);
     const version = await demo.app.evaluate(({ app }) => app.getVersion());
 
-    await expect(pane.locator(".update-version")).toHaveText(`electron-kit Demo ${version}`);
+    await expect(pane.locator(".update-version")).toHaveText(`Version ${version}`);
     const check = pane.getByRole("button", { name: "Check for Updates" });
     if (demo.packaged) {
         await expect(pane.locator("#update-status")).toHaveText("");
@@ -55,7 +55,7 @@ test("the Update tab: the app and version, Check for Updates, automatic download
 
     const auto = pane.getByRole("switch", { name: "Download updates automatically" });
     await expect(auto).toBeChecked();
-    await expect(auto).toHaveAccessibleDescription("Updates are installed when you close electron-kit Demo.");
+    await expect(auto).toHaveAccessibleDescription("Updates download by themselves and are installed when you close electron-kit Demo.");
     // The demo is 0.0.0, a finished release: the updater saved Stable when it started.
     const channel = pane.getByRole("combobox", { name: "Update channel" });
     await expect(channel).toHaveValue("stable");
@@ -69,18 +69,18 @@ test("the switch and the channel are kept as they're changed, and still there af
     let pane = await openUpdate(main);
     await pane.getByRole("switch", { name: "Download updates automatically" }).click();
     await pane.getByRole("combobox", { name: "Update channel" }).selectOption("beta");
-    await expect(pane.getByRole("combobox", { name: "Update channel" })).toHaveAccessibleDescription("Betas and finished releases.");
+    await expect(pane.getByRole("combobox", { name: "Update channel" })).toHaveAccessibleDescription("Beta and stable releases. Test new features early, issues are expected.");
     await expect.poll(() => main.evaluate(() => window.kitAPI.getSettings().then((s) => [s.autoDownloadUpdates, s.updateChannel]))).toEqual([false, "beta"]);
 
     await pane.getByRole("combobox", { name: "Update channel" }).selectOption("alpha");
-    await expect(pane.getByRole("combobox", { name: "Update channel" })).toHaveAccessibleDescription("Every build, alphas included.");
+    await expect(pane.getByRole("combobox", { name: "Update channel" })).toHaveAccessibleDescription("Alpha, beta, and stable releases. Unfinished features and many bugs, not recommended for most users.");
 
     await demo.relaunch();
     main = await demo.mainWindow();
     pane = await openUpdate(main);
     await expect(pane.getByRole("switch", { name: "Download updates automatically" })).not.toBeChecked();
     await expect(pane.getByRole("combobox", { name: "Update channel" })).toHaveValue("alpha");
-    await expect(pane.getByRole("combobox", { name: "Update channel" })).toHaveAccessibleDescription("Every build, alphas included.");
+    await expect(pane.getByRole("combobox", { name: "Update channel" })).toHaveAccessibleDescription("Alpha, beta, and stable releases. Unfinished features and many bugs, not recommended for most users.");
 });
 
 test("the status line says each state of the updater, in a live region that keeps its height", async ({ demo }) => {
@@ -98,8 +98,10 @@ test("the status line says each state of the updater, in a live region that keep
         [{ state: "available", version: "1.1.0", dot: true }, "Version 1.1.0 is available.", { check: true, download: true }],
         [{ state: "downloading", version: "1.1.0", percent: 45, dot: true }, "Downloading version 1.1.0… 45%", { check: false, download: false }],
         [{ state: "downloaded", version: "1.1.0", percent: 100, dot: true }, "Version 1.1.0 has downloaded and will be installed when you close electron-kit Demo.", { check: false, download: false }],
-        [{ state: "error", error: "check" }, "Couldn't check for updates. Try again later.", { check: true, download: false, danger: true }],
-        [{ state: "error", error: "download", version: "1.1.0", dot: true }, "Version 1.1.0 couldn't be downloaded.", { check: true, download: true, danger: true }],
+        [{ state: "error", error: "check", reason: "other" }, "Couldn't check for updates. Try again later.", { check: true, download: false, tone: "warning" }],
+        [{ state: "error", error: "check", reason: "offline" }, "Couldn't check for updates. You seem to be offline.", { check: true, download: false, tone: "warning" }],
+        [{ state: "error", error: "check", reason: "no-files" }, "Couldn't check for updates. The newest release has no update files yet.", { check: true, download: false, tone: "warning" }],
+        [{ state: "error", error: "download", version: "1.1.0", dot: true }, "Version 1.1.0 couldn't be downloaded.", { check: true, download: true, tone: "danger" }],
         [{ state: "unavailable", reason: "not-packaged" }, "Updates are checked in the installed app.", { check: false, download: false }],
         [{ state: "unavailable", reason: "off" }, "electron-kit Demo doesn't update itself.", { check: false, download: false, off: true }],
         [{ state: "idle" }, "", { check: true, download: false }],
@@ -110,7 +112,9 @@ test("the status line says each state of the updater, in a live region that keep
         await expect(status, what).toHaveText(text);
         await expect(check, what).toBeEnabled({ enabled: expected.check });
         await expect(download, what).toBeVisible({ visible: expected.download });
-        await expect(status, what).toHaveClass(expected.danger ? /text-danger-emphasis/ : /^(?!.*text-danger)/);
+        // A failed check is a warning, a failed download a danger, and nothing else has a tone.
+        await expect(status, what).toHaveClass(expected.tone === "danger" ? /text-danger-emphasis/ : /^(?!.*text-danger)/);
+        await expect(status, what).toHaveClass(expected.tone === "warning" ? /text-warning-emphasis/ : /^(?!.*text-warning)/);
         await expect(pane.getByRole("switch"), what).toBeEnabled({ enabled: !expected.off });
         await expect(pane.getByRole("combobox"), what).toBeEnabled({ enabled: !expected.off });
         expect(await status.evaluate((el) => el.getBoundingClientRect().height), what).toBeGreaterThanOrEqual(height);
@@ -119,6 +123,78 @@ test("the status line says each state of the updater, in a live region that keep
     await push(demo, { state: "downloading", version: "1.1.0", percent: 7 });
     await expect(status).toHaveText("Downloading version 1.1.0… 7%");
     await expect(status.locator("[aria-hidden=true]")).toHaveText(" 7%");
+});
+
+test("\"Checking for updates…\" shows for a second at least, with the button disabled, even when the check fails at once", async ({ demo }) => {
+    const main = await demo.mainWindow();
+    const pane = await openUpdate(main);
+    const status = pane.locator("#update-status");
+    const check = pane.getByRole("button", { name: "Check for Updates" });
+    await push(demo, { state: "checking" });
+    await expect(status).toHaveText("Checking for updates…");
+    const since = Date.now();
+    await push(demo, { state: "error", error: "check", reason: "offline" });
+    await push(demo, { state: "error", error: "check", reason: "no-files" });
+    await expect(status).toHaveText("Couldn't check for updates. The newest release has no update files yet.");
+    expect(Date.now() - since, "held for a second").toBeGreaterThanOrEqual(900);
+    await expect(check).toBeEnabled();
+    // The latest state waited, not the first: the offline one was never shown.
+    await expect(status).not.toHaveText(/offline/);
+    // With no check running, a state shows at once.
+    await push(demo, { state: "none" });
+    await expect(status).toHaveText("You're up to date.", { timeout: 300 });
+});
+
+test("the switch's help says what each way does, and changes with it", async ({ demo }) => {
+    const main = await demo.mainWindow();
+    const pane = await openUpdate(main);
+    const auto = pane.getByRole("switch", { name: "Download updates automatically" });
+    await expect(auto).toHaveAccessibleDescription("Updates download by themselves and are installed when you close electron-kit Demo.");
+    await auto.click();
+    await expect(auto).toHaveAccessibleDescription("Updates are checked but not downloaded automatically. You'll be notified when one is available.");
+    await auto.click();
+    await expect(auto).toHaveAccessibleDescription("Updates download by themselves and are installed when you close electron-kit Demo.");
+});
+
+test("the tab is two cards in a column: the version, its status and the buttons, then the preferences", async ({ demo }) => {
+    const main = await demo.mainWindow();
+    const pane = await openUpdate(main);
+    const version = await demo.app.evaluate(({ app }) => app.getVersion());
+    const cards = pane.locator("section.card");
+    await expect(cards).toHaveCount(2);
+    await expect(pane.getByRole("region", { name: `Version ${version}` })).toBeVisible();
+    await expect(pane.getByRole("region", { name: "Preferences" })).toBeVisible();
+    await expect(pane.getByRole("heading", { level: 3 })).toHaveText([`Version ${version}`, "Preferences"]);
+    // The status is under the version, the buttons under the status, side by side.
+    await push(demo, { state: "available", version: "1.1.0", dot: true });
+    const first = cards.first();
+    const box = async (locator) => locator.boundingBox();
+    const [v, s, c, d] = await Promise.all([first.locator("h3"), first.locator("#update-status"), first.getByRole("button", { name: "Check for Updates" }), first.getByRole("button", { name: "Download Update" })].map(box));
+    expect(s.y).toBeGreaterThan(v.y);
+    expect(c.y).toBeGreaterThan(s.y);
+    expect(Math.abs(d.y - c.y)).toBeLessThan(2);
+    expect(d.x).toBeGreaterThan(c.x);
+    // A readable column, not the pane's width.
+    const width = await pane.locator(".update-tab").evaluate((el) => el.getBoundingClientRect().width);
+    expect(width).toBeLessThanOrEqual(36 * 16 + 1);
+});
+
+test("the header's toolbar is hidden on Settings, out of the Tab order, and back on the app's sections", async ({ demo }) => {
+    const main = await demo.mainWindow();
+    const toolbar = main.locator(".app-toolbar");
+    await expect(toolbar).toHaveCount(1);
+    await expect(toolbar).toBeVisible();
+    const header = await main.locator(".app-header").boundingBox();
+    await openUpdate(main);
+    await expect(toolbar).toBeHidden();
+    expect((await main.locator(".app-header").boundingBox()).height, "the header keeps its height").toBe(header.height);
+    await main.getByRole("button", { name: "Settings", exact: true }).focus();
+    for (let i = 0; i < 8; i++) {
+        await main.keyboard.press("Tab");
+        expect(await main.evaluate(() => Boolean(document.activeElement?.closest(".app-toolbar")))).toBe(false);
+    }
+    await main.locator(".nav-rail .nav-item").first().click();
+    await expect(toolbar).toBeVisible();
 });
 
 test("Check for Updates and Download Update ask the main process", async ({ demo }) => {

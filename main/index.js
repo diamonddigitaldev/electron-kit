@@ -117,7 +117,7 @@ function start(config = {}) {
     });
     const settings = store.createSettings({ ...config.settings, log });
     const credits = info.checkInfo({ credits: config.credits, repository: config.repository, name: config.name });
-    const updates = updater.createUpdater({ options: updater.checkUpdates(config.updates), app, settings, send: sendUpdateStatus });
+    const updates = updater.createUpdater({ options: updater.checkUpdates(config.updates), app, settings, send: sendUpdateStatus, log });
     const template = menu.menuTemplate({
         items: config.menu?.items,
         version: app.getVersion(),
