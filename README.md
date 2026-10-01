@@ -64,22 +64,11 @@ kit.ready.then(() => kit.windows.createMain({
 ```
 
 Then, in the page, `kit.ui.mountShell()` builds the nav rail, the header and the Settings view around the
-app's own sections. [Getting Started](https://github.com/diamonddigitaldev/electron-kit/blob/master/docs/getting-started.md)
-has the stylesheets and scripts a page loads.
+app's own sections. The docs show the stylesheets and scripts a page loads, and the rest.
 
 ## Documentation
 
-The full docs are in the repository, in [`docs/`](https://github.com/diamonddigitaldev/electron-kit/blob/master/docs/README.md):
-
-* [Getting Started](https://github.com/diamonddigitaldev/electron-kit/blob/master/docs/getting-started.md)
-* [IPC](https://github.com/diamonddigitaldev/electron-kit/blob/master/docs/ipc.md)
-* [The Shell, Settings and Credits](https://github.com/diamonddigitaldev/electron-kit/blob/master/docs/shell.md)
-* [Page Components](https://github.com/diamonddigitaldev/electron-kit/blob/master/docs/page-components.md)
-* [The Main Process](https://github.com/diamonddigitaldev/electron-kit/blob/master/docs/main-process.md)
-* [Updates](https://github.com/diamonddigitaldev/electron-kit/blob/master/docs/updates.md)
-* [Building](https://github.com/diamonddigitaldev/electron-kit/blob/master/docs/building.md)
-* [Theme, Accent and Tokens](https://github.com/diamonddigitaldev/electron-kit/blob/master/docs/theming.md)
-* [Development](https://github.com/diamonddigitaldev/electron-kit/blob/master/docs/development.md): working on the kit itself
+The full docs are in the repository: start at [the docs' contents](https://github.com/diamonddigitaldev/electron-kit/blob/master/docs/README.md).
 
 ## License
 

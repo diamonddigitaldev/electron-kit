@@ -1,10 +1,12 @@
 "use strict";
 
 // The README, which npm shows, is short and links to the docs in the
-// repository, so a correction to them needs no release. Its links into docs/
-// must be absolute, on master, and name a page that's there; every relative
-// link between the docs must reach a file in the repository; and the docs'
-// own README must list every page.
+// repository, so a correction to them needs no release. npm only shows the
+// README a version was published with, so it links to the docs' contents
+// alone, absolute and on master, and never to a page, which could be renamed
+// or split after a release; docs/README.md lists the pages instead. Every
+// relative link between the docs must reach a file in the repository, and the
+// contents must list every page.
 
 const test = require("node:test");
 const assert = require("node:assert/strict");
@@ -23,18 +25,11 @@ function linkTargets(file) {
 
 const pages = fs.readdirSync(DOCS).filter((name) => name.endsWith(".md"));
 
-test("the README links into docs/ by absolute links on master, each naming a page that's there", () => {
+test("the README links into docs/ only at its contents, absolute and on master", () => {
     const targets = linkTargets(path.join(ROOT, "README.md"));
-    const intoDocs = targets.filter((target) => target.includes("/docs/") || target.startsWith("docs/"));
-    assert.ok(intoDocs.length >= pages.length, `the README links to ${intoDocs.length} pages of docs/, which has ${pages.length}`);
-    for (const target of intoDocs) {
-        assert.ok(target.startsWith(`${BLOB}docs/`), `${target} must be absolute, on master (${BLOB}docs/…)`);
-        const file = path.join(ROOT, target.slice(BLOB.length).split("#")[0]);
-        assert.ok(fs.existsSync(file), `${target} names ${path.relative(ROOT, file)}, which isn't there`);
-    }
-    for (const page of pages) {
-        assert.ok(intoDocs.some((target) => target === `${BLOB}docs/${page}`), `the README doesn't link to docs/${page}`);
-    }
+    const intoDocs = targets.filter((target) => target.includes("docs/"));
+    assert.deepEqual(intoDocs, [`${BLOB}docs/README.md`], "the README must link to the docs' contents, and to no page of them");
+    assert.ok(fs.existsSync(path.join(DOCS, "README.md")), "docs/README.md isn't there");
 });
 
 test("every relative link in docs/ reaches a file in the repository", () => {
