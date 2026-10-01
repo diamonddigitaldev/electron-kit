@@ -33,6 +33,7 @@ It's in early development and not published to npm yet.
 | `@diamonddigitaldev/electron-kit/page/theme.js` | the theme script, loaded in `<head>`: draws the page in the OS theme and follows it |
 | `@diamonddigitaldev/electron-kit/page/kit.js` | the page library, `window.kit`, loaded as a classic script: `kit.ui.mountShell()` builds the nav rail, the header and the Settings view; `kit.ui.toast()`, `kit.ui.confirm()`, the parts of a section of files, `kit.keys` and `kit.format` |
 | `@diamonddigitaldev/electron-kit/css/kit.css` | the shared styles, linked after Bootstrap and before the app's `accent.css` |
+| `@diamonddigitaldev/electron-kit/format` | `kit.format` under Node, for a file loaded both in the page and under Node |
 | `@diamonddigitaldev/electron-kit/testing` | helpers for an app's tests |
 
 Electron 44 or newer, `electron-updater`, `electron-store`, Bootstrap 5.3 and Material Icons are peer
@@ -337,6 +338,10 @@ can't happen:
 | `formatEta(seconds)` | `"45s"`, `"2m 05s"`, `"1h 02m"`; `null` if unknown |
 | `formatDuration(seconds)` | `"9:05"`, `"1:02:03"`; `null` if unknown |
 | `summarise({ done, failed, cancelled }, { one, done })` | `"3 files converted, 1 failed, 2 cancelled"`, or `"Nothing converted"` |
+
+A file loaded both in the page and under Node (a module of helpers its tests require) takes the same helpers
+under Node from `require("@diamonddigitaldev/electron-kit/format")`, which runs `kit.js`'s own code, so the
+house's wording has one implementation.
 
 ### The Main Window
 

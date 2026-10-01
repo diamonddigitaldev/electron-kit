@@ -11,6 +11,7 @@
         "./css/*": "./css/*",
         "./testing": "./testing/index.js",
         "./builder/*": "./builder/*",
+        "./format": "./format/index.js",
         "./package.json": "./package.json"
     },
     "files": [
@@ -19,7 +20,8 @@
         "page/",
         "css/",
         "testing/",
-        "builder/"
+        "builder/",
+        "format/"
     ],
     "scripts": {
         "test": "node --test \"test/*.test.js\"",
