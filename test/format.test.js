@@ -20,6 +20,16 @@ function loadKit() {
 
 const { format } = loadKit();
 
+test("@diamonddigitaldev/electron-kit/format is the page's kit.format under Node, frozen", () => {
+    const node = require("../format");
+    assert.deepEqual(Object.keys(node).sort(), Object.keys(format).sort());
+    assert.equal(node.countOf(18000, "frame"), "18,000 frames");
+    assert.equal(node.summarise({ done: 1 }, { one: "file", done: "converted" }), "1 file converted");
+    assert.ok(Object.isFrozen(node));
+    // The package exports it.
+    assert.equal(require("../package.json").exports["./format"], "./format/index.js");
+});
+
 test("kit.format holds the house's helpers, and nothing else", () => {
     assert.deepEqual(Object.keys(format).sort(), ["countOf", "formatBytes", "formatDuration", "formatEta", "groupDigits", "plural", "summarise"]);
 });

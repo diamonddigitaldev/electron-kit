@@ -28,6 +28,7 @@ const BRIDGE = {
     onUpdateStatus: { on: PUSH.UPDATE_STATUS },
     onThemeChanged: { on: PUSH.THEME_CHANGED },
     onShowView: { on: PUSH.VIEW_SHOW },
+    onFilesOpened: { on: PUSH.FILES_OPENED },
     // Asks no channel: Electron's webUtils answers it in the renderer.
     getPathForFile: { local: true },
 };
@@ -79,6 +80,11 @@ test("kitAPI.getPathForFile() asks Electron's webUtils for one File's path, and 
     const { exposed, calls } = loadPreload(PRELOAD);
     assert.equal(exposed.kitAPI.getPathForFile({ name: "a.txt" }), "");
     assert.deepEqual(calls, []);
+});
+
+test("kitAPI.getPathForFile() gives \"\" for anything webUtils throws on, rather than throwing into the page", () => {
+    const { exposed } = loadPreload(PRELOAD, { webUtils: { getPathForFile: () => { throw new TypeError("Not a File"); } } });
+    assert.equal(exposed.kitAPI.getPathForFile("not a file"), "");
 });
 
 test("each kitAPI method that listens hands its callback the payload alone, and can stop", () => {

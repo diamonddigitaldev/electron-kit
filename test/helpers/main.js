@@ -106,16 +106,94 @@ function fakeElectronStore(data) {
  *   hands the kit, in place of the real one. userData: app.getPath("userData"),
  *   where a log: "file" writes.
  */
-function loadMain({ version = "1.2.3", name = "Kit Demo", stored = {}, isPackaged = false, autoUpdater = null, userData = path.resolve("/no-user-data") } = {}) {
+function loadMain({ version = "1.2.3", name = "Kit Demo", stored = {}, isPackaged = false, autoUpdater = null, userData = path.resolve("/no-user-data"), firstInstance = true, displays = [{ workArea: { x: 0, y: 0, width: 1920, height: 1040 } }] } = {}) {
     const handlers = new Map();
     const listeners = new Map();
     const windows = [];
     const opened = [];
     const menus = { application: null };
     const store = fakeElectronStore(stored);
+    const calls = { quit: 0, appUserModelId: null, lock: 0 };
+    const created = [];
+
+    /** A BrowserWindow: it records how it was made, what it loaded and sent, and emits its events when told to. */
+    class FakeBrowserWindow extends EventEmitter {
+        constructor(options) {
+            super();
+            this.options = options;
+            this.bounds = { x: options.x ?? 100, y: options.y ?? 100, width: options.width, height: options.height };
+            this.state = { destroyed: false, minimized: false, maximized: false, fullScreen: false, shown: false, focused: false, restored: 0 };
+            this.loaded = null;
+            const contents = new EventEmitter();
+            contents.sent = [];
+            contents.loading = true;
+            contents.isLoading = () => contents.loading;
+            contents.send = (channel, ...args) => contents.sent.push({ channel, args });
+            /** Finish loading the page: did-finish-load, as Electron emits it. */
+            contents.finishLoad = () => {
+                contents.loading = false;
+                contents.emit("did-finish-load");
+            };
+            this.webContents = contents;
+            created.push(this);
+            windows.push(this);
+        }
+        loadFile(file) {
+            this.loaded = file;
+        }
+        getBounds() {
+            return { ...this.bounds };
+        }
+        isDestroyed() {
+            return this.state.destroyed;
+        }
+        isMinimized() {
+            return this.state.minimized;
+        }
+        isMaximized() {
+            return this.state.maximized;
+        }
+        isFullScreen() {
+            return this.state.fullScreen;
+        }
+        restore() {
+            this.state.minimized = false;
+            this.state.restored++;
+        }
+        show() {
+            this.state.shown = true;
+        }
+        focus() {
+            this.state.focused = true;
+        }
+        /** Close it as a person would: close, then closed, then gone. */
+        closeNow() {
+            this.emit("close");
+            this.state.destroyed = true;
+            windows.splice(windows.indexOf(this), 1);
+            this.emit("closed");
+        }
+        static getAllWindows() {
+            return [...windows];
+        }
+        static getFocusedWindow() {
+            return windows.find((win) => win.focused || win.state?.focused) ?? null;
+        }
+    }
+
     const electron = {
         app: {
             isPackaged,
+            setAppUserModelId(id) {
+                calls.appUserModelId = id;
+            },
+            requestSingleInstanceLock() {
+                calls.lock++;
+                return firstInstance;
+            },
+            quit() {
+                calls.quit++;
+            },
             getVersion: () => version,
             getName: () => name,
             getAppPath: () => APP_PATH,
@@ -133,9 +211,9 @@ function loadMain({ version = "1.2.3", name = "Kit Demo", stored = {}, isPackage
                 for (const listener of listeners.get(event) ?? []) listener(...args);
             },
         },
-        BrowserWindow: {
-            getAllWindows: () => [...windows],
-            getFocusedWindow: () => windows.find((win) => win.focused) ?? null,
+        BrowserWindow: FakeBrowserWindow,
+        screen: {
+            getAllDisplays: () => displays,
         },
         Menu: {
             buildFromTemplate: (template) => ({ template }),
@@ -189,7 +267,7 @@ function loadMain({ version = "1.2.3", name = "Kit Demo", stored = {}, isPackage
         for (const key of Object.keys(require.cache)) {
             if (key.startsWith(path.dirname(MAIN) + path.sep)) delete require.cache[key];
         }
-        return { main: require(MAIN), electron, handlers, fakeSession, openWindow, eventFrom, opened, menus, stored, storeCounts: store.counts };
+        return { main: require(MAIN), electron, handlers, fakeSession, openWindow, eventFrom, opened, menus, stored, storeCounts: store.counts, calls, created, listeners };
     } finally {
         Module._load = load;
     }

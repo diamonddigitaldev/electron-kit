@@ -38,13 +38,14 @@ const SANDBOX_MODULES = Object.freeze(["electron", "events", "timers", "url"]);
  * records every call and resolves invoke() with undefined.
  *
  * @param {string} file - The preload's path.
+ * @param {object} [stand] - Stand-ins for more of electron's renderer modules, laid over these (webUtils).
  * @returns {{
  *   required: string[],
  *   exposed: Record<string, any>,
  *   calls: { method: string, channel: string, args: any[] }[],
  * }}
  */
-function loadPreload(file) {
+function loadPreload(file, stand = {}) {
     const source = fs.readFileSync(file, "utf8");
     const required = [];
     const exposed = {};
@@ -71,6 +72,7 @@ function loadPreload(file) {
         webUtils: {
             getPathForFile: () => "",
         },
+        ...stand,
     };
 
     const sandboxRequire = (name) => {

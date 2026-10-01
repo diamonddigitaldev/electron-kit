@@ -113,23 +113,31 @@ test("LOG_LEVEL sets the least kept, in any case; anything else is INFO", () => 
     assert.deepEqual(Object.keys(LEVELS), ["ERROR", "WARN", "INFO", "DEBUG"]);
 });
 
-test("without a file, the log is the console's only; a file that can't be written stops being tried, and the app goes on", () => {
+test("without a file, the log is the console's only; a write that fails is said once, and the next line tries again", () => {
     const out = recordingConsole();
     assert.equal(createLog({ console: out }).file, null);
 
     const writes = [];
-    const broken = {
-        writeFileSync: (file) => {
-            writes.push(file);
-            throw new Error(String.raw`EACCES: C:\Users\will\AppData\debug.log`);
+    let held = true;
+    // A file held for a moment, as a virus scanner on Windows holds one.
+    const sometimesHeld = {
+        writeFileSync: (_file, text) => writes.push(text),
+        appendFileSync: (_file, text) => {
+            if (held) throw new Error(String.raw`EBUSY: C:\Users\will\AppData\debug.log`);
+            writes.push(text);
         },
-        appendFileSync: (file) => writes.push(file),
     };
     const failing = recordingConsole();
-    const log = createLog({ mode: "file", dir: "/somewhere", fileSystem: broken, console: failing });
-    log.info("still logged");
-    assert.equal(writes.length, 1, "nothing appended after the first write failed");
-    assert.deepEqual(failing.lines, [["error", String.raw`The log can't be written: EACCES: …\debug.log`], ["log", "still logged"]]);
+    const log = createLog({ mode: "file", dir: "/somewhere", fileSystem: sometimesHeld, console: failing, now: clock() });
+    log.info("lost");
+    log.info("lost too");
+    held = false;
+    log.info("written");
+    assert.deepEqual(writes, ["=== App started at 2026-10-01T09:00:00.000Z ===\n", "[2026-10-01T09:00:03.000Z] [INFO] written\n"]);
+    assert.deepEqual(failing.lines, [
+        ["error", String.raw`The log can't be written: EBUSY: …\debug.log`],
+        ["log", "lost"], ["log", "lost too"], ["log", "written"],
+    ]);
 });
 
 test("kit.start({ log: \"file\" }) writes debug.log in userData, with the app's name and version, and hands main the log", () => {

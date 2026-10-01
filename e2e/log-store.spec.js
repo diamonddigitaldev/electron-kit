@@ -39,8 +39,8 @@ test("a profile from before the settings' version is migrated once, before the p
     // The page has the setting that was kept.
     await expect(main.locator("#accent-sample")).toBeHidden();
     const after = JSON.parse(fs.readFileSync(config, "utf8"));
-    // (The updater has saved its channel since, which writes every setting back.)
-    expect(Object.keys(after).sort()).toEqual(["settings", "settingsSchema"]);
+    // (The updater has saved its channel since, which writes every setting back, and the window its bounds.)
+    expect(Object.keys(after).sort()).toEqual(["settings", "settingsSchema", "windowBounds"]);
     expect(after.settingsSchema).toBe(1);
     expect(after.settings.showAccentSample).toBe(false);
     expect(after.settings).not.toHaveProperty("showGrid");

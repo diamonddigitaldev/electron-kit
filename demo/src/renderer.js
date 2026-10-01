@@ -49,6 +49,10 @@ function applySettings(settings) {
     $("accent-sample").classList.toggle("d-none", !settings.showAccentSample);
 }
 
+// The files the demo is opened with, kept for the tests (it shows none).
+window.filesOpened = [];
+window.kitAPI?.onFilesOpened((paths) => window.filesOpened.push(paths));
+
 async function init() {
     showTheme();
     const shell = window.kit.ui.mountShell({

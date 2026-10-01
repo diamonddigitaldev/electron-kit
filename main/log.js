@@ -6,7 +6,8 @@
 //
 // kit.start({ log: "file" }) writes it to debug.log in the app's userData
 // folder, emptied at each launch and started with a banner, so the file is
-// one run's. Without the option, the log goes to the console only. (A
+// one run's. A write that fails is said on the console, and the next line
+// tries again. Without the option, the log goes to the console only. (A
 // "memory" mode, a redacted ring buffer for Dropgate, comes in M5.)
 //
 // Everything is redacted before it's written anywhere (Dropgate's hard
@@ -130,16 +131,21 @@ function createLog({ mode = null, dir, level = process.env.LOG_LEVEL, banner = "
     const wanted = String(level || "INFO").toUpperCase();
     const keep = LEVELS[wanted] ?? LEVELS.INFO;
     const file = mode === "file" ? path.join(dir, LOG_FILE) : null;
-    let writable = file !== null;
+    let failing = false;
 
-    /** Write to the file; a log that can't be written stops trying, rather than throwing into the app. */
+    /**
+     * Write to the file. A write that fails never throws into the app: it's
+     * said once on the console, and the next line tries again, since a file
+     * can be held for a moment (a virus scanner, on Windows).
+     */
     function toFile(write, text) {
-        if (!writable) return;
+        if (file === null) return;
         try {
             write(file, text);
+            failing = false;
         } catch (err) {
-            writable = false;
-            out.error(`The log can't be written: ${redact(err.message)}`);
+            if (!failing) out.error(`The log can't be written: ${redact(err.message)}`);
+            failing = true;
         }
     }
 

@@ -54,8 +54,15 @@ function ask(page, options) {
     }, options);
 }
 
-/** The answers resolved so far, in the order they were asked. */
-const answers = (page) => page.evaluate(() => window.answers);
+/**
+ * Every answer, in the order they were asked, once each has resolved: a dialog
+ * shows closed at once, and its close event, which resolves the answer, comes
+ * a task later.
+ */
+async function answers(page) {
+    await page.waitForFunction(() => (window.answers ?? []).every((answer) => answer !== undefined));
+    return page.evaluate(() => window.answers);
+}
 
 // -- The toast's action --------------------------------------------------------
 
