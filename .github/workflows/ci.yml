@@ -131,7 +131,9 @@ jobs:
     name: Electron tests and packaged demo (${{ matrix.os }})
     if: ${{ !inputs.update-visual-baselines }}
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 20
+    # The suite runs twice (unpackaged, then against the packaged demo), and on
+    # Ubuntu that has taken 11 to 20 minutes: at 20, it was cancelled twice.
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
