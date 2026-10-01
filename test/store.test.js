@@ -7,7 +7,7 @@
 
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { createSettings, KIT_DEFAULTS, KIT_CHOICES, STORE_KEY } = require("../main/store");
+const { createSettings, KIT_DEFAULTS, KIT_CHOICES, STORE_KEY, VERSION_KEY } = require("../main/store");
 const { loadMain, appPage } = require("./helpers/main");
 const { INVOKE } = require("../main/channels");
 
@@ -23,6 +23,9 @@ function memoryStore(data = {}) {
                 get: (key) => structuredClone(data[key]),
                 set: (key, value) => {
                     data[key] = structuredClone(value);
+                },
+                delete: (key) => {
+                    delete data[key];
                 },
             };
         },
@@ -180,4 +183,102 @@ test("a setting whose default is null takes any JSON value, and keeps it across 
     assert.throws(() => settings.set({ concurrency: NaN }), /"concurrency" takes a JSON value/);
     assert.throws(() => settings.set({ concurrency: new Date() }), /"concurrency" takes a JSON value/);
     assert.deepEqual(createSettings({ defaults, open: memoryStore({ settings: { concurrency: { at: new Date() } } }).open }).get().concurrency, null);
+});
+
+// -- Migration --------------------------------------------------------------------
+
+/** A log that records what it's told. */
+function recordingLog() {
+    const lines = [];
+    return { lines, info: (...args) => lines.push(args.join(" ")) };
+}
+
+/** File Converter's migration to its version 2: v1's settings 2.0 can't show, pruned. */
+const DFC_MIGRATION = {
+    version: 2,
+    migrate: (settings) => {
+        for (const key of ["outputRouting", "outputDir", "nameTemplate", "onConflict"]) delete settings[key];
+        return settings;
+    },
+    obsoleteKeys: ["presets", "pipelines"],
+};
+
+test("a store from before the settings' version is migrated once, as it's first opened: what's dropped and each obsolete key are logged", () => {
+    const store = memoryStore({
+        settings: { onConflict: "unique", outputDir: "C:\out", concurrency: 3 },
+        presets: [{ name: "old" }],
+        windowBounds: { width: 900, height: 700 },
+    });
+    const log = recordingLog();
+    const settings = createSettings({ defaults: { concurrency: null, onConflict: "ask", outputDir: null }, ...DFC_MIGRATION, log, open: store.open });
+    assert.deepEqual(log.lines, [], "nothing until the store is first used");
+    assert.deepEqual(settings.get(), { concurrency: 3, onConflict: "ask", outputDir: null, ...KIT });
+    assert.deepEqual(store.data, { settings: { concurrency: 3 }, windowBounds: { width: 900, height: 700 }, [VERSION_KEY]: 2 });
+    assert.deepEqual(log.lines, [
+        "Settings version 2: removing onConflict, outputDir.",
+        "Settings version 2: removing the store's obsolete key presets.",
+    ]);
+    assert.equal(VERSION_KEY, "settingsSchema");
+
+    // Once per version: the same file opened again, with a value written since, keeps it.
+    store.data.settings.onConflict = "overwrite";
+    const again = recordingLog();
+    assert.deepEqual(createSettings({ defaults: { concurrency: null, onConflict: "ask", outputDir: null }, ...DFC_MIGRATION, log: again, open: store.open }).get().onConflict, "overwrite");
+    assert.deepEqual(again.lines, []);
+});
+
+test("migrate() is told the version the file was at; a new file is at 0, and one from a newer version is left alone", () => {
+    const seen = [];
+    const options = (version) => ({ version, migrate: (settings, from) => { seen.push(from); return settings; }, open: undefined });
+    const fresh = memoryStore();
+    createSettings({ ...options(3), open: fresh.open }).get();
+    const older = memoryStore({ [VERSION_KEY]: 1, settings: {} });
+    createSettings({ ...options(3), open: older.open }).get();
+    const newer = memoryStore({ [VERSION_KEY]: 5, settings: { kept: true } });
+    createSettings({ defaults: { kept: false }, ...options(3), open: newer.open }).get();
+    assert.deepEqual(seen, [0, 1]);
+    assert.deepEqual(fresh.data, { [VERSION_KEY]: 3 }, "a new file gets the version, and no settings written for nothing");
+    assert.equal(newer.data[VERSION_KEY], 5);
+});
+
+test("a migration that throws isn't marked done: it's tried again at the next use", () => {
+    const store = memoryStore({ settings: { a: 1 } });
+    let fail = true;
+    const settings = createSettings({
+        defaults: { a: 0 },
+        version: 1,
+        migrate: (s) => {
+            if (fail) throw new Error("not yet");
+            return s;
+        },
+        open: store.open,
+    });
+    assert.throws(() => settings.get(), /not yet/);
+    assert.equal(store.data[VERSION_KEY], undefined);
+    fail = false;
+    assert.equal(settings.get().a, 1);
+    assert.equal(store.data[VERSION_KEY], 1);
+});
+
+test("the migration's options are checked when the settings are made", () => {
+    const bad = [
+        [{ version: 0 }, /settings\.version must be a whole number, from 1/],
+        [{ version: 1.5 }, /settings\.version must be a whole number/],
+        [{ migrate: (s) => s }, /need a settings\.version/],
+        [{ obsoleteKeys: ["presets"] }, /need a settings\.version/],
+        [{ version: 1, migrate: "prune" }, /settings\.migrate must be a function/],
+        [{ version: 1, obsoleteKeys: ["settings"] }, /obsoleteKeys must be a list of the store's other keys/],
+        [{ version: 1, obsoleteKeys: ["settingsSchema"] }, /obsoleteKeys must be a list/],
+        [{ version: 1, obsoleteKeys: "presets" }, /obsoleteKeys must be a list/],
+    ];
+    for (const [options, message] of bad) assert.throws(() => createSettings({ ...options, open: memoryStore().open }), message, JSON.stringify(options));
+    const store = memoryStore({ settings: {} });
+    assert.throws(() => createSettings({ version: 1, migrate: () => [], open: store.open }).get(), /must return the settings to keep/);
+});
+
+test("kit.start() migrates with the app's settings options and logs through the kit's log", () => {
+    const { main, stored } = loadMain({ stored: { settings: { outputDir: "x", concurrency: 2 }, pipelines: [] } });
+    const kit = main.start({ settings: { defaults: { concurrency: null, outputDir: null }, ...DFC_MIGRATION } });
+    assert.deepEqual(kit.settings.get(), { concurrency: 2, outputDir: null, ...KIT });
+    assert.deepEqual(stored, { settings: { concurrency: 2 }, settingsSchema: 2 });
 });

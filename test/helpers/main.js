@@ -92,17 +92,21 @@ function fakeElectronStore(data) {
         set(key, value) {
             data[key] = structuredClone(value);
         }
+        delete(key) {
+            delete data[key];
+        }
     }
     return { module: { default: Store }, counts };
 }
 
 /**
- * @param {{ version?: string, name?: string, stored?: Record<string, unknown>, isPackaged?: boolean, autoUpdater?: object }} [options]
+ * @param {{ version?: string, name?: string, stored?: Record<string, unknown>, isPackaged?: boolean, autoUpdater?: object, userData?: string }} [options]
  *   stored: what's already in the store's file, and what the store writes to.
  *   isPackaged: app.isPackaged. autoUpdater: what require("electron-updater")
- *   hands the kit, in place of the real one.
+ *   hands the kit, in place of the real one. userData: app.getPath("userData"),
+ *   where a log: "file" writes.
  */
-function loadMain({ version = "1.2.3", name = "Kit Demo", stored = {}, isPackaged = false, autoUpdater = null } = {}) {
+function loadMain({ version = "1.2.3", name = "Kit Demo", stored = {}, isPackaged = false, autoUpdater = null, userData = path.resolve("/no-user-data") } = {}) {
     const handlers = new Map();
     const listeners = new Map();
     const windows = [];
@@ -115,6 +119,10 @@ function loadMain({ version = "1.2.3", name = "Kit Demo", stored = {}, isPackage
             getVersion: () => version,
             getName: () => name,
             getAppPath: () => APP_PATH,
+            getPath: (name) => {
+                if (name !== "userData") throw new Error(`The stand-in app has no "${name}" path.`);
+                return userData;
+            },
             whenReady: () => Promise.resolve(),
             on(event, listener) {
                 listeners.set(event, [...(listeners.get(event) ?? []), listener]);
