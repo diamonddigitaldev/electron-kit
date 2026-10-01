@@ -512,6 +512,22 @@ from the base's `linux.maintainer`, not from `package.json`'s `author`, which in
 web address, and which npm would read as the email. An app's tests check
 the config with `assertBuildExtendsKit(require("../package.json"))` from `electron-kit/testing`.
 
+**Names.** Only the Windows installer is a `Setup`. An app names its files for itself and the version, with
+hyphens, and gives the installer its own name:
+
+```json
+"artifactName": "Diamond-File-Converter-${version}.${ext}",
+"nsis": { "artifactName": "Diamond-File-Converter-Setup-${version}.${ext}" }
+```
+
+So Linux gets `Diamond-File-Converter-2.0.0.AppImage`, `.deb` and `.rpm`. The base can't name them itself:
+electron-builder's only name for the app is `${productName}`, which has spaces. Keep the installer's name
+from one release to the next: its update files point at it.
+
+**Binaries an app runs** (File Converter's ffmpeg) go in each platform's `extraResources`, from a package
+that downloads the binary for the machine it's installed on, so Linux is built on Linux. Keep the package's
+own copies out of `files`, or electron-builder unpacks every platform's into `app.asar.unpacked` beside them.
+
 ### The Menu
 
 `start()` sets the house menu: one top-level `Menu`, with the app's own items (`start({ menu: { items }
