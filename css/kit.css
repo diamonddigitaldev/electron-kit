@@ -847,6 +847,131 @@ a:hover {
     user-select: text;
 }
 
+/* -- Progress -------------------------------------------------------------------
+   kit.ui.progress(): Bootstrap's .progress in the accent (bound above), 6px
+   for a batch's bar and 4px for one item's, its width moving over
+   --dur-state. When the amount isn't known (set(null)), a 40% bar slides
+   across instead of sitting at 0%, which reads as a hang; under reduced
+   motion it's the whole bar, faded, and still (below, with the tokens). */
+.kit-progress {
+    flex-shrink: 0;
+    height: 6px;
+}
+
+.kit-progress-thin {
+    height: 4px;
+    border-radius: 2px;
+}
+
+.kit-progress .progress-bar {
+    transition: width var(--dur-state) linear;
+}
+
+.kit-progress-unknown .progress-bar {
+    width: 40%;
+    animation: kit-progress-slide calc(var(--dur-ambient) * 0.55) var(--ease-state) infinite;
+    transition: none;
+}
+
+@keyframes kit-progress-slide {
+    from { transform: translateX(-100%); }
+    to   { transform: translateX(250%); }
+}
+
+/* -- The action bar -------------------------------------------------------------
+   kit.ui.actionBar(): the status line over the batch's bar on the left, then
+   Clear and the one primary action (or its abort) on the right. */
+.kit-action-bar {
+    display: flex;
+    flex-shrink: 0;
+    align-items: center;
+    gap: 1.25rem;
+    padding-top: 0.25rem;
+}
+
+.kit-action-status {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+.kit-action-line {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 1rem;
+    margin-bottom: 0.25rem;
+    font-size: 0.875rem;
+}
+
+.kit-action-summary {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.kit-action-detail {
+    flex-shrink: 0;
+    color: var(--bs-secondary-color);
+}
+
+.kit-action-buttons {
+    display: flex;
+    flex-shrink: 0;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+/* -- Dropping files -------------------------------------------------------------
+   kit.ui.dropZone(): the dashed box for when there's nothing there yet, at
+   most 520px wide, lit with the accent's washes while it's hovered (not over
+   its button) and more while files are dragged over its area. An area the
+   kit takes drops for has .kit-drop-area, and .drag-over while files are
+   over it, for an app to light its own list the same way. */
+.kit-drop-zone {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    width: min(520px, 100%);
+    min-height: 200px;
+    padding: 2rem;
+    border: 2px dashed var(--bs-border-color);
+    border-radius: var(--radius-zone);
+    text-align: center;
+    cursor: pointer;
+    transition: border-color var(--dur-state) var(--ease-state),
+                background-color var(--dur-state) var(--ease-state);
+}
+
+.kit-drop-zone:hover:not(:has(button:hover)) {
+    border-color: rgba(var(--accent-rgb), var(--wash-hover-border));
+    background-color: rgba(var(--accent-rgb), var(--wash-hover-fill));
+}
+
+.kit-drop-area.drag-over .kit-drop-zone {
+    border-color: rgba(var(--accent-rgb), var(--wash-active-border));
+    background-color: rgba(var(--accent-rgb), var(--wash-active-fill));
+}
+
+.kit-drop-icon {
+    color: var(--accent-text);
+    font-size: 48px;
+    opacity: var(--opacity-muted);
+}
+
+.kit-drop-label {
+    margin: 0.75rem 0 0.25rem;
+    color: var(--bs-secondary-color);
+    font-size: 1.05rem;
+}
+
+.kit-drop-or {
+    margin: 0 0 0.5rem;
+    color: var(--bs-secondary-color);
+    font-size: 0.875em;
+}
+
 /* -- Prompts --------------------------------------------------------------------
    kit.ui.confirm(): a native modal <dialog>, drawn as Bootstrap's centred
    modal is (its surface, border, radius and shadow, a half-black backdrop,
@@ -964,5 +1089,12 @@ a:hover {
         --dur-default: 0.01ms;
         --dur-enter:   0.01ms;
         --dur-ambient: 0s;
+    }
+
+    /* A bar whose amount isn't known can't slide: it fills, faded. */
+    .kit-progress-unknown .progress-bar {
+        width: 100%;
+        opacity: var(--opacity-disabled);
+        animation: none;
     }
 }

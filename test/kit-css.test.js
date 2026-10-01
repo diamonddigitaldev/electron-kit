@@ -162,9 +162,13 @@ test("the bridge sets every colour Bootstrap's .btn-primary sets, each from the 
 
 test("under reduced motion every duration token goes to (near) zero, and the ambient pulse stops", () => {
     assert.ok(Object.hasOwn(KIT_AT_RULES, REDUCED_MOTION), `kit.css has ${REDUCED_MOTION}`);
-    const { rules } = rulesOf(KIT_AT_RULES[REDUCED_MOTION]);
-    assert.equal(rules.length, 1);
-    assert.equal(rules[0].selector, ":root");
+    const { rules, atRules } = rulesOf(KIT_AT_RULES[REDUCED_MOTION]);
+    assert.deepEqual(rules.map((r) => r.selector), [":root", ".kit-progress-unknown .progress-bar"]);
+    assert.deepEqual(atRules, {});
+    // A progress bar whose amount isn't known stops sliding, and fills, faded.
+    assert.deepEqual(rules[1].declarations, { width: "100%", opacity: "var(--opacity-disabled)", animation: "none" });
+    // There's one reduced-motion block: a second would go unseen here.
+    assert.equal(KIT_CSS.split(REDUCED_MOTION).length, 2);
     const durations = Object.keys(TOKENS).filter((name) => name.startsWith("--dur-"));
     assert.deepEqual(Object.keys(rules[0].declarations).sort(), durations.sort(), "every --dur-* token, and nothing else");
     for (const [name, value] of Object.entries(rules[0].declarations)) {
@@ -173,8 +177,8 @@ test("under reduced motion every duration token goes to (near) zero, and the amb
     }
 });
 
-test("kit.css has no at-rule but the tick's drawing, a toast's and a prompt's arrival, and reduced motion", () => {
-    assert.deepEqual(Object.keys(KIT_AT_RULES).sort(), ["@keyframes kit-backdrop-in", "@keyframes kit-dialog-in", "@keyframes kit-tick-draw", "@keyframes kit-toast-in", REDUCED_MOTION].sort());
+test("kit.css has no at-rule but the tick's drawing, a toast's and a prompt's arrival, the unknown progress's slide, and reduced motion", () => {
+    assert.deepEqual(Object.keys(KIT_AT_RULES).sort(), ["@keyframes kit-backdrop-in", "@keyframes kit-dialog-in", "@keyframes kit-progress-slide", "@keyframes kit-tick-draw", "@keyframes kit-toast-in", REDUCED_MOTION].sort());
 });
 
 test("a ticked checkbox draws its tick, short stroke then long, timed by a token; unticking keeps its spring", () => {

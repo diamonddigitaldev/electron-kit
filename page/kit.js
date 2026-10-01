@@ -31,6 +31,12 @@
 // kit.ui.confirm({ title, body, … }) asks a question in a modal, one at a
 // time, and resolves with the answer; its batch form takes the answers as
 // choices, with Apply to All Remaining.
+// kit.ui.progress(), kit.ui.actionBar() and kit.ui.dropZone() are the parts of
+// a section that works through a list of files: a bar (null is "not known"),
+// the bar under the list with its status line and its one primary action, and
+// files dropped from the desktop. kit.keys.onKey() listens for a section's own
+// shortcuts, never while someone types or a modal is open; kit.format is the
+// house's wording for counts, sizes and times.
 // The shared markup is built with createElement and textContent, never HTML
 // strings, and every icon is aria-hidden: an item's name is its label, which a
 // collapsed rail hides visually but keeps for screen readers.
@@ -793,6 +799,322 @@
         return { showView, showSettings, ready };
     }
 
+    // -- Progress ------------------------------------------------------------------
+
+    /**
+     * A progress bar: Bootstrap's .progress, in the accent. set(percent) moves
+     * it (0 to 100); set(null) says the amount isn't known, and a 40% bar
+     * slides across instead of sitting at 0%, which reads as a hang. Under
+     * reduced motion, the unknown state is the whole bar, faded, and still.
+     * @param {{ label: string, thin?: boolean }} options
+     *   label: its accessible name. thin: 4px, one item's, rather than the
+     *   6px of a batch's.
+     * @returns {{ element: HTMLElement, set(percent: number | null): void }}
+     */
+    function progress({ label, thin = false } = {}) {
+        if (typeof label !== "string" || label === "") throw new Error("kit.ui.progress(): label must name what it measures.");
+        if (typeof thin !== "boolean") throw new Error("kit.ui.progress(): thin must be true or false.");
+        const bar = el("div", { className: "progress-bar" });
+        const element = el("div", {
+            className: thin ? "progress kit-progress kit-progress-thin" : "progress kit-progress",
+            attrs: { role: "progressbar", "aria-label": label, "aria-valuemin": "0", "aria-valuemax": "100" },
+        }, [bar]);
+        function set(percent) {
+            if (percent === null) {
+                element.classList.add("kit-progress-unknown");
+                element.removeAttribute("aria-valuenow");
+                bar.style.removeProperty("width");
+                return;
+            }
+            if (!Number.isFinite(percent)) throw new Error("kit.ui.progress(): set() takes a percent, or null when it isn't known.");
+            const value = Math.round(Math.min(100, Math.max(0, percent)));
+            element.classList.remove("kit-progress-unknown");
+            element.setAttribute("aria-valuenow", String(value));
+            bar.style.width = `${value}%`;
+        }
+        set(0);
+        return { element, set };
+    }
+
+    // -- The action bar ------------------------------------------------------------
+
+    /**
+     * The bar under a section's list of work: a status line (what's happening,
+     * and a detail on the right), the batch's progress, then Clear, and the
+     * primary action and its abort sharing one place, so only one of them is
+     * ever there (Convert while idle, Cancel while it runs).
+     * @param {{
+     *   run: { label: string, onClick: () => void },
+     *   abort: { label?: string, onClick: () => void },
+     *   clear?: { label?: string, onClick: () => void },
+     *   progressLabel?: string,
+     *   size?: "sm",
+     * }} options
+     * @returns {{ element: HTMLElement, progress: ReturnType<typeof progress>, update(state: { summary?: string, detail?: string, percent?: number | null, running?: boolean, canRun?: boolean, canClear?: boolean }): void }}
+     */
+    function actionBar({ run, abort, clear, progressLabel = "Progress", size } = {}) {
+        const fail = (message) => {
+            throw new Error(`kit.ui.actionBar(): ${message}`);
+        };
+        const action = (value, name, fallback) => {
+            if (value === undefined && fallback === undefined) return null;
+            const { label = fallback, onClick } = value ?? {};
+            if (typeof label !== "string" || label === "") fail(`${name}.label must be text.`);
+            if (typeof onClick !== "function") fail(`${name}.onClick must be a function.`);
+            return { label, onClick };
+        };
+        const runAction = action(run, "run");
+        if (!runAction) fail("run is the primary action: { label, onClick }.");
+        const abortAction = action(abort ?? {}, "abort", "Cancel");
+        const clearAction = clear === undefined ? null : action(clear, "clear", "Clear All");
+        if (size !== undefined && size !== "sm") fail('size must be "sm", or left out.');
+        const sm = size === "sm" ? " btn-sm" : "";
+
+        const summary = el("span", { className: "kit-action-summary" });
+        const detail = el("span", { className: "kit-action-detail" });
+        const bar = progress({ label: progressLabel });
+        const button = (label, className, onClick) => {
+            const b = el("button", { className: `btn${sm} ${className}`, text: label, attrs: { type: "button" } });
+            b.addEventListener("click", onClick);
+            return b;
+        };
+        const clearButton = clearAction && button(clearAction.label, "btn-outline-secondary", clearAction.onClick);
+        const abortButton = button(abortAction.label, "btn-danger", abortAction.onClick);
+        const runButton = button(runAction.label, "btn-primary", runAction.onClick);
+        abortButton.hidden = true;
+        runButton.disabled = true;
+        const element = el("div", { className: "kit-action-bar" }, [
+            el("div", { className: "kit-action-status" }, [
+                // The line is a live region: it says what changed as it changes.
+                el("div", { className: "kit-action-line", attrs: { role: "status" } }, [summary, detail]),
+                bar.element,
+            ]),
+            el("div", { className: "kit-action-buttons" }, [clearButton, abortButton, runButton]),
+        ]);
+
+        function update({ summary: s, detail: d, percent, running, canRun, canClear } = {}) {
+            if (s !== undefined) summary.textContent = s;
+            if (d !== undefined) detail.textContent = d;
+            if (percent !== undefined) bar.set(percent);
+            if (running !== undefined) {
+                // The focus moves with the action, so a keyboard press of Convert can press Cancel next.
+                const moveFocus = document.activeElement === (running ? runButton : abortButton);
+                runButton.hidden = running;
+                abortButton.hidden = !running;
+                if (moveFocus) (running ? abortButton : runButton).focus();
+            }
+            if (canRun !== undefined) runButton.disabled = !canRun;
+            if (canClear !== undefined && clearButton) clearButton.disabled = !canClear;
+        }
+        return { element, progress: bar, update };
+    }
+
+    // -- Dropping files ------------------------------------------------------------
+
+    /** Whether the page's guard against a stray drop is in place. */
+    let dropGuarded = false;
+
+    /**
+     * Take files dropped onto an element: a section, usually, so anywhere in it
+     * takes them. While files are dragged over it, it has the class drag-over,
+     * counted in and out, since dragleave fires as the pointer crosses onto
+     * each child (v1's highlight flickered). Each file's path comes from the
+     * kit's bridge, one File at a time: a FileList can't cross the bridge, but
+     * a File can. A drop anywhere else in the page opens nothing: without the
+     * guard, the window would navigate to the file.
+     *
+     * With an icon and a label, it also builds the house drop zone for when
+     * there's nothing there yet: a dashed box with the glyph, the label, "or"
+     * and a button that browses instead (the whole box does, bar its button),
+     * lit while files are over the area. The app puts it where it goes.
+     * @param {HTMLElement} area
+     * @param {{ onPaths: (paths: string[]) => void, icon?: string, label?: string, browseLabel?: string, onBrowse?: () => void }} options
+     * @returns {{ zone: HTMLElement | null }}
+     */
+    function dropZone(area, { onPaths, icon: glyph, label, browseLabel = "Select Files", onBrowse } = {}) {
+        const fail = (message) => {
+            throw new Error(`kit.ui.dropZone(): ${message}`);
+        };
+        if (!(area instanceof Element)) fail("the area must be an element.");
+        if (typeof onPaths !== "function") fail("onPaths must be a function.");
+        const wantsZone = glyph !== undefined || label !== undefined || onBrowse !== undefined;
+        if (wantsZone) {
+            if (typeof glyph !== "string" || glyph === "") fail("icon must be a Material Icons Round glyph.");
+            if (typeof label !== "string" || label === "") fail("label must be text, in Title Case.");
+            if (typeof onBrowse !== "function") fail("onBrowse must be a function.");
+            if (typeof browseLabel !== "string" || browseLabel === "") fail("browseLabel must be text.");
+        }
+        if (area.classList.contains("kit-drop-area")) fail("the area already takes drops.");
+
+        if (!dropGuarded) {
+            dropGuarded = true;
+            document.addEventListener("dragover", (event) => event.preventDefault());
+            document.addEventListener("drop", (event) => event.preventDefault());
+        }
+
+        area.classList.add("kit-drop-area");
+        let depth = 0;
+        const hasFiles = (event) => Array.from(event.dataTransfer?.types ?? []).includes("Files");
+        area.addEventListener("dragenter", (event) => {
+            if (!hasFiles(event)) return;
+            event.preventDefault();
+            depth++;
+            area.classList.add("drag-over");
+        });
+        area.addEventListener("dragleave", (event) => {
+            if (!hasFiles(event)) return;
+            depth = Math.max(0, depth - 1);
+            if (depth === 0) area.classList.remove("drag-over");
+        });
+        area.addEventListener("drop", (event) => {
+            event.preventDefault();
+            depth = 0;
+            area.classList.remove("drag-over");
+            // Read before anything is awaited: dataTransfer doesn't survive it.
+            const paths = Array.from(event.dataTransfer?.files ?? [])
+                .map((file) => bridge()?.getPathForFile(file))
+                .filter((p) => typeof p === "string" && p !== "");
+            if (paths.length > 0) onPaths(paths);
+        });
+
+        if (!wantsZone) return { zone: null };
+        const browse = el("button", { className: "btn btn-sm btn-secondary", text: browseLabel, attrs: { type: "button" } });
+        browse.addEventListener("click", () => onBrowse());
+        const zone = el("div", { className: "kit-drop-zone" }, [
+            icon(glyph, "kit-drop-icon"),
+            el("p", { className: "kit-drop-label", text: label }),
+            el("p", { className: "kit-drop-or", text: "or" }),
+            browse,
+        ]);
+        // The whole box browses, bar its own button, which would open the picker twice.
+        zone.addEventListener("click", (event) => {
+            if (!event.target.closest("button")) onBrowse();
+        });
+        return { zone };
+    }
+
+    // -- Keys ----------------------------------------------------------------------
+
+    /** The input types a person doesn't type into: a key pressed there is still the page's. */
+    const NOT_TYPED = /^(checkbox|radio|button|submit|reset|range|file|color|image)$/;
+
+    /**
+     * Whether a key pressed now goes into something being typed in: a text
+     * field, a text area, or anything editable. A select isn't: it keeps the
+     * focus after a choice, and would swallow the next Escape or Delete.
+     * @param {Element | null} [target] - What has the focus; the active element if not given.
+     */
+    function isTyping(target = document.activeElement) {
+        if (!(target instanceof Element)) return false;
+        if (target instanceof HTMLTextAreaElement) return true;
+        if (target instanceof HTMLInputElement) return !NOT_TYPED.test(target.type);
+        return target.isContentEditable === true;
+    }
+
+    /** Whether a modal is open: a prompt (a modal dialog), or one of Bootstrap's. */
+    const modalOpen = () => document.querySelector("dialog[open]:modal, .modal.show") !== null;
+
+    /**
+     * Listen for the page's own shortcuts (Delete, Escape, Ctrl+A on a list),
+     * the house's way: the handler isn't called while someone is typing, while
+     * a modal owns the keyboard, or, given a view, while another view shows.
+     * @param {(event: KeyboardEvent) => void} handler
+     * @param {{ view?: string }} [options] - view: the shell's view (mountShell) the keys belong to.
+     * @returns {() => void} Stops listening.
+     */
+    function onKey(handler, { view } = {}) {
+        if (typeof handler !== "function") throw new Error("kit.keys.onKey(): the handler must be a function.");
+        if (view !== undefined && (typeof view !== "string" || view === "")) throw new Error("kit.keys.onKey(): view must be a view's name.");
+        const listener = (event) => {
+            if (event.defaultPrevented || isTyping(event.target) || modalOpen()) return;
+            if (view !== undefined && document.querySelector(".app-shell")?.dataset.view !== view) return;
+            handler(event);
+        };
+        document.addEventListener("keydown", listener);
+        return () => document.removeEventListener("keydown", listener);
+    }
+
+    // -- Format ------------------------------------------------------------------
+    //
+    // The house's wording for numbers, from File Converter's core/display.js:
+    // every count on screen goes through countOf(), so "1 files" can't happen.
+
+    /**
+     * The word that agrees with a count: one when n is 1, else many, or one
+     * with an "s". plural(1, "file") is "file"; plural(3, "needs", "need") is "need".
+     */
+    function plural(n, one, many) {
+        return n === 1 ? one : (many === undefined ? `${one}s` : many);
+    }
+
+    /** 18000 as "18,000": a count grouped by thousands. */
+    function groupDigits(n) {
+        const num = Number(n);
+        if (!Number.isFinite(num)) return String(n);
+        const sign = num < 0 ? "-" : "";
+        return sign + String(Math.trunc(Math.abs(num))).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+    }
+
+    /** A count with its word: "1 file", "3 files", "18,000 frames". */
+    function countOf(n, one, many) {
+        return `${groupDigits(n)} ${plural(n, one, many)}`;
+    }
+
+    /** A size in bytes, short: "512 B", "1.5 KB", "12 MB" (binary units, one decimal below 10). Null if unknown. */
+    function formatBytes(bytes) {
+        if (bytes == null || !Number.isFinite(bytes) || bytes < 0) return null;
+        if (bytes < 1024) return `${Math.round(bytes)} B`;
+        const units = ["KB", "MB", "GB", "TB"];
+        let value = bytes / 1024;
+        let i = 0;
+        while (value >= 1024 && i < units.length - 1) {
+            value /= 1024;
+            i++;
+        }
+        // Rounding up to 1024 of a unit reads as the next one.
+        if (Math.round(value) >= 1024 && i < units.length - 1) {
+            value /= 1024;
+            i++;
+        }
+        return `${value < 10 ? value.toFixed(1) : Math.round(value)} ${units[i]}`;
+    }
+
+    /** Seconds left, terse: "45s", "2m 05s", "1h 02m". Null if unknown. */
+    function formatEta(seconds) {
+        if (seconds == null || !Number.isFinite(seconds) || seconds < 0) return null;
+        const total = Math.round(seconds);
+        if (total < 60) return `${total}s`;
+        const m = Math.floor(total / 60);
+        const s = total % 60;
+        if (m < 60) return `${m}m ${String(s).padStart(2, "0")}s`;
+        return `${Math.floor(m / 60)}h ${String(m % 60).padStart(2, "0")}m`;
+    }
+
+    /** Seconds as a clock: "9:05", "1:02:03". Null if unknown. */
+    function formatDuration(seconds) {
+        if (seconds == null || !Number.isFinite(seconds) || seconds < 0) return null;
+        const total = Math.round(seconds);
+        const h = Math.floor(total / 3600);
+        const m = Math.floor((total % 3600) / 60);
+        const pad = (n) => String(n).padStart(2, "0");
+        return h > 0 ? `${h}:${pad(m)}:${pad(total % 60)}` : `${m}:${pad(total % 60)}`;
+    }
+
+    /**
+     * The line after a batch has run: "3 files converted, 1 failed, 2 cancelled",
+     * or "Nothing converted".
+     * @param {{ done?: number, failed?: number, cancelled?: number }} counts
+     * @param {{ one: string, many?: string, done: string }} words - the item ("file") and what done means ("converted").
+     */
+    function summarise({ done = 0, failed = 0, cancelled = 0 } = {}, { one, many, done: doneWord } = {}) {
+        if (typeof one !== "string" || typeof doneWord !== "string") throw new Error("kit.format.summarise(): words must name the item (one) and what done is (done).");
+        const parts = [];
+        if (done > 0) parts.push(`${countOf(done, one, many)} ${doneWord}`);
+        if (failed > 0) parts.push(`${groupDigits(failed)} failed`);
+        if (cancelled > 0) parts.push(`${groupDigits(cancelled)} cancelled`);
+        return parts.length > 0 ? parts.join(", ") : `Nothing ${doneWord}`;
+    }
+
     // -- Checkboxes ------------------------------------------------------------
     //
     // A checkbox a person ticks has its tick drawn (kit.css, kit-tick-draw).
@@ -814,8 +1136,8 @@
     }, true);
 
     window.kit = {
-        ui: { mountShell, toast, confirm },
-        format: {},
-        keys: {},
+        ui: { mountShell, toast, confirm, progress, actionBar, dropZone },
+        format: { plural, countOf, groupDigits, formatBytes, formatEta, formatDuration, summarise },
+        keys: { isTyping, onKey },
     };
 })();
