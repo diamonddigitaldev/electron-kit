@@ -1,0 +1,237 @@
+name: Release
+
+# Publishing a GitHub release runs it. It checks the release against the
+# version in package.json, its branch and npm, runs every test as CI does, then
+# stages the package on npm with provenance. Nothing is on npm until it's
+# approved there, with two-factor authentication. Pre-releases are tagged next,
+# finished releases latest.
+#
+# Its dry run does all of that but stage: it runs npm's dry run of the package,
+# which lists every file it would publish. It runs by hand
+# (gh workflow run release.yml --ref <branch>), optionally pretending a tag and
+# pre-release flag.
+#
+# The kit's first version, 0.1.0-beta.1, was published by hand: npm only lets a
+# trusted publisher be set up for a package that's already on npm.
+#
+# A job's permissions can't depend on what ran it. So the job that stages has a
+# copy that only a release runs, with an ID token: it runs the dry run's steps
+# (the YAML aliases below), then its own. The dry run's job keeps a read-only
+# token, and never gets an ID token. The staging job runs in the "release"
+# environment, which npm's trusted publisher names.
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "The release's tag, to pretend. Leave it empty for package.json's version."
+        required: false
+        default: ''
+      prerelease:
+        description: 'Whether the release is a pre-release, to pretend. "From the version" means when it has a pre-release part, such as 0.1.0-beta.2.'
+        type: choice
+        options: ['from the version', 'yes', 'no']
+        default: 'from the version'
+
+permissions:
+  contents: read
+
+jobs:
+  versions:
+    name: Version and branch
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      tag: ${{ steps.release.outputs.tag }}
+      prerelease: ${{ steps.release.outputs.prerelease }}
+      on-npm: ${{ steps.npm.outputs.on-npm }}
+    steps:
+      - &checkout
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+
+      # Releases come from master.
+      - name: Check the branch
+        if: github.event_name != 'release'
+        env:
+          BRANCH: ${{ github.ref_name }}
+        run: |
+          if [ "$BRANCH" = master ]; then
+            echo "Releasing from master."
+          else
+            echo "::warning title=Not master::This dry run is on $BRANCH. A release is made from master only."
+          fi
+
+      # A published release names its branch as its target. GitHub only uses
+      # that when it makes the tag, and it can be a commit, so the tag's commit
+      # must be on master too.
+      - name: Check the release's branch
+        if: github.event_name == 'release'
+        env:
+          BRANCH: ${{ github.event.release.target_commitish }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [ "$BRANCH" != master ]; then
+            echo "Releases are made from master, but this release's target is $BRANCH."
+            exit 1
+          fi
+          status=$(gh api "repos/$GITHUB_REPOSITORY/compare/$GITHUB_SHA...master" --jq .status)
+          case "$status" in
+            identical|ahead) echo "Releasing from master, which has the tag's commit, $GITHUB_SHA." ;;
+            *) echo "The tag's commit, $GITHUB_SHA, isn't on master: GitHub compares them as $status."; exit 1 ;;
+          esac
+
+      # The tag must be the version itself, and the release a pre-release exactly
+      # when the version has a pre-release part, so a pre-release can never become
+      # latest. A published release gives its own tag and flag. With nothing
+      # given, the dry run checks the release package.json's version would make.
+      - name: Check the version against the release
+        id: release
+        env:
+          TAG: ${{ github.event_name == 'release' && github.event.release.tag_name || inputs.tag }}
+          PRERELEASE: ${{ github.event_name == 'release' && (github.event.release.prerelease && 'yes' || 'no') || inputs.prerelease }}
+        run: |
+          version=$(node -p "require('./package.json').version")
+          tag=${TAG:-$version}
+          case "$version" in *-*) expected=true ;; *) expected=false ;; esac
+          case "$PRERELEASE" in
+            yes) prerelease=true ;;
+            no) prerelease=false ;;
+            *) prerelease=$expected ;;
+          esac
+          echo "The release: tag $tag, pre-release: $prerelease. package.json: $version."
+          if [ "$tag" != "$version" ]; then
+            echo "::error title=Tag and version differ::The tag, $tag, must be package.json's version, $version."
+            exit 1
+          fi
+          if [ "$prerelease" != "$expected" ]; then
+            echo "::error title=Pre-release flag::$version $( [ "$expected" = true ] && echo 'has a pre-release part, so the release must be a pre-release' || echo 'has no pre-release part, so the release must not be a pre-release' )."
+            exit 1
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "prerelease=$prerelease" >> "$GITHUB_OUTPUT"
+
+      # npm never takes a version twice, so a version it already has can't be
+      # released. Read with no credentials. A release stops here, before
+      # anything is staged. The dry run warns and goes on.
+      - name: Look the version up on npm
+        id: npm
+        env:
+          TAG: ${{ steps.release.outputs.tag }}
+        run: |
+          name=$(node -p "require('./package.json').name")
+          status=$(curl -sS -o /dev/null -w '%{http_code}' "https://registry.npmjs.org/${name/\//%2f}/$TAG")
+          case "$status" in
+            200)
+              if [ "$GITHUB_EVENT_NAME" = release ]; then
+                echo "::error title=Already on npm::$name $TAG is already on npm, so it can't be released. Nothing was staged."
+                exit 1
+              fi
+              echo "::warning title=Already on npm::$name $TAG is already on npm, so a real release of it would stop here. The dry run goes on."
+              echo "on-npm=true" >> "$GITHUB_OUTPUT"
+              ;;
+            404)
+              echo "$name $TAG isn't on npm yet."
+              echo "on-npm=false" >> "$GITHUB_OUTPUT"
+              ;;
+            *)
+              echo "npm answered $status for $name $TAG."
+              exit 1
+              ;;
+          esac
+
+  # Every test, exactly as CI runs them, on Ubuntu and Windows. The house rules
+  # need the PRIVATE_REPO_NAMES secret, so the secrets go with it.
+  tests:
+    name: Tests
+    needs: versions
+    uses: ./.github/workflows/ci.yml
+    secrets: inherit
+
+  # The package, as a dry run: npm lists what it would publish, and publishes
+  # nothing. A finished release is tagged latest, and a pre-release next. The
+  # job asks for no ID token: given one, npm swaps it for a publish token, even
+  # in a dry run.
+  npm:
+    name: npm package (not published)
+    if: github.event_name != 'release'
+    needs: [versions, tests]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - &npm-node
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+
+      # npm 12, as CI and the development machine have.
+      - &npm-npm
+        name: Install npm 12
+        run: |
+          npm install -g npm@12
+          npm --version
+
+      # npm's dry run skips provenance, so this checks what it needs, as far as
+      # it can without a token.
+      - &npm-provenance
+        name: Check what provenance needs
+        run: node .github/scripts/check-npm-provenance.mjs
+
+      # A version npm already has would have stopped a real release at the
+      # start. The dry run goes on with --force, which skips only npm's own
+      # checks against the registry, so the package is still listed.
+      - name: Publish, as a dry run
+        env:
+          PRERELEASE: ${{ needs.versions.outputs.prerelease }}
+          ON_NPM: ${{ needs.versions.outputs.on-npm }}
+        run: |
+          tag=latest
+          if [ "$PRERELEASE" = true ]; then tag=next; fi
+          force=()
+          if [ "$ON_NPM" = true ]; then force=(--force); fi
+          npm publish --dry-run --provenance --access public --tag "$tag" "${force[@]}"
+
+  # From here on, only a published release runs it: the package, staged with
+  # provenance through npm's trusted publishing. npm swaps this job's ID token
+  # for a token that can only stage the kit. Nothing is on npm until it's
+  # approved there, with two-factor authentication. Only this job, in the
+  # release environment, has an ID token.
+  release-npm:
+    name: npm package (staged)
+    if: github.event_name == 'release'
+    needs: [versions, tests]
+    environment: release
+    permissions:
+      contents: read
+      id-token: write
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - *checkout
+      - *npm-node
+      - *npm-npm
+      - *npm-provenance
+
+      - name: Stage the package
+        env:
+          TAG: ${{ needs.versions.outputs.tag }}
+          PRERELEASE: ${{ needs.versions.outputs.prerelease }}
+        run: |
+          dist_tag=latest
+          if [ "$PRERELEASE" = true ]; then dist_tag=next; fi
+          npm stage publish --provenance --access public --tag "$dist_tag"
+          {
+            echo "@diamonddigitaldev/electron-kit $TAG is staged on npm, to be tagged $dist_tag, and isn't published yet."
+            echo "Approve it with two-factor authentication on npmjs.com (the package's Staged Packages tab), or with npm stage approve."
+          } | tee -a "$GITHUB_STEP_SUMMARY"

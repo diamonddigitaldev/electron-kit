@@ -1,0 +1,24 @@
+# Weekly, with patches and minors grouped into one pull request per folder.
+# Majors come one at a time, and are taken on evidence: the real app driven,
+# not only the tests passing. The demo's are checked too, since the tests
+# drive it. The workflows' actions are kept current the same way.
+
+version: 2
+updates:
+  - package-ecosystem: npm
+    directories:
+      - "/"
+      - "/demo"
+    schedule:
+      interval: weekly
+    groups:
+      minor-and-patch:
+        update-types: [minor, patch]
+
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        update-types: [minor, patch]
