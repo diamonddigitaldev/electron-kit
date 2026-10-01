@@ -5,8 +5,8 @@ name: CI
 # joins on pull requests, and when the workflow is run by hand.
 #
 # Run by hand with "Update the visual baselines" ticked, it runs only the
-# visual spec, on Windows, and uploads the images it takes (README,
-# Development).
+# visual spec, on Windows, and uploads the images it takes
+# (docs/development.md, Visual Tests).
 
 on:
   push:
@@ -280,7 +280,7 @@ jobs:
   # Run by hand (update-visual-baselines): the visual spec takes its images
   # afresh on a Windows runner, and they're uploaded as a workflow artifact,
   # as private as the repository and kept 3 days, to be checked and committed
-  # (README, Development). Nothing is committed from here.
+  # (docs/development.md, Visual Tests). Nothing is committed from here.
   visual-baselines:
     name: Visual baselines (windows-latest)
     if: ${{ inputs.update-visual-baselines }}

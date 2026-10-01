@@ -30,7 +30,7 @@
 //
 // The images are made on the runner, not on a developer's machine: run the CI
 // workflow by hand with "Update the visual baselines" ticked, and commit the
-// images it uploads (README, Development).
+// images it uploads (docs/development.md, Visual Tests).
 
 const fs = require("fs");
 const path = require("path");

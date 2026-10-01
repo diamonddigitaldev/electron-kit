@@ -1,0 +1,137 @@
+# The Main Process
+
+What `start()` does in the main process: the main window, one instance and the files an app is opened with, the settings, the log and the menu.
+
+[All the docs](README.md)
+
+## The Main Window
+
+`kit.windows.createMain(options)` makes the app's main window, after `kit.ready`, and loads its page:
+
+```js
+kit.windows.createMain({
+    page: path.join(__dirname, "index.html"),
+    size: { width: 1100, height: 780 },             // the first time
+    min: { width: 880, height: 600 },
+    title: "Diamond File Converter",
+    icon: path.join(__dirname, "assets", "diamondfileconverter"),   // .ico, .icns or .png, by platform
+    webPreferences: { preload: path.join(__dirname, "preload.js") },
+});
+```
+
+- **Secure, always:** the house's web preferences, sandboxed and isolated with no Node in the page, are laid
+  over the app's. Asking for `nodeIntegration` (or Node in frames or workers), or turning `contextIsolation`,
+  the sandbox or `webSecurity` off, throws. Spell checking is off unless asked for.
+- **Its size and position are kept:** saved 500 ms after it's resized or moved, and as it closes, under
+  `windowBounds` beside the settings in `config.json` (File Converter's own key, so its saved bounds carry over).
+  They're put back at the next launch. The size is never under `min`. A saved position no longer on any
+  screen (a monitor unplugged) is dropped, and the window is centred. A maximised, minimised or full-screen
+  window keeps its last normal bounds.
+- **One main window:** asked for again while it's open, it's restored, shown and focused.
+- `kit.windows.main()` is the main window, or `null`.
+- The app quits when its last window closes, bar on macOS, where an app stays until it's quit and its main
+  window is made again when it's activated with none.
+
+A secondary window has no menu of its own (`win.removeMenu()`); the house menu belongs to the main window.
+
+## One Instance and Files
+
+`start()` takes the single-instance lock before any window, and sets the app's user model ID on Windows, so
+its windows group in the taskbar. A second launch hands its argv to the first and quits: `kit.primary` is
+`false` there. The first restores and focuses its main window. `start({ singleInstance: false })` lets more
+than one run.
+
+With `start({ files: true })`, the files the app is opened with reach its page as `files:opened`
+(`kitAPI.onFilesOpened(callback)`, a list of paths). That covers its own argv ("Open with"), a second launch's
+(Windows starts one process per file opened from Explorer), and macOS's `open-file`. Arrivals are gathered for
+500 ms and pushed as one, once the main window's page has loaded, so none is lost to a page still loading.
+From argv, a path is kept only if it isn't a switch, isn't the app's own folder, and is something on disk.
+The app's own Open Files hands its picks over with `kit.files.open(paths)`: at once, after any still being
+gathered.
+
+## The Settings
+
+`start({ settings: { defaults } })` gives the app's own settings and their defaults. They're kept by
+`electron-store`, under one `settings` key in its default file (`config.json` in the app's `userData`
+folder), beside the kit's own: `navCollapsed`, off; `autoDownloadUpdates`, on; and `updateChannel`,
+`"stable"`, `"beta"` or `"alpha"`, `null` until the updater saves the running build's own. What's stored is read over the defaults, so a setting
+added later appears with its default, and a stored value of the wrong kind is never handed out. A change
+must name a known setting and keep its kind (a boolean stays a boolean, a list a list), with JSON values
+only, or it's refused and nothing is stored. A setting whose default is `null` means "not chosen yet", and
+takes any JSON value (File Converter's `concurrency: null`, the CPU count until someone picks one). The main process has the same settings as
+`kit.settings.get()` and `kit.settings.set(changes)`.
+
+**Migration.** An app whose settings change shape between versions numbers them:
+
+```js
+settings: {
+    defaults: SETTINGS_DEFAULTS,
+    version: 2,                                      // a whole number, from 1
+    migrate: (settings, from) => {                   // what's stored; return what's kept
+        for (const key of ["outputRouting", "outputDir"]) delete settings[key];
+        return settings;
+    },
+    obsoleteKeys: ["presets", "pipelines"],          // the store's other keys, deleted
+},
+```
+
+When the file was last written by an older version, or by none (`from` is then `0`), `migrate` is handed
+what's stored, and every setting it drops is logged by name. Each obsolete key the file still holds is deleted
+and logged too. Then the version is stored beside the settings as `settingsSchema`, so it runs once per
+version: an unconditional prune would eat a value a later version wrote, on its next launch. It runs as the
+store is first opened, so nothing reads a setting it's about to remove. A migration that throws isn't marked
+done, and a file written by a newer version is left as it is.
+
+## The Log
+
+`start({ log: "file" })` keeps the app's log in `debug.log` in its `userData` folder. The file is emptied at
+each launch and starts with a banner (`=== Diamond File Converter 2.0.0 started at … ===`), so it's one run's.
+`kit.log.error()`, `warn()`, `info()` and `debug()` write a timed, levelled line and mirror it to the console.
+The `LOG_LEVEL` environment variable sets the least that's kept (`INFO` if it's not set). Without the option,
+the log goes to the console only. A write that fails never throws into the app: it's said once on the
+console, and the next line tries again, since a file can be held for a moment (a virus scanner, on Windows).
+
+**Everything is redacted before it's written anywhere:**
+- A path keeps its file name only: `C:\Users\will\Videos\clip.mp4` is `…\clip.mp4`, and `/home/will/a.mp4`
+  is `…/a.mp4`. That covers a drive's, a share's, one from `/` or `~/`, and one inside JSON. A path runs on,
+  spaces and all, until a character no file name holds on Windows, the line's end, or another path, so a
+  folder is never left behind.
+- A URL keeps its scheme, host and path, and loses its query, its fragment and any user name, since a
+  Dropgate link's key is in its fragment. A `file:` URL keeps its file name only.
+- An `Error` is logged by its stack, redacted the same way.
+
+So an app can log the file it failed on, or the argv it was opened with, without the log saying where a
+person keeps their files.
+
+## The Menu
+
+`start()` sets the house menu: one top-level `Menu`, with the app's own items (`start({ menu: { items }
+})`) first:
+
+```
+Menu
+  <the app's items>
+  ──────────
+  Settings                 CmdOrCtrl+,
+  Check for Updates        (opens Settings > Update)
+  ──────────
+  Toggle Developer Tools   F12        (pre-releases only: a version with a "-")
+  ──────────
+  Exit                     Alt+F4
+```
+
+There's no Credits item: Credits is the last tab of Settings. The menu is the main window's: a secondary
+window, if an app has one, calls `win.removeMenu()`, or on Windows and Linux it shows the same `Menu` bar. On macOS the app's own menu comes first,
+with Quit in it. **Every accelerator needs a modifier other than Shift, or is a function key**: Electron
+registers a menu's accelerators for the whole window, text fields included, so a bare `C` (or `Shift+C`)
+would take that letter from everything typed. `start()` throws on a menu that breaks the rule, and an
+app's tests can check its template:
+
+```js
+const { assertNoBareAccelerators } = require("@diamonddigitaldev/electron-kit/testing");
+
+assertNoBareAccelerators(template);   // fails, naming each item with a bare accelerator
+```
+
+To press an accelerator in a Playwright test, send the key through `webContents.sendInputEvent()` from
+main: Playwright's own keyboard goes through DevTools, which never hands a key on to the menu.
