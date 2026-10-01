@@ -74,6 +74,30 @@ jobs:
           [ "$bad" = 0 ] && echo "None of the $n private repository names is named in any file or commit message."
           exit "$bad"
 
+      # The kit's version is in four places, which must agree: package.json, its
+      # lock file, the demo's lock file (which records the kit it installs) and
+      # the README's badge (shields.io writes a hyphen as two).
+      - name: The kit's version agrees everywhere
+        run: |
+          node -e '
+            const fs = require("fs");
+            const read = (file) => JSON.parse(fs.readFileSync(file, "utf8"));
+            const badge = fs.readFileSync("README.md", "utf8").match(/img\.shields\.io\/badge\/version-(.+?)-[a-z]+\?/);
+            const found = {
+              "package.json": read("package.json").version,
+              "package-lock.json": read("package-lock.json").packages[""].version,
+              "demo/package-lock.json": read("demo/package-lock.json").packages["node_modules/@diamonddigitaldev/electron-kit"].version,
+              "README.md badge": badge && badge[1].replaceAll("--", "-"),
+            };
+            const want = found["package.json"];
+            let bad = false;
+            for (const [where, version] of Object.entries(found)) {
+              console.log(`${version === want ? "ok  " : "NO  "} ${where}: ${version}`);
+              if (version !== want) bad = true;
+            }
+            if (bad) { console.log(`::error::The kit is ${want} in package.json, but not everywhere above.`); process.exit(1); }
+          '
+
   unit:
     name: Unit and contract tests
     runs-on: ubuntu-latest
