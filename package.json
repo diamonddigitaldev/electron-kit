@@ -3,9 +3,6 @@
     "version": "0.1.0-beta.2",
     "description": "The shared design system for Diamond Digital Development's Electron apps: main-process behaviour, a shared preload, page components and CSS, and test helpers.",
     "type": "commonjs",
-    "bin": {
-        "electron-kit": "bin/electron-kit.js"
-    },
     "exports": {
         "./main": "./main/index.js",
         "./preload.js": "./preload.js",
@@ -24,8 +21,6 @@
         "testing/",
         "builder/",
         "format/",
-        "bin/",
-        "skill/",
         "README.md",
         "LICENSE"
     ],

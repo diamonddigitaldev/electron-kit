@@ -15,7 +15,6 @@ What the package exports, and the first code an app writes: `start()` in `main.j
 | `@diamonddigitaldev/electron-kit/css/kit.css` | the shared styles, linked after Bootstrap and before the app's `accent.css` |
 | `@diamonddigitaldev/electron-kit/format` | `kit.format` under Node, for a file loaded both in the page and under Node |
 | `@diamonddigitaldev/electron-kit/testing` | helpers for an app's tests ([Testing an App](testing.md)) |
-| `npx @diamonddigitaldev/electron-kit skill` | copies the `ddd-electron-ui` skill into the app ([below](#the-skill-for-coding-agents)) |
 
 ## The Shared Preload
 
@@ -59,18 +58,3 @@ kit.ready.then(() => kit.windows.createMain({                 // (main-process.m
 top-level `const`, `let`, `function` or `class` of the same name: `const kitAPI = window.kitAPI;` throws
 "Identifier 'kitAPI' has already been declared", and the whole script never runs. Give the local another
 name (`const kitApi = window.kitAPI;`), or use `window.kitAPI` where it's needed.
-
-## The Skill for Coding Agents
-
-The package ships `ddd-electron-ui`, a skill for a coding agent (Claude Code's `.claude/skills/`): use the kit's
-pieces, never hand-roll them, and the house's rules the kit can't enforce (copy casing, icons, an app's own
-sections, the "desktop app" wording, README installation, and the files every release carries). Copy it into the
-app with the kit's command, and again after each upgrade of the kit:
-
-```bash
-npx @diamonddigitaldev/electron-kit skill            # into .claude/skills/ddd-electron-ui/
-npx @diamonddigitaldev/electron-kit skill --check    # fails if the app's copy isn't this version's
-npx @diamonddigitaldev/electron-kit skill --user     # into ~/.claude/skills/, for every project
-```
-
-The copy is replaced whole, so anything added to it by hand is lost: a change to the rules is made in the kit.
