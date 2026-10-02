@@ -7,7 +7,7 @@
     const $ = (id) => document.getElementById(id);
     $("kit-api").textContent = window.kitAPI ? "Present (it shouldn't be)" : "Absent";
     try {
-        $("electron-api").textContent = window.electronAPI ? `Electron ${await window.electronAPI.getElectronVersion()}` : "Missing";
+        $("electron-api").textContent = window.electronAPI ? `Electron ${await window.electronAPI.getIsolatedElectronVersion()}` : "Missing";
     } catch (err) {
         $("electron-api").textContent = `Failed: ${err.message}`;
     }
