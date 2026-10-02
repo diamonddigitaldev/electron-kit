@@ -21,7 +21,8 @@
 // answers the app's own channels too, through kit.ipc.handle(), with the same
 // check on who's asking as the shared ones. Every option is checked here, so a
 // mistake throws at launch. It keeps the app's log, redacted, in debug.log
-// with log: "file" (log.js), and migrates the settings once per version
+// with log: "file", or in memory with log: "memory", on disk only while the
+// person's keepLogOnDisk setting is on (log.js), and migrates the settings once per version
 // (store.js). It takes the single-instance lock, makes the main window with
 // its bounds kept (windows.js), and pushes the files the app is opened with to
 // its page (instance.js).
@@ -66,7 +67,7 @@ function registerPreload(ses) {
  * Start the kit. Call it once, at the top of main.js, before any window.
  * @param {{
  *   settings?: { defaults?: Record<string, unknown>, version?: number, migrate?: (settings: object, from: number) => object, obsoleteKeys?: string[] },
- *   log?: "file",
+ *   log?: "file" | "memory" | { mode: "file" | "memory", lines?: number },
  *   singleInstance?: boolean,
  *   files?: boolean,
  *   credits?: { lines?: (string | (string | { text: string, href: string })[])[], donate?: string },
@@ -77,7 +78,9 @@ function registerPreload(ses) {
  * }} [config]
  *   updates: the app updates itself, from the update server electron-builder
  *   wrote into it (updater.js). Without it there's no updater. log: "file"
- *   keeps the log in debug.log in userData (log.js); without it, the console
+ *   keeps the log in debug.log in userData; "memory" keeps the run's last
+ *   lines (1000, or lines) in memory, and in debug.log too only while the
+ *   kit's keepLogOnDisk setting is on (log.js); without it, the console
  *   only. settings.version, migrate and obsoleteKeys: the store's migration
  *   (store.js). singleInstance: false lets more than one run (it's one, by
  *   default). files: the app takes files it's opened with (instance.js).
@@ -85,7 +88,7 @@ function registerPreload(ses) {
  *   ready: Promise<void>,
  *   settings: { get(): object, set(changes: object): object },
  *   ipc: { handle(channel: string, handler: (event: Electron.IpcMainInvokeEvent, ...args: any[]) => any): void },
- *   log: { error(...args: unknown[]): void, warn(...args: unknown[]): void, info(...args: unknown[]): void, debug(...args: unknown[]): void },
+ *   log: { error(...args: unknown[]): void, warn(...args: unknown[]): void, info(...args: unknown[]): void, debug(...args: unknown[]): void, lines(): string[] },
  *   windows: { createMain(options: object): Electron.BrowserWindow, main(): Electron.BrowserWindow | null },
  *   files: { open(paths: string[]): void },
  *   primary: boolean,
@@ -93,8 +96,8 @@ function registerPreload(ses) {
  *   ready resolves once the app is ready, the shared preload is registered and
  *   the menu set: create windows after it. settings are the app's settings,
  *   for its main process. ipc.handle() answers one of the app's own channels,
- *   for the app's own page only (ipc.js). log is the app's log, redacted
- *   (log.js). windows.createMain() makes the main window (windows.js).
+ *   for the app's own page only (ipc.js). log is the app's log, redacted,
+ *   and its lines() the banner and the run's last lines (log.js). windows.createMain() makes the main window (windows.js).
  *   files.open() hands the page files from the app's own menu. primary is
  *   false in a second launch, which is quitting.
  */
@@ -102,7 +105,7 @@ function start(config = {}) {
     if (started) throw new Error("kit.start() was called twice.");
 
     // Every option is checked before anything is registered.
-    const { mode } = logging.checkLog(config.log);
+    const { mode, lines } = logging.checkLog(config.log);
     if (config.singleInstance !== undefined && typeof config.singleInstance !== "boolean") throw new Error("kit.start(): singleInstance must be true or false.");
     if (config.files !== undefined && typeof config.files !== "boolean") throw new Error("kit.start(): files must be true or false.");
 
@@ -112,10 +115,11 @@ function start(config = {}) {
     const primary = config.singleInstance === false ? true : instance.takeLock();
     const log = logging.createLog({
         mode: primary ? mode : null,
-        dir: mode === "file" && primary ? app.getPath("userData") : undefined,
+        dir: mode !== null && primary ? app.getPath("userData") : undefined,
+        lines,
         banner: `${config.name ?? app.getName()} ${app.getVersion()} started`,
     });
-    const settings = store.createSettings({ ...config.settings, log });
+    const settings = store.createSettings({ ...config.settings, log, memoryLog: mode === "memory" });
     const credits = info.checkInfo({ credits: config.credits, repository: config.repository, name: config.name });
     const updates = updater.createUpdater({ options: updater.checkUpdates(config.updates), app, settings, send: sendUpdateStatus, log });
     const template = menu.menuTemplate({
@@ -135,6 +139,7 @@ function start(config = {}) {
         const before = settings.get();
         const after = settings.set(changes);
         updates.settingsChanged(changes, before);
+        if (log.mode === "memory" && Object.hasOwn(changes, "keepLogOnDisk")) log.keepOnDisk(after.keepLogOnDisk);
         return after;
     }
 
@@ -165,6 +170,8 @@ function start(config = {}) {
 
     // A second launch is quitting: its ready never comes, so the app makes no window there.
     const ready = !primary ? new Promise(() => {}) : app.whenReady().then(() => {
+        // The memory log goes on disk only if the person keeps it there; else an earlier run's file is deleted.
+        if (log.mode === "memory") log.keepOnDisk(settings.get().keepLogOnDisk);
         registerPreload(session.defaultSession);
         menu.setMenu(template);
         theme.followTheme();
@@ -176,7 +183,7 @@ function start(config = {}) {
         ready,
         settings: { get: settings.get, set: setSettings },
         ipc: { handle: ipc.handleApp },
-        log: { error: log.error, warn: log.warn, info: log.info, debug: log.debug },
+        log: { error: log.error, warn: log.warn, info: log.info, debug: log.debug, lines: log.lines },
         windows: { createMain: windows.createMain, main: windows.main },
         files: { open: files.open },
         primary,

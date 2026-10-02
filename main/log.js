@@ -7,8 +7,15 @@
 // kit.start({ log: "file" }) writes it to debug.log in the app's userData
 // folder, emptied at each launch and started with a banner, so the file is
 // one run's. A write that fails is said on the console, and the next line
-// tries again. Without the option, the log goes to the console only. (A
-// "memory" mode, a redacted ring buffer for Dropgate, comes in M5.)
+// tries again. Without the option, the log goes to the console only.
+//
+// kit.start({ log: "memory" }) keeps it in memory only: the run's last lines
+// (1000, or { mode: "memory", lines }), behind its banner, with nothing on
+// disk unless the person keeps it there (the kit's keepLogOnDisk setting, off
+// by default: D97). Kept on disk, the run so far is written to debug.log and
+// each line after it is added; not kept, debug.log is deleted. Every mode
+// keeps the last lines, which kit.log.lines() hands out, so an app can copy or
+// save them.
 //
 // Everything is redacted before it's written anywhere (Dropgate's hard
 // requirement 8; D67): a path keeps its file name only (C:\Users\will\clip.mp4
@@ -25,6 +32,9 @@ const LEVELS = Object.freeze({ ERROR: 0, WARN: 1, INFO: 2, DEBUG: 3 });
 
 /** The log file's name, in userData. */
 const LOG_FILE = "debug.log";
+
+/** How many of the run's lines are kept in memory, unless the app says otherwise, and the fewest and most it may. */
+const MEMORY_LINES = Object.freeze({ default: 1000, min: 100, max: 100000 });
 
 // -- Redaction -------------------------------------------------------------------
 
@@ -101,47 +111,70 @@ function textOf(value) {
 // -- The log ---------------------------------------------------------------------
 
 /**
- * Check start()'s log option: "file", or { mode: "file" }, or nothing.
+ * Check start()'s log option: "file" or "memory", or { mode } with either
+ * ("memory" may say how many lines it keeps), or nothing.
  * @param {unknown} option
- * @returns {{ mode: "file" | null }}
+ * @returns {{ mode: "file" | "memory" | null, lines: number }}
  */
 function checkLog(option) {
-    if (option === undefined || option === false) return { mode: null };
+    if (option === undefined || option === false) return { mode: null, lines: MEMORY_LINES.default };
     const mode = typeof option === "string" ? option : option?.mode;
-    if (mode !== "file") throw new Error('kit.start(): log must be "file" (debug.log in userData), or left out for the console only.');
-    return { mode };
+    if (mode !== "file" && mode !== "memory") {
+        throw new Error('kit.start(): log must be "file" (debug.log in userData) or "memory" (in memory, on disk only if the person keeps it), or left out for the console only.');
+    }
+    const lines = typeof option === "object" && option.lines !== undefined ? option.lines : MEMORY_LINES.default;
+    if (mode === "file" && typeof option === "object" && option.lines !== undefined) throw new Error("kit.start(): log.lines is for the memory log only.");
+    if (!Number.isInteger(lines) || lines < MEMORY_LINES.min || lines > MEMORY_LINES.max) {
+        throw new Error(`kit.start(): log.lines must be a whole number from ${MEMORY_LINES.min} to ${MEMORY_LINES.max}.`);
+    }
+    return { mode, lines };
 }
 
 /**
  * The app's log.
  * @param {{
- *   mode?: "file" | null,
+ *   mode?: "file" | "memory" | null,
  *   dir?: string,
+ *   lines?: number,
  *   level?: string,
  *   banner?: string,
  *   now?: () => Date,
  *   console?: Pick<Console, "error" | "warn" | "log">,
- *   fileSystem?: Pick<typeof fs, "writeFileSync" | "appendFileSync">,
+ *   fileSystem?: Pick<typeof fs, "writeFileSync" | "appendFileSync" | "rmSync">,
  * }} [options]
- *   dir: the folder the file goes in (userData). level: LOG_LEVEL. banner:
- *   the first line's words. now, console and fileSystem stand in for a test.
- * @returns {{ error(...args: unknown[]): void, warn(...args: unknown[]): void, info(...args: unknown[]): void, debug(...args: unknown[]): void, file: string | null, level: string }}
+ *   dir: the folder the file goes in (userData). lines: how many of the run's
+ *   last lines are kept in memory. level: LOG_LEVEL. banner: the first line's
+ *   words. now, console and fileSystem stand in for a test.
+ * @returns {{
+ *   error(...args: unknown[]): void, warn(...args: unknown[]): void, info(...args: unknown[]): void, debug(...args: unknown[]): void,
+ *   lines(): string[], keepOnDisk(on: boolean): void, onDisk(): boolean,
+ *   file: string | null, mode: "file" | "memory" | null, level: string,
+ * }}
+ *   lines(): the banner and the run's last lines, as written. keepOnDisk():
+ *   the memory log only: on, the run so far is written to the file and each
+ *   line after it added; off, the file is deleted. onDisk(): whether lines are
+ *   going to the file. file: where the file is, or would be.
  */
-function createLog({ mode = null, dir, level = process.env.LOG_LEVEL, banner = "App started", now = () => new Date(), console: out = console, fileSystem = fs } = {}) {
+function createLog({ mode = null, dir, lines: size = MEMORY_LINES.default, level = process.env.LOG_LEVEL, banner = "App started", now = () => new Date(), console: out = console, fileSystem = fs } = {}) {
     const wanted = String(level || "INFO").toUpperCase();
     const keep = LEVELS[wanted] ?? LEVELS.INFO;
-    const file = mode === "file" ? path.join(dir, LOG_FILE) : null;
+    const file = mode === "file" || mode === "memory" ? path.join(dir, LOG_FILE) : null;
+    const first = `=== ${banner} at ${now().toISOString()} ===`;
+    /** The run's last lines, after the banner, which is always kept. */
+    const recent = [];
+    // The memory log's is null until it's first told, which then always acts,
+    // so a file an earlier run kept is deleted when it's not to be kept now.
+    let disk = mode === "file" ? true : mode === "memory" ? null : false;
     let failing = false;
 
     /**
-     * Write to the file. A write that fails never throws into the app: it's
+     * Do something to the file. A failure never throws into the app: it's
      * said once on the console, and the next line tries again, since a file
      * can be held for a moment (a virus scanner, on Windows).
      */
-    function toFile(write, text) {
-        if (file === null) return;
+    function onFile(act) {
         try {
-            write(file, text);
+            act();
             failing = false;
         } catch (err) {
             if (!failing) out.error(`The log can't be written: ${redact(err.message)}`);
@@ -149,24 +182,42 @@ function createLog({ mode = null, dir, level = process.env.LOG_LEVEL, banner = "
         }
     }
 
-    toFile(fileSystem.writeFileSync, `=== ${banner} at ${now().toISOString()} ===\n`);
+    if (disk) onFile(() => fileSystem.writeFileSync(file, `${first}\n`));
 
     const at = (name) => (...args) => {
         if (LEVELS[name] > keep) return;
         const message = redact(args.map(textOf).join(" "));
-        toFile(fileSystem.appendFileSync, `[${now().toISOString()}] [${name}] ${message}\n`);
+        const line = `[${now().toISOString()}] [${name}] ${message}`;
+        recent.push(line);
+        if (recent.length > size) recent.shift();
+        if (disk) onFile(() => fileSystem.appendFileSync(file, `${line}\n`));
         if (name === "ERROR") out.error(message);
         else if (name === "WARN") out.warn(message);
         else out.log(message);
     };
+
+    /** The memory log: start or stop keeping it on disk. Asked again for what it's doing already, it does nothing. */
+    function keepOnDisk(on) {
+        if (mode !== "memory") throw new Error("Only the memory log can be kept on disk or not.");
+        if (typeof on !== "boolean") throw new Error("keepOnDisk() takes true or false.");
+        if (on === disk) return;
+        disk = on;
+        if (on) onFile(() => fileSystem.writeFileSync(file, `${[first, ...recent].join("\n")}\n`));
+        else onFile(() => fileSystem.rmSync(file, { force: true }));
+    }
+
     return {
         error: at("ERROR"),
         warn: at("WARN"),
         info: at("INFO"),
         debug: at("DEBUG"),
+        lines: () => [first, ...recent],
+        keepOnDisk,
+        onDisk: () => disk === true,
         file,
+        mode,
         level: Object.keys(LEVELS).find((name) => LEVELS[name] === keep),
     };
 }
 
-module.exports = { createLog, checkLog, redact, LEVELS, LOG_FILE };
+module.exports = { createLog, checkLog, redact, LEVELS, LOG_FILE, MEMORY_LINES };

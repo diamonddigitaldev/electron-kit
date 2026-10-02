@@ -39,6 +39,14 @@ const KIT_DEFAULTS = Object.freeze({
 });
 
 /**
+ * The kit's settings an app has with the memory log only (log.js): whether
+ * the person keeps the log on disk too, off unless they turn it on (D97).
+ */
+const MEMORY_LOG_DEFAULTS = Object.freeze({
+    keepLogOnDisk: false,
+});
+
+/**
  * The kit's settings that take one of a few values only, as a list of them.
  * A stored value that isn't one of them is never handed out (the default is,
  * as for a value of the wrong kind), and a change to one is refused.
@@ -124,7 +132,7 @@ const allowed = (key, value, fallback) => fits(value, fallback) && (!Object.hasO
 function checkDefaults(defaults) {
     if (!isPlainObject(defaults)) throw new Error("kit.start(): settings.defaults must be a plain object.");
     for (const [key, value] of Object.entries(defaults)) {
-        if (Object.hasOwn(KIT_DEFAULTS, key)) throw new Error(`kit.start(): "${key}" is one of the kit's own settings; leave it out of settings.defaults.`);
+        if (Object.hasOwn(KIT_DEFAULTS, key) || Object.hasOwn(MEMORY_LOG_DEFAULTS, key)) throw new Error(`kit.start(): "${key}" is one of the kit's own settings; leave it out of settings.defaults.`);
         if (!isJsonValue(value)) throw new Error(`kit.start(): settings.defaults.${key} must be a JSON value.`);
     }
 }
@@ -184,17 +192,19 @@ function migrateStore(store, { version, migrate, obsoleteKeys = [], log }) {
  *   migrate?: (settings: object, from: number) => object,
  *   obsoleteKeys?: string[],
  *   log?: { info(...args: unknown[]): void },
+ *   memoryLog?: boolean,
  *   open?: () => { get(key: string): unknown, set(key: string, value: unknown): void, delete(key: string): void },
  * }} [options]
  *   defaults: the app's own settings and their defaults. version, migrate and
  *   obsoleteKeys: the migration (the top of this file); log: where it says
- *   what it removed. open: opens the store, electron-store unless a test
+ *   what it removed. memoryLog: the app keeps the memory log, so it has
+ *   keepLogOnDisk too. open: opens the store, electron-store unless a test
  *   stands one in. It's opened on first use, never before, and migrated then.
  */
-function createSettings({ defaults = {}, version, migrate, obsoleteKeys, log, open = openElectronStore } = {}) {
+function createSettings({ defaults = {}, version, migrate, obsoleteKeys, log, memoryLog = false, open = openElectronStore } = {}) {
     checkDefaults(defaults);
     checkMigration({ version, migrate, obsoleteKeys });
-    const all = Object.freeze({ ...defaults, ...KIT_DEFAULTS });
+    const all = Object.freeze({ ...defaults, ...KIT_DEFAULTS, ...(memoryLog ? MEMORY_LOG_DEFAULTS : {}) });
     let store = null;
     const stored = () => {
         if (!store) {
@@ -264,4 +274,4 @@ function openElectronStore() {
     return new Store();
 }
 
-module.exports = { createSettings, KIT_DEFAULTS, KIT_CHOICES, STORE_KEY, VERSION_KEY, BOUNDS_KEY };
+module.exports = { createSettings, KIT_DEFAULTS, MEMORY_LOG_DEFAULTS, KIT_CHOICES, STORE_KEY, VERSION_KEY, BOUNDS_KEY };

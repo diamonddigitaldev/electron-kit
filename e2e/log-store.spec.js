@@ -48,3 +48,42 @@ test("a profile from before the settings' version is migrated once, before the p
     expect(log).toContain("[INFO] Settings version 1: removing showGrid.");
     expect(log).toContain("[INFO] Settings version 1: removing the store's obsolete key recentFiles.");
 });
+
+test.describe("the memory log", () => {
+    test.use({ demoEnv: { KIT_DEMO_LOG: "memory" } });
+
+    test("nothing is on disk until keepLogOnDisk is on; then the run so far is, until it's off again", async ({ demo }) => {
+        let main = await demo.mainWindow();
+        const file = path.join(demo.profile, "debug.log");
+        expect(fs.existsSync(file)).toBe(false);
+        expect(await main.evaluate(() => window.kitAPI.getSettings())).toMatchObject({ keepLogOnDisk: false });
+
+        await main.evaluate(() => window.kitAPI.setSettings({ keepLogOnDisk: true }));
+        const text = fs.readFileSync(file, "utf8");
+        expect(text).toMatch(/^=== \S.* 0\.0\.0 started at \d{4}-\d\d-\d\dT[\d:.]+Z ===\n/);
+        expect(text).toMatch(/\] \[INFO\] Opened with \[/);
+        for (const folder of [demo.profile, path.dirname(demo.profile)]) {
+            expect(text.includes(folder), folder).toBe(false);
+            expect(text.includes(folder.replaceAll("\\", "\\\\")), folder).toBe(false);
+        }
+
+        // Kept on, the next launch writes its own run from the start.
+        await demo.relaunch();
+        main = await demo.mainWindow();
+        const next = fs.readFileSync(file, "utf8");
+        expect(next.match(/^=== /gm)).toHaveLength(1);
+        expect(next).toMatch(/\] \[INFO\] Opened with \[/);
+
+        await main.evaluate(() => window.kitAPI.setSettings({ keepLogOnDisk: false }));
+        expect(fs.existsSync(file)).toBe(false);
+    });
+
+    test("a debug.log left behind is deleted at launch when the log isn't kept on disk", async ({ demo }) => {
+        await demo.mainWindow();
+        const file = path.join(demo.profile, "debug.log");
+        fs.writeFileSync(file, "an earlier run's log\n");
+        await demo.relaunch();
+        await demo.mainWindow();
+        expect(fs.existsSync(file)).toBe(false);
+    });
+});
