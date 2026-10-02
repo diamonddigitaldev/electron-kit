@@ -86,6 +86,7 @@ test("automatic downloads off: Check for Updates finds it, the dot shows, and Do
         await expect(main.locator(".update-dot:visible"), "the dot stays until the new version runs").toHaveCount(2);
         await expect(main.locator("#toast-host .toast-note")).toHaveCount(0);
         for (const request of server.requests) expect(request.headers["x-user-staging-id"], request.file).toBe(STAGING_ID);
+        expect(fs.existsSync(path.join(demo.profile, ".updaterId")), "no ID of the install in the profile").toBe(false);
         await keepFromInstalling(demo);
     } finally {
         await server.close();
@@ -104,6 +105,7 @@ test("automatic downloads on: a new channel checks its own file, downloads what 
         expect(server.installers()).toEqual([`Kit-Test-Setup-0.0.1-beta.1.${EXT}`]);
         await expect(main.locator("#toast-host .toast-body")).toHaveText(["Version 0.0.1-beta.1 has downloaded and will be installed when you close electron-kit Demo."]);
         await expect(main.locator(".update-dot:visible")).toHaveCount(0);
+        expect(fs.existsSync(path.join(demo.profile, ".updaterId")), "no ID of the install in the profile").toBe(false);
         await keepFromInstalling(demo);
     } finally {
         await server.close();

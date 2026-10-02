@@ -18,6 +18,24 @@ const APP_PATH = path.resolve("/apps/kit-demo");
 /** The file:// URL of a file in the stand-in app's code, as its window would show it. */
 const appPage = (file = "src/index.html") => pathToFileURL(path.join(APP_PATH, file)).href;
 
+/** electron-updater's own Lazy (lazy-val), as its AppUpdater holds stagingUserIdPromise. */
+const { Lazy } = require(require.resolve("lazy-val", { paths: [path.dirname(require.resolve("electron-updater"))] }));
+
+/**
+ * A stand-in electron-updater autoUpdater: an EventEmitter with the
+ * stagingUserIdPromise the kit sets (whose creator, as electron-updater's
+ * would write .updaterId, fails the test if it ever runs), and `fields`.
+ */
+function fakeAutoUpdater(fields = {}) {
+    return Object.assign(new EventEmitter(), {
+        requestHeaders: null,
+        stagingUserIdPromise: new Lazy(() => {
+            throw new Error("electron-updater was left to make an ID of the install");
+        }),
+        ...fields,
+    });
+}
+
 /** A session that keeps its preload registrations, spell-check languages and permission handlers, as Electron's does. */
 function fakeSession(partition = "") {
     const scripts = [];
@@ -290,4 +308,4 @@ function loadMain({ appReady = true, version = "1.2.3", name = "Kit Demo", store
     }
 }
 
-module.exports = { loadMain, appPage, APP_PATH };
+module.exports = { loadMain, appPage, fakeAutoUpdater, APP_PATH };

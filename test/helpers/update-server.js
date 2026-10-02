@@ -50,9 +50,10 @@ const installerBytes = (version) => Buffer.from(`installer for ${version}`);
 /**
  * A channel file, as electron-builder writes it, for a version.
  * @param {string} version
- * @param {{ sha512?: string, ext?: string }} [options] - sha512: a wrong one, to fail the download; ext: the installer's
+ * @param {{ sha512?: string, ext?: string, stagingPercentage?: number }} [options] - sha512: a wrong one, to fail the
+ *   download; ext: the installer's; stagingPercentage: a staged rollout's share, 0–100
  */
-function channelFile(version, { sha512, ext } = {}) {
+function channelFile(version, { sha512, ext, stagingPercentage } = {}) {
     const bytes = installerBytes(version);
     const hash = sha512 ?? crypto.createHash("sha512").update(bytes).digest("base64");
     const file = installerName(version, ext);
@@ -71,7 +72,7 @@ function channelFile(version, { sha512, ext } = {}) {
 
 /**
  * Start an update server.
- * @param {Record<string, string | { version: string, sha512?: string }>} channels
+ * @param {Record<string, string | { version: string, sha512?: string, stagingPercentage?: number }>} channels
  *   What each channel file holds: { latest: "2.1.0", beta: "2.1.0-beta.1" }.
  *   A channel left out is a 404, as a release without that file would be.
  * @param {{ port?: number, ext?: string }} [options]
@@ -83,8 +84,8 @@ async function startUpdateServer(channels, { port = 0, ext = "exe" } = {}) {
     const requests = [];
     const byFile = new Map();
     for (const [channel, release] of Object.entries(channels)) {
-        const { version, sha512 } = typeof release === "string" ? { version: release } : release;
-        byFile.set(`${channel}.yml`, channelFile(version, { sha512, ext }));
+        const { version, sha512, stagingPercentage } = typeof release === "string" ? { version: release } : release;
+        byFile.set(`${channel}.yml`, channelFile(version, { sha512, ext, stagingPercentage }));
         byFile.set(installerName(version, ext), installerBytes(version));
     }
     const server = http.createServer((req, res) => {

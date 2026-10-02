@@ -3,19 +3,19 @@
 // The updater (main/updater.js), against the real electron-updater and a local
 // update server (helpers/update-server.js): each channel, the saved channel
 // winning, never a downgrade, the channel set before allowDowngrade, a
-// mis-tagged release refused, both download modes and the dot, the fixed
-// x-user-staging-id, and no request the app didn't ask for. Then how
-// kit.start() wires it: the updates option, app.isPackaged, the channels.
+// mis-tagged release refused, both download modes and the dot, no ID of the
+// install (the fixed x-user-staging-id, no .updaterId), and no request the app
+// didn't ask for. Then how kit.start() wires it: the updates option,
+// app.isPackaged, the channels.
 
 const test = require("node:test");
-const EventEmitter = require("events");
 const assert = require("node:assert/strict");
 const fs = require("fs");
 const path = require("path");
-const { createUpdater, checkUpdates, applyChannel, checkFailureOf, STAGING_ID, LAUNCH_CHECK_DELAY } = require("../main/updater");
+const { createUpdater, checkUpdates, applyChannel, withoutInstallId, checkFailureOf, STAGING_ID, LAUNCH_CHECK_DELAY } = require("../main/updater");
 const { createSettings } = require("../main/store");
 const { startUpdateServer, realAutoUpdater } = require("./helpers/update-server");
-const { loadMain, appPage } = require("./helpers/main");
+const { loadMain, appPage, fakeAutoUpdater } = require("./helpers/main");
 const { INVOKE, PUSH } = require("../main/channels");
 
 /** Settings kept in memory: `data` is what's on disk. */
@@ -303,16 +303,45 @@ test("two checks at once are one check", async (t) => {
 
 // -- Privacy ----------------------------------------------------------------
 
-test("every request sends the fixed x-user-staging-id, never the install's own", async (t) => {
+test("no ID of the install is made: none is written to userData, and every request sends the fixed one", async (t) => {
     const { updater, server, sent, dir } = await updaterFor({ version: "2.0.0", channels: { latest: "2.1.0" } }, t);
     await updater.check();
     await reaches(sent, "downloaded");
     assert.ok(server.requests.length >= 2);
     for (const request of server.requests) assert.equal(request.headers["x-user-staging-id"], STAGING_ID, request.file);
-    // electron-updater still keeps an ID of the install on disk, which is never sent.
-    const own = fs.readFileSync(path.join(dir, ".updaterId"), "utf8");
-    assert.notEqual(own, STAGING_ID);
-    assert.ok(!server.requests.some((r) => Object.values(r.headers).includes(own)));
+    assert.equal(fs.existsSync(path.join(dir, ".updaterId")), false, "electron-updater wrote .updaterId");
+});
+
+test("left to itself, the same electron-updater writes .updaterId: the test above would see it", async (t) => {
+    const server = await startUpdateServer({ latest: "2.0.0" });
+    t.after(() => server.close());
+    const { autoUpdater, dir } = realAutoUpdater({ version: "2.0.0", url: server.url });
+    t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+    await autoUpdater.checkForUpdates();
+    assert.match(fs.readFileSync(path.join(dir, ".updaterId"), "utf8"), /^[0-9a-f-]{36}$/);
+});
+
+test("a staged release is offered to every install, without an ID to place it", async (t) => {
+    const { updater, dir } = await updaterFor({ version: "2.0.0", channels: { latest: { version: "2.1.0", stagingPercentage: 0 } }, stored: { autoDownloadUpdates: false } }, t);
+    const status = await updater.check();
+    assert.equal(status.state, "available");
+    assert.equal(status.version, "2.1.0");
+    assert.equal(fs.existsSync(path.join(dir, ".updaterId")), false);
+});
+
+test("a .updaterId an earlier version wrote is left as it is, and never read or sent", async (t) => {
+    const { updater, server, dir } = await updaterFor({ version: "2.0.0", channels: { latest: "2.0.0" } }, t);
+    const old = "6f1c2a3b-4d5e-5f60-8a7b-9c0d1e2f3a4b";
+    fs.writeFileSync(path.join(dir, ".updaterId"), old);
+    await updater.check();
+    assert.equal(fs.readFileSync(path.join(dir, ".updaterId"), "utf8"), old);
+    assert.ok(server.requests.length >= 1);
+    assert.ok(!server.requests.some((r) => Object.values(r.headers).includes(old)));
+});
+
+test("withoutInstallId() throws if electron-updater no longer holds the ID in a Lazy, so an upgrade can't quietly write it again", () => {
+    assert.throws(() => withoutInstallId({}), /stagingUserIdPromise/);
+    assert.throws(() => withoutInstallId({ stagingUserIdPromise: Promise.resolve("x") }), /stagingUserIdPromise/);
 });
 
 test("nothing is checked until the app asks: the launch check is scheduled 5 seconds in, and only with checkOnLaunch", async (t) => {
@@ -390,8 +419,7 @@ test("kit.start() without updates has an Update tab with no updater, and saves n
 
 test("update:status goes to the app's own windows, in the UI session, and no other", async () => {
     // A stand-in electron-updater, which finds nothing.
-    const autoUpdater = Object.assign(new EventEmitter(), {
-        requestHeaders: null,
+    const autoUpdater = fakeAutoUpdater({
         checkForUpdates: async () => ({ isUpdateAvailable: false, updateInfo: { version: "2.0.0" } }),
     });
     const { main, handlers, eventFrom, openWindow, fakeSession, electron } = loadMain({ version: "2.0.0", isPackaged: true, autoUpdater });
@@ -410,7 +438,7 @@ test("update:status goes to the app's own windows, in the UI session, and no oth
 
 test("a change of channel from the app's main, not only the page, checks again", async () => {
     let checks = 0;
-    const autoUpdater = Object.assign(new EventEmitter(), {
+    const autoUpdater = fakeAutoUpdater({
         checkForUpdates: async () => (checks++, { isUpdateAvailable: false, updateInfo: { version: "2.0.0" } }),
     });
     const { main } = loadMain({ version: "2.0.0", isPackaged: true, autoUpdater });
