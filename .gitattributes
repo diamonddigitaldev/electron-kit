@@ -1,4 +1,0 @@
-# The skill is copied byte for byte into apps (npx @diamonddigitaldev/electron-kit skill --check
-# compares them), and the command's shebang line must end in LF to run on Linux and macOS.
-bin/** text eol=lf
-skill/** text eol=lf
