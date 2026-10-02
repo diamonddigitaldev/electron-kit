@@ -5,15 +5,16 @@
 //
 // kit.start() registers the kit's shared preload on the default session, so
 // the main window gets window.kitAPI from the kit and window.electronAPI from
-// the demo's own preload. The isolated window runs in a partition of its own,
-// where the kit's preload is never registered: it gets electronAPI only.
+// the demo's own preload. The isolated window runs in a session of its own,
+// from kit.sessions.isolated(), where the kit's preload is never registered:
+// it gets electronAPI only, and its own channel is answered there only.
 //
 // The demo passes the kit its own setting (and a migration), its credits, its
 // own menu item and a log in a file, so every piece of the kit is in use. It
 // logs what it was opened with, which the log keeps without any folder.
 
 const path = require("path");
-const { BrowserWindow, ipcMain } = require("electron");
+const { BrowserWindow } = require("electron");
 const { IPC, ISOLATED_PARTITION, SETTINGS_DEFAULTS } = require("./constants");
 
 const kit = require("@diamonddigitaldev/electron-kit/main").start({
@@ -79,7 +80,7 @@ function createIsolatedWindow() {
         height: 320,
         title: "Isolated Window",
         show: false,
-        webPreferences: webPreferences({ partition: ISOLATED_PARTITION }),
+        webPreferences: webPreferences({ session: kit.sessions.isolated(ISOLATED_PARTITION) }),
     });
     // A secondary window has no menu of its own: the house menu belongs to the main window.
     win.removeMenu();
@@ -88,15 +89,15 @@ function createIsolatedWindow() {
 }
 
 // The demo's own channels go through kit.ipc.handle(), which answers the demo's
-// own page only, as the kit's shared channels do. The isolated window asks for
-// the Electron version from a partition of its own, which kit.ipc.handle()
-// refuses (the UI session only, for now), so that one is answered for anyone.
+// own page only, as the kit's shared channels do: the main window's in the UI
+// session, and the isolated window's in its own session, once the app is ready.
 kit.ipc.handle(IPC.OPEN_ISOLATED_WINDOW, () => {
     createIsolatedWindow();
 });
-ipcMain.handle(IPC.GET_ELECTRON_VERSION, () => process.versions.electron);
+kit.ipc.handle(IPC.GET_ELECTRON_VERSION, () => process.versions.electron);
 
 kit.ready.then(() => {
+    kit.ipc.handle(IPC.GET_ISOLATED_VERSION, () => process.versions.electron, { session: kit.sessions.isolated(ISOLATED_PARTITION) });
     kit.log.info("Opened with", JSON.stringify(process.argv));
     createMainWindow();
 });

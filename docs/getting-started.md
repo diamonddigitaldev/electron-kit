@@ -20,7 +20,8 @@ What the package exports, and the first code an app writes: `start()` in `main.j
 
 An app keeps its own sandboxed preload for its own channels (`window.electronAPI`). `start()` registers
 the kit's preload on the app's default session with `session.registerPreloadScript`, so every window in
-that session also gets `window.kitAPI`. A window in another session or partition doesn't.
+that session also gets `window.kitAPI`. A window in another session or partition doesn't
+([isolated sessions](main-process.md#isolated-sessions)).
 
 ```js
 const kit = require("@diamonddigitaldev/electron-kit/main").start({

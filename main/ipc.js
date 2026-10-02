@@ -16,6 +16,12 @@
 // the app's own through handleApp() (kit.ipc.handle()), never with
 // ipcMain.handle() directly; test/ipc.test.js checks each one refuses a sender
 // that isn't the app's page.
+//
+// An app's own channel can be answered in one of its isolated sessions
+// instead (kit.ipc.handle(channel, handler, { session }), sessions.js): then
+// it's the app's own page in that session that's answered, and the UI
+// session's pages are refused, as the isolated session's are by every other
+// channel.
 
 const path = require("path");
 const { fileURLToPath } = require("url");
@@ -27,14 +33,16 @@ const CHANNEL_NAME = /^[a-z][a-z0-9]*(-[a-z0-9]+)*:[a-z][a-z0-9]*(-[a-z0-9]+)*$/
 
 /**
  * Whether an IPC message came from the app's own page: a frame, still there,
- * showing a file:// page inside the app's own code, in the UI session.
+ * showing a file:// page inside the app's own code, in the UI session, or in
+ * the session given.
  * @param {Electron.IpcMainInvokeEvent} event
+ * @param {Electron.Session} [ses] - The session it must come from: the UI session unless given.
  * @returns {boolean}
  */
-function isAppPage(event) {
+function isAppPage(event, ses = session.defaultSession) {
     // senderFrame is null once the frame has navigated away or gone.
     const frame = event.senderFrame;
-    if (!frame || event.sender.session !== session.defaultSession) return false;
+    if (!frame || event.sender.session !== ses) return false;
 
     let file;
     try {
@@ -56,10 +64,11 @@ function isAppPage(event) {
  * @param {string} channel
  * @param {(event: Electron.IpcMainInvokeEvent, ...args: any[]) => any} handler
  * @param {string} refusal
+ * @param {Electron.Session} [ses] - The session its page is in: the UI session unless given.
  */
-function register(channel, handler, refusal) {
+function register(channel, handler, refusal, ses) {
     ipcMain.handle(channel, (event, ...args) => {
-        if (!isAppPage(event)) throw new Error(refusal);
+        if (!isAppPage(event, ses)) throw new Error(refusal);
         return handler(event, ...args);
     });
 }
@@ -83,12 +92,18 @@ function handle(channel, handler) {
  * error. A refused sender's invoke() rejects with an error naming the channel,
  * and the handler never runs.
  *
+ * With { session }, one kit.sessions.isolated() made, it answers the app's
+ * own page in that session instead, and refuses the UI session's.
+ *
  * Throws, as the app registers it, for a channel that isn't "domain:action",
- * is one of the kit's shared channels, or already has a handler.
+ * is one of the kit's shared channels, or already has a handler, or for a
+ * session that isn't an isolated one.
  * @param {string} channel
  * @param {(event: Electron.IpcMainInvokeEvent, ...args: any[]) => any} handler
+ * @param {{ session?: Electron.Session }} [options]
+ * @param {(ses: unknown) => boolean} [isIsolated] - Whether a session is one kit.sessions.isolated() made.
  */
-function handleApp(channel, handler) {
+function handleApp(channel, handler, options = {}, isIsolated = () => false) {
     if (typeof channel !== "string" || !CHANNEL_NAME.test(channel)) {
         throw new Error(`kit.ipc.handle(): ${JSON.stringify(channel)} isn't a channel name like "domain:action".`);
     }
@@ -96,7 +111,14 @@ function handleApp(channel, handler) {
         throw new Error(`kit.ipc.handle(): "${channel}" is one of the kit's shared channels, which the kit answers itself.`);
     }
     if (typeof handler !== "function") throw new Error(`kit.ipc.handle(): the handler for "${channel}" must be a function.`);
-    register(channel, handler, `"${channel}" is answered for the app's own page only.`);
+    if (options === null || typeof options !== "object" || Object.keys(options).some((key) => key !== "session")) {
+        throw new Error(`kit.ipc.handle(): the options for "${channel}" are { session } or nothing.`);
+    }
+    const ses = options.session;
+    if (ses !== undefined && !isIsolated(ses)) {
+        throw new Error(`kit.ipc.handle(): the session for "${channel}" must be one kit.sessions.isolated() made; leave it out for the UI session.`);
+    }
+    register(channel, handler, `"${channel}" is answered for the app's own page only.`, ses);
 }
 
 module.exports = { handle, handleApp, isAppPage, CHANNEL_NAME };

@@ -1,6 +1,6 @@
 # The Main Process
 
-What `start()` does in the main process: the main window, one instance and the files an app is opened with, the settings, the log and the menu.
+What `start()` does in the main process: the main window, isolated sessions, one instance and the files an app is opened with, the settings, the log and the menu.
 
 [All the docs](README.md)
 
@@ -21,7 +21,7 @@ kit.windows.createMain({
 
 - **Secure, always:** the house's web preferences, sandboxed and isolated with no Node in the page, are laid
   over the app's. Asking for `nodeIntegration` (or Node in frames or workers), or turning `contextIsolation`,
-  the sandbox or `webSecurity` off, throws. Spell checking is off unless asked for.
+  the sandbox or `webSecurity` off, throws. Spell checking is off unless asked for (and see below).
 - **Its size and position are kept:** saved 500 ms after it's resized or moved, and as it closes, under
   `windowBounds` beside the settings in `config.json` (File Converter's own key, so its saved bounds carry over).
   They're put back at the next launch. The size is never under `min`. A saved position no longer on any
@@ -33,6 +33,40 @@ kit.windows.createMain({
   window is made again when it's activated with none.
 
 A secondary window has no menu of its own (`win.removeMenu()`); the house menu belongs to the main window.
+
+**No spell-check dictionaries are downloaded.** On Linux, Electron's spell checker downloads its dictionaries
+from Google as each session starts, even when every window has spell checking off, which tells Google the
+person's address and language. `start()` gives every session, the default one and every partition, no
+spell-check languages as it's made, so there's nothing to download. An app that wants spell checking sets its
+languages itself, from a dictionary source of its own.
+
+## Isolated Sessions
+
+`kit.sessions.isolated(name)` gives a session without the kit's bridge, for a window that mustn't have
+`window.kitAPI`: a hidden window that handles what comes in from the network (Dropgate's transfer renderer),
+or a page that isn't the app's. Call it once the app is ready, and make the window in it:
+
+```js
+kit.ready.then(() => {
+    const transfer = kit.sessions.isolated("transfer");
+    const win = new BrowserWindow({
+        show: false,
+        webPreferences: { session: transfer, preload: path.join(__dirname, "transfer-preload.js"), sandbox: true, contextIsolation: true },
+    });
+    kit.ipc.handle("transfer:progress", (_event, update) => progress(update), { session: transfer });
+});
+```
+
+- **Its own partition, in memory:** nothing it caches or stores is kept on disk, unless it's made with
+  `{ persist: true }`. Asked for again by the same name, it's the same session.
+- **No kit bridge:** the kit's preload is never registered there, so its windows get only the preload the app
+  gives them; `isolated()` throws if the kit's preload has been registered on it.
+- **No permissions:** every permission request (notifications, the camera, …) is refused and every check
+  answers no, so a window there can never prompt.
+- **No dictionaries,** as every session on the kit.
+
+Its windows' own channels are answered with `kit.ipc.handle(channel, handler, { session })`, for the app's own
+page in that session only ([IPC](ipc.md#the-apps-own-channels)).
 
 ## One Instance and Files
 

@@ -13,11 +13,14 @@ const { contextBridge, ipcRenderer } = require("electron");
 const CH = {
     GET_ELECTRON_VERSION: "demo:get-electron-version",
     OPEN_ISOLATED_WINDOW: "demo:open-isolated-window",
+    GET_ISOLATED_VERSION: "isolated:get-electron-version",
 };
 
 contextBridge.exposeInMainWorld("electronAPI", {
     getElectronVersion: () => ipcRenderer.invoke(CH.GET_ELECTRON_VERSION),
     openIsolatedWindow: () => ipcRenderer.invoke(CH.OPEN_ISOLATED_WINDOW),
+    // The isolated window's own channel: answered there only.
+    getIsolatedElectronVersion: () => ipcRenderer.invoke(CH.GET_ISOLATED_VERSION),
     // Whether this window's renderer runs sandboxed: shown in the demo, and checked by its tests.
     sandboxed: process.sandboxed === true,
 });
