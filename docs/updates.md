@@ -26,9 +26,13 @@ false }` turns that off), and whenever the page asks (`checkForUpdates()`). It m
   `downloadUpdate()`. The dot stays until the app runs the new version, and shows too when a download fails.
   Turning it on downloads an update waiting. Moving to a channel that wouldn't offer an update already
   downloaded keeps it from being installed.
-- **No ID of the install is sent.** electron-updater sends a random ID with every request
-  (`x-user-staging-id`), for staged rollouts; the kit sends `00000000-0000-0000-0000-000000000000` instead.
-  electron-updater still keeps its own in `userData` (`.updaterId`), but it never leaves the machine.
+- **No ID of the install is made, kept or sent.** Left to itself, electron-updater makes a random ID on its
+  first check, writes it to `userData` (`.updaterId`), sends it with every request (`x-user-staging-id`) and
+  uses it to place the install in a staged rollout (`stagingPercentage` in the update file). The kit gives it
+  `00000000-0000-0000-0000-000000000000` before its first check, so no ID is made and no file is written, and
+  every install is offered every release: no app on the kit uses staged rollouts. A `.updaterId` an earlier
+  version wrote is left where it is, and never read or sent. The tests check the profile for the file after a
+  real update, so an electron-updater upgrade that changes how it keeps the ID fails them.
 - **A failed check or download is logged** as one warning (`start({ log })`, redacted like every line):
   the channel, the reason, and the error's code and first line.
 

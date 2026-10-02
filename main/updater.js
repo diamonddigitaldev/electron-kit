@@ -30,11 +30,13 @@
 //   app quits (autoInstallOnAppQuit). With it off, the update dot shows, and
 //   the Update tab offers Download Update. The dot stays until the app runs
 //   the new version; it shows too when a download fails.
-// - electron-updater sends a random ID of the install with every request
-//   (x-user-staging-id), for staged rollouts, which no app on the kit uses.
-//   The kit sends a fixed one instead, so update checks can't be linked to one
-//   install. electron-updater still keeps its ID in the app's userData folder
-//   (.updaterId), but it's never sent.
+// - electron-updater makes a random ID of the install on its first check,
+//   keeps it in the app's userData folder (.updaterId), sends it with every
+//   request (x-user-staging-id) and uses it to place the install in a staged
+//   rollout, which no app on the kit uses. The kit gives it a fixed ID before
+//   it can make one, so none is made, written or sent, and every install is
+//   in every rollout. A .updaterId an earlier version wrote is left as it is,
+//   unread.
 //
 // Every change of state is pushed to the app's own windows as update:status.
 
@@ -47,7 +49,7 @@ const CHANNEL_SETTINGS = Object.freeze({
     alpha: Object.freeze({ channel: "alpha", allowPrerelease: true }),
 });
 
-/** What every update request sends as x-user-staging-id, in place of the install's own ID. */
+/** The ID electron-updater is given in place of making one: what every update request sends as x-user-staging-id. */
 const STAGING_ID = "00000000-0000-0000-0000-000000000000";
 
 /** How long after launch the launch check runs, so the window is up to show what it finds. */
@@ -112,6 +114,26 @@ function applyChannel(autoUpdater, channel) {
     autoUpdater.allowDowngrade = false;
     autoUpdater.autoDownload = false;
     autoUpdater.requestHeaders = { ...autoUpdater.requestHeaders, "x-user-staging-id": STAGING_ID };
+}
+
+/**
+ * Keep electron-updater from making an ID of the install, once, before its
+ * first check. Its stagingUserIdPromise is a lazy-val Lazy whose creator reads
+ * .updaterId from userData, or makes a random ID and writes it there; setting
+ * the Lazy's value resolves it without running the creator, so neither the
+ * request header nor the rollout check ever reaches the file. With no staged
+ * rollouts, every install is in every release (isUserWithinRollout, public).
+ * Throws if electron-updater no longer has the Lazy, so an upgrade that moves
+ * it fails the tests rather than writing the file again.
+ * @param {import("electron-updater").AppUpdater} autoUpdater
+ */
+function withoutInstallId(autoUpdater) {
+    const lazy = autoUpdater.stagingUserIdPromise;
+    if (!lazy || typeof Object.getOwnPropertyDescriptor(Object.getPrototypeOf(lazy), "value")?.set !== "function") {
+        throw new Error("electron-updater has no stagingUserIdPromise to set: the kit can't keep it from writing .updaterId.");
+    }
+    lazy.value = Promise.resolve(STAGING_ID);
+    autoUpdater.isUserWithinRollout = () => true;
 }
 
 /**
@@ -189,6 +211,7 @@ function createUpdater({ options, app, settings, send, load = loadAutoUpdater, s
             return;
         }
         autoUpdater = load();
+        withoutInstallId(autoUpdater);
         autoUpdater.autoInstallOnAppQuit = true;
         // No app on the kit ships a web installer.
         autoUpdater.disableWebInstaller = true;
@@ -352,4 +375,4 @@ function unrefTimeout(run, ms) {
     setTimeout(run, ms).unref?.();
 }
 
-module.exports = { createUpdater, checkUpdates, applyChannel, checkFailureOf, CHANNEL_SETTINGS, STAGING_ID, LAUNCH_CHECK_DELAY };
+module.exports = { createUpdater, checkUpdates, applyChannel, withoutInstallId, checkFailureOf, CHANNEL_SETTINGS, STAGING_ID, LAUNCH_CHECK_DELAY };

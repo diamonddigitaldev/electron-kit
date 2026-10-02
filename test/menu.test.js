@@ -8,7 +8,7 @@
 
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { loadMain } = require("./helpers/main");
+const { loadMain, fakeAutoUpdater } = require("./helpers/main");
 const { PUSH } = require("../main/channels");
 const { isSafeAccelerator } = require("../main/accelerators");
 const { assertNoBareAccelerators } = require("../testing");
@@ -80,9 +80,8 @@ test("Settings and Check for Updates show Settings, and its Update tab, in the w
 });
 
 test("Check for Updates runs a check too, once the Update tab is showing", async () => {
-    const EventEmitter = require("events");
     let checks = 0;
-    const autoUpdater = Object.assign(new EventEmitter(), {
+    const autoUpdater = fakeAutoUpdater({
         checkForUpdates: async () => (checks++, { isUpdateAvailable: false, updateInfo: { version: "1.2.3" } }),
     });
     const loaded = loadMain({ isPackaged: true, autoUpdater });
