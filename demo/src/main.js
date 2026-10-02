@@ -29,8 +29,9 @@ const kit = require("@diamonddigitaldev/electron-kit/main").start({
         },
         obsoleteKeys: ["recentFiles"],
     },
-    // debug.log in userData, redacted.
-    log: "file",
+    // debug.log in userData, redacted; or, for the memory log's tests, in
+    // memory, on disk only while keepLogOnDisk is on.
+    log: process.env.KIT_DEMO_LOG === "memory" ? "memory" : "file",
     // The files it's opened with (argv, a second launch) reach the page as files:opened.
     files: true,
     credits: {

@@ -10,8 +10,8 @@ const assert = require("node:assert/strict");
 const fs = require("fs");
 const os = require("os");
 const path = require("path");
-const { createLog, checkLog, redact, LEVELS, LOG_FILE } = require("../main/log");
-const { loadMain } = require("./helpers/main");
+const { createLog, checkLog, redact, LEVELS, LOG_FILE, MEMORY_LINES } = require("../main/log");
+const { loadMain, appPage } = require("./helpers/main");
 
 /** A console that records each line, by what it was written with. */
 function recordingConsole() {
@@ -61,13 +61,19 @@ test("a URL keeps its scheme, host and path, and loses its query, fragment and u
 
 // -- The log -------------------------------------------------------------------------
 
-test("checkLog(): \"file\", { mode: \"file\" } or nothing; anything else throws", () => {
-    assert.deepEqual(checkLog(undefined), { mode: null });
-    assert.deepEqual(checkLog("file"), { mode: "file" });
-    assert.deepEqual(checkLog({ mode: "file" }), { mode: "file" });
-    for (const bad of ["memory", true, {}, "debug.log"]) {
-        assert.throws(() => checkLog(bad), /log must be "file"/);
+test("checkLog(): \"file\" or \"memory\", as a string or { mode }, or nothing; anything else throws", () => {
+    assert.deepEqual(checkLog(undefined), { mode: null, lines: 1000 });
+    assert.deepEqual(checkLog("file"), { mode: "file", lines: 1000 });
+    assert.deepEqual(checkLog({ mode: "file" }), { mode: "file", lines: 1000 });
+    assert.deepEqual(checkLog("memory"), { mode: "memory", lines: 1000 });
+    assert.deepEqual(checkLog({ mode: "memory", lines: 250 }), { mode: "memory", lines: 250 });
+    for (const bad of ["ring", true, {}, "debug.log"]) {
+        assert.throws(() => checkLog(bad), /log must be "file" .* or "memory"/);
     }
+    for (const lines of [MEMORY_LINES.min - 1, MEMORY_LINES.max + 1, 10.5, "500"]) {
+        assert.throws(() => checkLog({ mode: "memory", lines }), /log\.lines must be a whole number from 100 to 100000/);
+    }
+    assert.throws(() => checkLog({ mode: "file", lines: 500 }), /log\.lines is for the memory log only/);
 });
 
 test("the file is debug.log in its folder, emptied with a banner at each launch, and each line timed, levelled and redacted", () => {
@@ -148,7 +154,7 @@ test("kit.start({ log: \"file\" }) writes debug.log in userData, with the app's 
         kit.log.info("Opened", "/home/will/a.mp4");
         const text = fs.readFileSync(path.join(dir, "debug.log"), "utf8");
         assert.match(text, /^=== Diamond File Converter 2\.0\.0 started at \S+ ===\n\[\S+\] \[INFO\] Opened …\/a\.mp4\n$/);
-        assert.deepEqual(Object.keys(kit.log), ["error", "warn", "info", "debug"]);
+        assert.deepEqual(Object.keys(kit.log), ["error", "warn", "info", "debug", "lines"]);
     } finally {
         fs.rmSync(dir, { recursive: true, force: true });
     }
@@ -161,9 +167,112 @@ test("kit.start() without log writes no file, and a bad log option throws before
         main.start({});
         assert.deepEqual(fs.readdirSync(dir), []);
         const second = loadMain({ userData: dir });
-        assert.throws(() => second.main.start({ log: "memory" }), /log must be "file"/);
+        assert.throws(() => second.main.start({ log: "ring" }), /log must be "file"/);
         assert.equal(second.handlers.size, 0);
     } finally {
         fs.rmSync(dir, { recursive: true, force: true });
     }
 });
+
+// -- The memory log (D97) ---------------------------------------------------------
+
+/** A folder of its own for a test, deleted after it. */
+async function withDir(run) {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "electron-kit-log-"));
+    try {
+        return await run(dir);
+    } finally {
+        fs.rmSync(dir, { recursive: true, force: true });
+    }
+}
+
+/** Ask a channel's handler as the app's own page would. */
+const ask = ({ handlers, eventFrom }, channel, ...args) => handlers.get(channel)(eventFrom(appPage()), ...args);
+
+test("the memory log keeps the banner and the run's last lines, redacted, and writes nothing until it's told", () => withDir((dir) => {
+    const out = recordingConsole();
+    const log = createLog({ mode: "memory", dir, lines: 3, banner: "Dropgate 4.0.0 started", now: clock(), console: out });
+    for (const n of [1, 2, 3, 4]) log.info(`line ${n}`, String.raw`C:\Users\will\file${n}.txt`);
+    assert.deepEqual(log.lines(), [
+        "=== Dropgate 4.0.0 started at 2026-10-01T09:00:00.000Z ===",
+        String.raw`[2026-10-01T09:00:02.000Z] [INFO] line 2 …\file2.txt`,
+        String.raw`[2026-10-01T09:00:03.000Z] [INFO] line 3 …\file3.txt`,
+        String.raw`[2026-10-01T09:00:04.000Z] [INFO] line 4 …\file4.txt`,
+    ]);
+    assert.equal(log.file, path.join(dir, LOG_FILE));
+    assert.equal(log.onDisk(), false);
+    assert.deepEqual(fs.readdirSync(dir), [], "nothing on disk");
+    assert.equal(out.lines.length, 4, "still mirrored to the console");
+    // The list handed out is a copy.
+    log.lines().push("not kept");
+    assert.equal(log.lines().length, 4);
+}));
+
+test("kept on disk, the run so far is written and each line after it added; not kept, the file is deleted", () => withDir((dir) => {
+    const log = createLog({ mode: "memory", dir, now: clock(), console: recordingConsole() });
+    log.info("before");
+    log.keepOnDisk(true);
+    log.info("after", "https://drop.example.com/d/1#key");
+    assert.equal(log.onDisk(), true);
+    assert.equal(fs.readFileSync(log.file, "utf8"), [
+        "=== App started at 2026-10-01T09:00:00.000Z ===",
+        "[2026-10-01T09:00:01.000Z] [INFO] before",
+        "[2026-10-01T09:00:02.000Z] [INFO] after https://drop.example.com/d/1",
+        "",
+    ].join("\n"));
+    log.keepOnDisk(true); // Again: nothing rewritten.
+    log.keepOnDisk(false);
+    assert.equal(log.onDisk(), false);
+    assert.deepEqual(fs.readdirSync(dir), []);
+    log.info("not written");
+    assert.deepEqual(fs.readdirSync(dir), []);
+    assert.equal(log.lines().at(-1), "[2026-10-01T09:00:03.000Z] [INFO] not written");
+    assert.throws(() => log.keepOnDisk("yes"), /takes true or false/);
+}));
+
+test("the first keepOnDisk(false) deletes a file an earlier run kept; only the memory log takes it", () => withDir((dir) => {
+    fs.writeFileSync(path.join(dir, LOG_FILE), "an earlier run, kept on disk\n");
+    const log = createLog({ mode: "memory", dir, console: recordingConsole() });
+    log.keepOnDisk(false);
+    assert.deepEqual(fs.readdirSync(dir), []);
+    assert.throws(() => createLog({ mode: "file", dir, console: recordingConsole() }).keepOnDisk(false), /Only the memory log/);
+    assert.throws(() => createLog({ console: recordingConsole() }).keepOnDisk(true), /Only the memory log/);
+}));
+
+test("a file log and the console's keep the last lines too", () => {
+    const log = createLog({ console: recordingConsole(), now: clock() });
+    log.warn("kept");
+    assert.deepEqual(log.lines(), ["=== App started at 2026-10-01T09:00:00.000Z ===", "[2026-10-01T09:00:01.000Z] [WARN] kept"]);
+});
+
+test("kit.start({ log: \"memory\" }) adds keepLogOnDisk, off: no file, an earlier one deleted, and the setting turns it on and off", () => withDir(async (dir) => {
+    fs.writeFileSync(path.join(dir, LOG_FILE), "an earlier run's\n");
+    const loaded = loadMain({ userData: dir, version: "4.0.0", name: "Dropgate" });
+    const kit = loaded.main.start({ log: "memory" });
+    kit.log.info("Opened", "/home/will/a.txt");
+    await kit.ready;
+    assert.deepEqual(fs.readdirSync(dir), [], "the earlier run's file is deleted");
+    assert.equal((await ask(loaded, "settings:get")).keepLogOnDisk, false);
+
+    await ask(loaded, "settings:set", { keepLogOnDisk: true });
+    kit.log.warn("now on disk");
+    const text = fs.readFileSync(path.join(dir, LOG_FILE), "utf8");
+    assert.match(text, /^=== Dropgate 4\.0\.0 started at \S+ ===\n\[\S+\] \[INFO\] Opened …\/a\.txt\n\[\S+\] \[WARN\] now on disk\n$/);
+    assert.equal(kit.log.lines().length, 3);
+
+    await ask(loaded, "settings:set", { keepLogOnDisk: false });
+    assert.deepEqual(fs.readdirSync(dir), []);
+}));
+
+test("kit.start({ log: \"memory\" }) with keepLogOnDisk saved on writes the run from launch; other logs have no such setting", () => withDir(async (dir) => {
+    const { main } = loadMain({ userData: dir, stored: { settings: { keepLogOnDisk: true } } });
+    const kit = main.start({ log: { mode: "memory", lines: 100 } });
+    kit.log.info("early");
+    await kit.ready;
+    assert.match(fs.readFileSync(path.join(dir, LOG_FILE), "utf8"), /\[INFO\] early\n$/);
+
+    const fileKit = loadMain({ userData: dir }).main.start({ log: "file" });
+    assert.equal(Object.hasOwn(fileKit.settings.get(), "keepLogOnDisk"), false);
+    assert.throws(() => fileKit.settings.set({ keepLogOnDisk: true }), /no setting called "keepLogOnDisk"/);
+    assert.throws(() => loadMain({ userData: dir }).main.start({ settings: { defaults: { keepLogOnDisk: false } } }), /one of the kit's own settings/);
+}));

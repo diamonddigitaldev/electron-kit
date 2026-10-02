@@ -194,10 +194,11 @@ class Demo {
 const test = base.extend({
     demoSwitches: [[], { option: true }],
     demoFiles: [[], { option: true }],
-    demo: async ({ demoSwitches, demoFiles }, use) => {
+    demoEnv: [{}, { option: true }],
+    demo: async ({ demoSwitches, demoFiles, demoEnv }, use) => {
         const root = fs.mkdtempSync(path.join(os.tmpdir(), "electron-kit-demo-"));
         const profile = path.join(root, "profile");
-        const env = { ...process.env };
+        const env = { ...process.env, ...demoEnv };
         delete env.ELECTRON_RUN_AS_NODE;
         const toServers = [];
         const netLogs = [];
