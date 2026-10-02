@@ -8,7 +8,7 @@
 <div align="center">
 
 ![license](https://img.shields.io/badge/license-Apache--2.0-blue?style=flat-square)
-![version](https://img.shields.io/badge/version-0.1.0--beta.3-brightgreen?style=flat-square)
+![version](https://img.shields.io/badge/version-0.1.0--beta.4-brightgreen?style=flat-square)
 ![electron](https://img.shields.io/badge/Electron-44+-blue?style=flat-square)
 ![platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux-lightgrey?style=flat-square)
 
