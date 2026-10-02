@@ -17,6 +17,10 @@
 //
 // assertBuildExtendsKit() checks an app's package.json: its electron-builder
 // config extends the kit's builder/base.json, and doesn't undo what it sets.
+//
+// netLogSwitches(), outsideLookups(), proxyLookups() and
+// assertNoOutsideLookups() check that a test run of the app reached nothing
+// beyond the machine, from Chromium's net log (netlog.js).
 // The contract and window helpers join them later.
 
 const fs = require("fs");
@@ -24,6 +28,7 @@ const vm = require("vm");
 const assert = require("assert");
 const accent = require("./accent");
 const contrast = require("./contrast");
+const netlog = require("./netlog");
 const { bareAccelerators, describeBare } = require("../main/accelerators");
 
 /** What a sandboxed preload may require. Anything else throws there. */
@@ -132,4 +137,4 @@ function assertBuildExtendsKit(pkg) {
     assert.ok(build.publish, "build.publish must name where updates come from: electron-builder writes it into the app for the updater.");
 }
 
-module.exports = { loadPreload, assertNoBareAccelerators, assertBuildExtendsKit, KIT_BASE, SANDBOX_MODULES, ...accent, ...contrast };
+module.exports = { loadPreload, assertNoBareAccelerators, assertBuildExtendsKit, KIT_BASE, SANDBOX_MODULES, ...accent, ...contrast, ...netlog };
