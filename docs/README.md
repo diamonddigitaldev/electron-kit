@@ -11,7 +11,7 @@ and links here, so these can be corrected without a new release.
 | Page | What it covers |
 |---|---|
 | [Getting Started](getting-started.md) | What the package exports, `start()` at the top of `main.js`, and the stylesheets and scripts a page loads |
-| [IPC](ipc.md) | The shared channels behind `window.kitAPI`, and `kit.ipc.handle()` for an app's own, each answering the app's own page only |
+| [IPC](ipc.md) | The shared channels behind `window.kitAPI`, links and the allowlist, and `kit.ipc.handle()` for an app's own, each answering the app's own page only |
 | [The Shell, Settings and Credits](shell.md) | `kit.ui.mountShell()`: the nav rail, the header, and the Settings view with its Update and Credits tabs |
 | [Page Components](page-components.md) | Toasts, prompts, the parts of a section of files (drop zone, progress, action bar), the key guard, and `kit.format` |
 | [The Main Process](main-process.md) | The main window, one instance and the files an app is opened with, the settings and their migration, the redacted log, and the menu |

@@ -73,6 +73,7 @@ function registerPreload(ses) {
  *   credits?: { lines?: (string | (string | { text: string, href: string })[])[], donate?: string },
  *   repository?: string,
  *   name?: string,
+ *   openExternal?: { allow: string[] },
  *   menu?: { items?: Electron.MenuItemConstructorOptions[] },
  *   updates?: { checkOnLaunch?: boolean } | boolean,
  * }} [config]
@@ -84,6 +85,9 @@ function registerPreload(ses) {
  *   only. settings.version, migrate and obsoleteKeys: the store's migration
  *   (store.js). singleInstance: false lets more than one run (it's one, by
  *   default). files: the app takes files it's opened with (instance.js).
+ *   openExternal.allow: the sites the page's links may open on, beside the
+ *   links the kit shows from this config; any http(s) link without it
+ *   (shell.js).
  * @returns {{
  *   ready: Promise<void>,
  *   settings: { get(): object, set(changes: object): object },
@@ -121,6 +125,14 @@ function start(config = {}) {
     });
     const settings = store.createSettings({ ...config.settings, log, memoryLog: mode === "memory" });
     const credits = info.checkInfo({ credits: config.credits, repository: config.repository, name: config.name });
+    const openExternal = shell.createOpener({
+        allow: shell.checkOpenExternal(config.openExternal),
+        // The links the kit itself shows: the credit lines', the donate link, and the repository (its releases too).
+        kitLinks: () => {
+            const shown = info.appInfo(credits);
+            return [...shown.credits.lines.flat().map((part) => part?.href ?? null), shown.credits.donate, shown.repository];
+        },
+    });
     const updates = updater.createUpdater({ options: updater.checkUpdates(config.updates), app, settings, send: sendUpdateStatus, log });
     const template = menu.menuTemplate({
         items: config.menu?.items,
@@ -147,7 +159,7 @@ function start(config = {}) {
     ipc.handle(INVOKE.APP_GET_INFO, () => info.appInfo(credits));
     ipc.handle(INVOKE.SETTINGS_GET, () => settings.get());
     ipc.handle(INVOKE.SETTINGS_SET, (_event, changes) => setSettings(changes));
-    ipc.handle(INVOKE.SHELL_OPEN_EXTERNAL, (_event, url) => shell.openExternal(url));
+    ipc.handle(INVOKE.SHELL_OPEN_EXTERNAL, (_event, url) => openExternal(url));
     ipc.handle(INVOKE.UPDATE_GET_STATUS, () => updates.status());
     ipc.handle(INVOKE.UPDATE_CHECK, () => updates.check());
     ipc.handle(INVOKE.UPDATE_DOWNLOAD, () => updates.download());

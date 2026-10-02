@@ -41,6 +41,8 @@ const kit = require("@diamonddigitaldev/electron-kit/main").start({
         donate: "https://buymeacoff.ee/willtda",
     },
     repository: "https://github.com/diamonddigitaldev/electron-kit",
+    // For the allowlist's tests: the sites links may open on, beside the kit's own links above.
+    ...(process.env.KIT_DEMO_ALLOW ? { openExternal: { allow: process.env.KIT_DEMO_ALLOW.split(" ") } } : {}),
     // Settings > Update. No check at launch, so a run of the tests never
     // checks unless a test asks; packaged, the demo updates from the server
     // its build names.
