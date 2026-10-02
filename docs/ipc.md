@@ -58,6 +58,17 @@ Error invoking remote method 'job:run': Error: "job:run" is answered for the app
 ```
 
 It throws as the app registers a channel that isn't `domain:action` (lower case, words joined by `-`), one
-of the kit's shared channels above, or one that already has a handler. For now it answers the UI session
-only: a window in a session or partition of its own is refused, so a channel only such a window asks is
-still the app's to answer itself.
+of the kit's shared channels above, or one that already has a handler.
+
+A channel answers the UI session's page only. A window in an isolated session
+([`kit.sessions.isolated()`](main-process.md#isolated-sessions)) has channels of its own, answered for the
+app's own page in that session and refused everywhere else, the UI session's pages included:
+
+```js
+const transfer = kit.sessions.isolated("transfer");             // once the app is ready
+kit.ipc.handle("transfer:progress", (_event, update) => progress(update), { session: transfer });
+```
+
+So each side can ask only the channels meant for it: the isolated window is refused the UI's channels and
+the kit's shared ones, and the UI is refused the isolated window's. The session must be one
+`kit.sessions.isolated()` made.

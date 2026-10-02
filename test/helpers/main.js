@@ -18,12 +18,21 @@ const APP_PATH = path.resolve("/apps/kit-demo");
 /** The file:// URL of a file in the stand-in app's code, as its window would show it. */
 const appPage = (file = "src/index.html") => pathToFileURL(path.join(APP_PATH, file)).href;
 
-/** A session that keeps its preload registrations and spell-check languages, as Electron's does. */
-function fakeSession() {
+/** A session that keeps its preload registrations, spell-check languages and permission handlers, as Electron's does. */
+function fakeSession(partition = "") {
     const scripts = [];
     return {
+        partition,
         scripts,
         spellCheckerLanguages: ["en-GB"],
+        permissionRequestHandler: null,
+        permissionCheckHandler: null,
+        setPermissionRequestHandler(handler) {
+            this.permissionRequestHandler = handler;
+        },
+        setPermissionCheckHandler(handler) {
+            this.permissionCheckHandler = handler;
+        },
         registerPreloadScript(script) {
             const id = script.id ?? `script-${scripts.length + 1}`;
             scripts.push({ ...script, id });
@@ -106,7 +115,7 @@ function fakeElectronStore(data) {
  *   hands the kit, in place of the real one. userData: app.getPath("userData"),
  *   where a log: "file" writes.
  */
-function loadMain({ version = "1.2.3", name = "Kit Demo", stored = {}, isPackaged = false, autoUpdater = null, userData = path.resolve("/no-user-data"), firstInstance = true, displays = [{ workArea: { x: 0, y: 0, width: 1920, height: 1040 } }] } = {}) {
+function loadMain({ appReady = true, version = "1.2.3", name = "Kit Demo", stored = {}, isPackaged = false, autoUpdater = null, userData = path.resolve("/no-user-data"), firstInstance = true, displays = [{ workArea: { x: 0, y: 0, width: 1920, height: 1040 } }] } = {}) {
     const handlers = new Map();
     const listeners = new Map();
     const windows = [];
@@ -202,6 +211,7 @@ function loadMain({ version = "1.2.3", name = "Kit Demo", stored = {}, isPackage
                 return userData;
             },
             whenReady: () => Promise.resolve(),
+            isReady: () => appReady,
             on(event, listener) {
                 listeners.set(event, [...(listeners.get(event) ?? []), listener]);
                 return this;
@@ -236,6 +246,13 @@ function loadMain({ version = "1.2.3", name = "Kit Demo", stored = {}, isPackage
         nativeTheme: fakeNativeTheme(),
         session: {
             defaultSession: fakeSession(),
+            partitions: new Map(),
+            /** The session for a partition: the same one each time, as Electron's; "" is the default session. */
+            fromPartition(partition) {
+                if (partition === "") return this.defaultSession;
+                if (!this.partitions.has(partition)) this.partitions.set(partition, fakeSession(partition));
+                return this.partitions.get(partition);
+            },
         },
     };
 

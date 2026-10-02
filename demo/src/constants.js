@@ -7,9 +7,11 @@
 const IPC = Object.freeze({
     GET_ELECTRON_VERSION: "demo:get-electron-version",
     OPEN_ISOLATED_WINDOW: "demo:open-isolated-window",
+    // The isolated window's own, answered in its session only.
+    GET_ISOLATED_VERSION: "isolated:get-electron-version",
 });
 
-/** The partition the isolated window runs in. The kit's preload is never registered on it. */
+/** The isolated window's session, from kit.sessions.isolated(): the kit's preload is never registered on it. */
 const ISOLATED_PARTITION = "demo-isolated";
 
 /** The demo's own settings and their defaults, which the kit keeps beside its own. */
