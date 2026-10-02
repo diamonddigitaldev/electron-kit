@@ -5,7 +5,7 @@
 // the images are taken on a Windows CI runner, so they show Segoe UI as most
 // people see it, and Linux runs every other test without them.
 //
-// Fourteen states, each a whole window:
+// Fifteen states, each a whole window:
 // - Settings > Update with an update waiting (and the dot), downloading, ready
 //   to install, and after a check that failed;
 // - Settings on its General, Update and Credits tabs;
@@ -15,10 +15,11 @@
 // - a warning toast with its list shown; the batch prompt (kit.ui.confirm())
 //   with Save as New focused by keyboard; and, last, since it replaces the
 //   Overview, a section of files (the drop zone, a bar whose amount isn't
-//   known, the action bar with Convert focused by keyboard).
-// All fourteen in the demo's accent, in the light and dark themes. The two that
+//   known, the action bar with Convert focused by keyboard); then the update
+//   dot on the collapsed rail.
+// All fifteen in the demo's accent, in the light and dark themes. The two that
 // show the most accent (the rail, and Controls toggled) again in each of the
-// three apps' accents (test/fixtures/accents/), in both themes. 40 images.
+// three apps' accents (test/fixtures/accents/), in both themes. 42 images.
 //
 // So that an image only changes when the look does: the window's page is
 // 760 x 600 at a scale factor of 1, drawn without the GPU; motion is reduced, so every transition ends
@@ -234,6 +235,12 @@ const STATES = {
         await main.getByRole("button", { name: "Clear All" }).focus();
         await main.keyboard.press("Tab");
         await expect(main.getByRole("button", { name: "Convert" })).toBeFocused();
+    },
+    "update-dot-collapsed": async (main, demo) => {
+        // Last, so no other image has the dot: the collapsed rail's Settings, an update waiting.
+        await pushUpdate(demo, { state: "available", version: "0.1.0", dot: true });
+        await expect(main.locator(".nav-rail .update-dot:visible")).toHaveCount(1);
+        await blur(main);
     },
 };
 

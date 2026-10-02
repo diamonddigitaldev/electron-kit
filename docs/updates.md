@@ -22,7 +22,9 @@ false }` turns that off), and whenever the page asks (`checkForUpdates()`). It m
   finished release. electron-updater never downloads by itself (`autoDownload` is off), and its `channel` is
   set before `allowDowngrade = false`, because its channel setter turns downgrades back on.
 - **Automatic downloads** (`autoDownloadUpdates`, on by default): an update found downloads at once, and
-  is installed when the app quits (`autoInstallOnAppQuit`). Off, the update dot shows, and the page offers
+  is installed when the app quits (`autoInstallOnAppQuit`), or at once with `installUpdate()` (Settings >
+  Update's Restart Now: electron-updater's `quitAndInstall`, silent, then the new version starts; with nothing
+  downloaded it does nothing, and an installer that won't start is one warning in the log). Off, the update dot shows, and the page offers
   `downloadUpdate()`. The dot stays until the app runs the new version, and shows too when a download fails.
   Turning it on downloads an update waiting. Moving to a channel that wouldn't offer an update already
   downloaded keeps it from being installed.

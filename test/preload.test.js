@@ -25,6 +25,7 @@ const BRIDGE = {
     getUpdateStatus: { invoke: INVOKE.UPDATE_GET_STATUS },
     checkForUpdates: { invoke: INVOKE.UPDATE_CHECK },
     downloadUpdate: { invoke: INVOKE.UPDATE_DOWNLOAD },
+    installUpdate: { invoke: INVOKE.UPDATE_INSTALL },
     onUpdateStatus: { on: PUSH.UPDATE_STATUS },
     onThemeChanged: { on: PUSH.THEME_CHANGED },
     onShowView: { on: PUSH.VIEW_SHOW },

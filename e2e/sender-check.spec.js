@@ -24,6 +24,7 @@ const ASKS = {
     "getUpdateStatus()": "update:get-status",
     "checkForUpdates()": "update:check",
     "downloadUpdate()": "update:download",
+    "installUpdate()": "update:install",
 };
 
 /** What a page's kitAPI.getVersion() comes to: { version }, or { refused } with the error it rejects with. */

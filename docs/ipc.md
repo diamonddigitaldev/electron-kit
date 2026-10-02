@@ -16,6 +16,7 @@ The channels the kit's preload answers, and `kit.ipc.handle()` for an app's own,
 | `update:get-status` | the page asks | `getUpdateStatus()`: the updater's state ([Updates](updates.md)), without checking |
 | `update:check` | the page asks | `checkForUpdates()`: checks now, and resolves with the state once the check is done |
 | `update:download` | the page asks | `downloadUpdate()`: downloads the update found, and resolves with the state once it's downloaded or has failed |
+| `update:install` | the page asks | `installUpdate()`: installs the update downloaded now (the app quits, and the new version starts); with none downloaded, does nothing and resolves with the state |
 | `update:status` | the kit pushes | `onUpdateStatus(callback)`: the updater's state, on each change; to the app's own windows only |
 | `theme:changed` | the kit pushes | `onThemeChanged(callback)`: `"dark"` or `"light"` on each change of the OS theme; returns a function that stops listening |
 | `view:show` | the kit pushes | `onShowView(callback)`: `{ view, tab }` when the menu asks for a view; `mountShell()` listens for it |

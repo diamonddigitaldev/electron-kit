@@ -25,10 +25,10 @@ async function openUpdate(main) {
     return main.getByRole("tabpanel", { name: /^Update/ });
 }
 
-/** Stand in for update:check and update:download in main, counting what the page asks. */
+/** Stand in for update:check, update:download and update:install in main, counting what the page asks. */
 const spyOnUpdates = (demo) => demo.app.evaluate(({ ipcMain }) => {
     globalThis.updateCalls = [];
-    for (const channel of ["update:check", "update:download"]) {
+    for (const channel of ["update:check", "update:download", "update:install"]) {
         ipcMain.removeHandler(channel);
         ipcMain.handle(channel, () => {
             globalThis.updateCalls.push(channel);
@@ -87,8 +87,9 @@ test("the status line says each state of the updater, in a live region that keep
     const main = await demo.mainWindow();
     const pane = await openUpdate(main);
     const status = pane.locator("#update-status");
-    const check = pane.getByRole("button", { name: "Check for Updates" });
+    const check = pane.locator("#update-check");
     const download = pane.getByRole("button", { name: "Download Update" });
+    const restart = pane.locator("#update-restart");
     await expect(status).toHaveAttribute("role", "status");
     const height = await status.evaluate((el) => el.getBoundingClientRect().height);
 
@@ -97,7 +98,7 @@ test("the status line says each state of the updater, in a live region that keep
         [{ state: "none" }, "You're up to date.", { check: true, download: false }],
         [{ state: "available", version: "1.1.0", dot: true }, "Version 1.1.0 is available.", { check: true, download: true }],
         [{ state: "downloading", version: "1.1.0", percent: 45, dot: true }, "Downloading version 1.1.0… 45%", { check: false, download: false }],
-        [{ state: "downloaded", version: "1.1.0", percent: 100, dot: true }, "Version 1.1.0 has downloaded and will be installed when you close electron-kit Demo.", { check: false, download: false }],
+        [{ state: "downloaded", version: "1.1.0", percent: 100, dot: true }, "Version 1.1.0 has downloaded and will be installed when you close electron-kit Demo.", { check: true, download: false, restart: true }],
         [{ state: "error", error: "check", reason: "other" }, "Couldn't check for updates. Try again later.", { check: true, download: false, tone: "warning" }],
         [{ state: "error", error: "check", reason: "offline" }, "Couldn't check for updates. You seem to be offline.", { check: true, download: false, tone: "warning" }],
         [{ state: "error", error: "check", reason: "no-files" }, "Couldn't check for updates. The newest release has no update files yet.", { check: true, download: false, tone: "warning" }],
@@ -110,6 +111,9 @@ test("the status line says each state of the updater, in a live region that keep
         await push(demo, pushed);
         const what = JSON.stringify(pushed);
         await expect(status, what).toHaveText(text);
+        // Once an update has downloaded, Restart Now stands where Check for Updates was.
+        await expect(check, what).toBeVisible({ visible: !expected.restart });
+        await expect(restart, what).toBeVisible({ visible: expected.restart === true });
         await expect(check, what).toBeEnabled({ enabled: expected.check });
         await expect(download, what).toBeVisible({ visible: expected.download });
         // A failed check is a warning, a failed download a danger, and nothing else has a tone.
@@ -264,7 +268,7 @@ test("the dot shows on the rail's Settings and the Update tab while an update wa
     expect(item.right - dot.right).toBeLessThan(16);
     expect(dot.left).toBeGreaterThan(icon.right + 40);
     await main.getByRole("button", { name: "Collapse", exact: true }).click();
-    await main.evaluate(() => Promise.all(document.getAnimations().map((a) => a.finished.catch(() => {}))));
+    await main.evaluate(() => Promise.all(document.getAnimations().filter((a) => a instanceof CSSTransition).map((a) => a.finished.catch(() => {}))));
     ({ item, icon, dot } = await place());
     const centre = { x: (dot.left + dot.right) / 2, y: (dot.top + dot.bottom) / 2 };
     expect(centre.x).toBeGreaterThan(icon.left + icon.width / 2);
@@ -272,11 +276,133 @@ test("the dot shows on the rail's Settings and the Update tab while an update wa
     expect(centre.y).toBeLessThan(icon.top + icon.height / 2);
     expect(centre.y).toBeGreaterThanOrEqual(icon.top - 4);
     expect(dot.right).toBeLessThanOrEqual(item.right);
+    // In the item's top-right corner, as far in from its right edge as from its top: as laid out, not as it breathes.
+    const laidOut = await settings.evaluate((item) => {
+        const dot = item.querySelector(".update-dot");
+        return { top: dot.offsetTop, right: item.clientWidth - (dot.offsetLeft + dot.offsetWidth), size: dot.offsetWidth };
+    });
+    expect(laidOut).toEqual({ top: 5, right: 5, size: 6 });
 
     // Gone once there's no update waiting.
     await push(demo, { state: "none" });
     await expect(main.locator(".update-dot:visible")).toHaveCount(0);
     await expect(main.getByRole("button", { name: "Settings", exact: true })).toHaveAccessibleName("Settings");
+});
+
+test("the dot breathes, slowly, wherever it shows, and is still under reduced motion", async ({ demo }) => {
+    const main = await demo.mainWindow();
+    await openUpdate(main);
+    await push(demo, { state: "available", version: "1.1.0", dot: true });
+    const dots = main.locator(".update-dot:visible");
+    await expect(dots).toHaveCount(2);
+    const breathing = () => dots.evaluateAll((all) => all.map((dot) => {
+        const style = getComputedStyle(dot);
+        return { name: style.animationName, seconds: parseFloat(style.animationDuration), times: style.animationIterationCount };
+    }));
+    for (const collapsed of [false, true]) {
+        if (collapsed) await main.getByRole("button", { name: "Collapse", exact: true }).click();
+        const found = await breathing();
+        expect(found, collapsed ? "collapsed" : "expanded").toHaveLength(2);
+        for (const one of found) {
+            expect(one.name).toBe("kit-dot-breathe");
+            expect(one.times).toBe("infinite");
+            expect(one.seconds).toBeGreaterThanOrEqual(3);
+            expect(one.seconds).toBeLessThanOrEqual(5);
+        }
+    }
+    await main.emulateMedia({ reducedMotion: "reduce" });
+    expect(await breathing()).toEqual([{ name: "none", seconds: 0, times: "1" }, { name: "none", seconds: 0, times: "1" }]);
+    expect(await dots.evaluateAll((all) => all.map((dot) => [getComputedStyle(dot).opacity, getComputedStyle(dot).transform]))).toEqual([["1", "none"], ["1", "none"]]);
+});
+
+test("the download's bar shows only while it downloads, in the accent, and is gone the moment it ends", async ({ demo }) => {
+    const main = await demo.mainWindow();
+    const pane = await openUpdate(main);
+    const bar = pane.getByRole("progressbar", { name: "Download progress" });
+    await expect(pane.locator(".update-progress")).toBeHidden();
+    for (const pushed of [{ state: "none" }, { state: "available", version: "1.1.0", dot: true }]) {
+        await push(demo, pushed);
+        await expect(pane.locator(".update-progress"), pushed.state).toBeHidden();
+    }
+    await push(demo, { state: "downloading", version: "1.1.0", percent: 0, dot: true });
+    await expect(bar).toBeVisible();
+    await expect(bar).toHaveAttribute("aria-valuenow", "0");
+    await push(demo, { state: "downloading", version: "1.1.0", percent: 62, dot: true });
+    await expect(bar).toHaveAttribute("aria-valuenow", "62");
+    // The accent's fill, as kit.ui.progress() draws it.
+    const [fill, accent] = await bar.evaluate((el) => [getComputedStyle(el.querySelector(".progress-bar")).backgroundColor, getComputedStyle(document.documentElement).getPropertyValue("--accent").trim()]);
+    expect(parseColor(fill)).toEqual(parseColor(accent));
+
+    // Finished: gone in the frame the state arrives in, never left at 100% or faded.
+    const goneAtOnce = () => main.evaluate(() => new Promise((resolve) => {
+        const el = document.querySelector(".update-progress");
+        const stop = window.kitAPI.onUpdateStatus(() => requestAnimationFrame(() => {
+            stop?.();
+            resolve({ hidden: el.hidden, display: getComputedStyle(el).display });
+        }));
+    }));
+    for (const ended of [{ state: "downloaded", version: "1.1.0", percent: 100, dot: true }, { state: "error", error: "download", version: "1.1.0", dot: true }]) {
+        await push(demo, { state: "downloading", version: "1.1.0", percent: 90, dot: true });
+        await expect(bar).toBeVisible();
+        const seen = goneAtOnce();
+        await push(demo, ended);
+        expect(await seen, ended.state).toEqual({ hidden: true, display: "none" });
+    }
+    // The next download starts from empty.
+    await push(demo, { state: "downloading", version: "1.1.0", percent: 0, dot: true });
+    await expect(bar).toHaveAttribute("aria-valuenow", "0");
+    expect(await bar.evaluate((el) => el.querySelector(".progress-bar").style.width)).toBe("0%");
+});
+
+test("Restart Now takes Check for Updates' place once it has downloaded, with the focus, and installs at once", async ({ demo }) => {
+    const main = await demo.mainWindow();
+    const pane = await openUpdate(main);
+    await spyOnUpdates(demo);
+    const check = pane.getByRole("button", { name: "Check for Updates" });
+    const restart = pane.getByRole("button", { name: "Restart Now" });
+    await expect(restart).toHaveCount(0);
+    // Run from source the updater is off and the button disabled: at rest, it can be pressed.
+    await push(demo, { state: "idle" });
+    await expect(check).toBeEnabled();
+    await check.focus();
+    await expect(check).toBeFocused();
+    await push(demo, { state: "downloaded", version: "1.1.0", percent: 100, dot: true });
+    await expect(restart).toBeVisible();
+    await expect(check).toHaveCount(0);
+    await expect(restart).toBeFocused();
+    await expect(restart).toHaveClass(/btn-primary/);
+    await restart.click();
+    await expect.poll(() => demo.app.evaluate(() => globalThis.updateCalls)).toEqual(["update:install"]);
+    await expect(main.locator("dialog[open]")).toHaveCount(0);
+
+    // A move to a channel that drops the update brings Check for Updates back.
+    await push(demo, { state: "idle" });
+    await expect(check).toBeVisible();
+    await expect(restart).toHaveCount(0);
+});
+
+test("when the app says it's busy, Restart Now asks first, with the app's reason, and Cancel installs nothing", async ({ demo }) => {
+    const main = await demo.mainWindow();
+    const pane = await openUpdate(main);
+    await spyOnUpdates(demo);
+    await main.evaluate(() => {
+        window.demoBusy = "A conversion is running.";
+    });
+    await push(demo, { state: "downloaded", version: "1.1.0", percent: 100, dot: true });
+    await pane.getByRole("button", { name: "Restart Now" }).click();
+    const prompt = main.getByRole("alertdialog", { name: "Restart Now?" });
+    await expect(prompt).toBeVisible();
+    await expect(prompt).toContainText("A conversion is running.");
+    await expect(prompt).toContainText("electron-kit Demo will close to install the update, and open again.");
+    // A warning: the focus starts on Cancel.
+    await expect(prompt.getByRole("button", { name: "Cancel" })).toBeFocused();
+    await prompt.getByRole("button", { name: "Cancel" }).click();
+    await expect(prompt).toHaveCount(0);
+    expect(await demo.app.evaluate(() => globalThis.updateCalls)).toEqual([]);
+
+    await pane.getByRole("button", { name: "Restart Now" }).click();
+    await main.getByRole("alertdialog", { name: "Restart Now?" }).getByRole("button", { name: "Restart Now" }).click();
+    await expect.poll(() => demo.app.evaluate(() => globalThis.updateCalls)).toEqual(["update:install"]);
 });
 
 test("the dot's ring holds 3:1 against the rail and the tab's page, in both themes", async ({ demo }) => {
@@ -394,6 +520,22 @@ test("a toast slides in and out over --dur-state, at once under reduced motion, 
     expect(opacity).toBe("1");
 });
 
+test("axe finds nothing on the Update tab downloading or ready to restart, in both themes", async ({ demo }) => {
+    const main = await demo.mainWindow();
+    await openUpdate(main);
+    const found = [];
+    for (const theme of ["light", "dark"]) {
+        await demo.useTheme(main, theme);
+        for (const pushed of [{ state: "downloading", version: "1.1.0", percent: 45, dot: true }, { state: "downloaded", version: "1.1.0", percent: 100, dot: true }]) {
+            await push(demo, pushed);
+            await expect(main.locator(pushed.state === "downloading" ? ".update-progress" : "#update-restart")).toBeVisible();
+            const { violations } = await new AxeBuilder({ page: main }).setLegacyMode(true).withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"]).analyze();
+            found.push(...violations.flatMap((v) => v.nodes.map((n) => `${theme}, ${pushed.state}: ${v.id}: ${n.target.join(" ")}`)));
+        }
+    }
+    expect(found).toEqual([]);
+});
+
 test("axe finds nothing on the Update tab with an update waiting, the dot and a toast, in both themes, collapsed and expanded", async ({ demo }) => {
     const main = await demo.mainWindow();
     await openUpdate(main);
@@ -408,7 +550,7 @@ test("axe finds nothing on the Update tab with an update waiting, the dot and a 
             const toggle = main.getByRole("button", { name: collapsed ? "Collapse" : "Expand", exact: true });
             if (await toggle.count()) await toggle.click();
             await main.mouse.move(0, 0);
-            await main.evaluate(() => Promise.all(document.getAnimations().map((a) => a.finished.catch(() => {}))));
+            await main.evaluate(() => Promise.all(document.getAnimations().filter((a) => a instanceof CSSTransition).map((a) => a.finished.catch(() => {}))));
             const { violations } = await new AxeBuilder({ page: main }).setLegacyMode(true).withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"]).analyze();
             found.push(...violations.flatMap((v) => v.nodes.map((n) => `${theme}, ${collapsed ? "collapsed" : "expanded"}: ${v.id}: ${n.target.join(" ")}`)));
         }

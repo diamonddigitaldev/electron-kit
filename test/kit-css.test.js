@@ -160,13 +160,15 @@ test("the bridge sets every colour Bootstrap's .btn-primary sets, each from the 
     }
 });
 
-test("under reduced motion every duration token goes to (near) zero, and the ambient pulse stops", () => {
+test("under reduced motion every duration token goes to (near) zero, the ambient pulse stops, and the update dot is still", () => {
     assert.ok(Object.hasOwn(KIT_AT_RULES, REDUCED_MOTION), `kit.css has ${REDUCED_MOTION}`);
     const { rules, atRules } = rulesOf(KIT_AT_RULES[REDUCED_MOTION]);
-    assert.deepEqual(rules.map((r) => r.selector), [":root", ".kit-progress-unknown .progress-bar"]);
+    assert.deepEqual(rules.map((r) => r.selector), [":root", ".update-dot", ".kit-progress-unknown .progress-bar"]);
     assert.deepEqual(atRules, {});
+    // The update dot doesn't breathe.
+    assert.deepEqual(rules[1].declarations, { animation: "none" });
     // A progress bar whose amount isn't known stops sliding, and fills, faded.
-    assert.deepEqual(rules[1].declarations, { width: "100%", opacity: "var(--opacity-disabled)", animation: "none" });
+    assert.deepEqual(rules[2].declarations, { width: "100%", opacity: "var(--opacity-disabled)", animation: "none" });
     // There's one reduced-motion block: a second would go unseen here.
     assert.equal(KIT_CSS.split(REDUCED_MOTION).length, 2);
     const durations = Object.keys(TOKENS).filter((name) => name.startsWith("--dur-"));
@@ -177,8 +179,17 @@ test("under reduced motion every duration token goes to (near) zero, and the amb
     }
 });
 
-test("kit.css has no at-rule but the tick's drawing, a toast's and a prompt's arrival, the unknown progress's slide, and reduced motion", () => {
-    assert.deepEqual(Object.keys(KIT_AT_RULES).sort(), ["@keyframes kit-backdrop-in", "@keyframes kit-dialog-in", "@keyframes kit-progress-slide", "@keyframes kit-tick-draw", "@keyframes kit-toast-in", REDUCED_MOTION].sort());
+test("kit.css has no at-rule but the tick's drawing, a toast's and a prompt's arrival, the unknown progress's slide, the dot's breath, and reduced motion", () => {
+    assert.deepEqual(Object.keys(KIT_AT_RULES).sort(), ["@keyframes kit-backdrop-in", "@keyframes kit-dialog-in", "@keyframes kit-dot-breathe", "@keyframes kit-progress-slide", "@keyframes kit-tick-draw", "@keyframes kit-toast-in", REDUCED_MOTION].sort());
+});
+
+test("the update dot breathes slowly: a little fainter and smaller at the middle of a breath, timed by the ambient token", () => {
+    const { rules } = rulesOf(KIT_AT_RULES["@keyframes kit-dot-breathe"]);
+    assert.deepEqual(rules.map((r) => [r.selector, r.declarations.opacity, r.declarations.transform]), [
+        ["0%, 100%", "1", "scale(1)"],
+        ["50%", "0.45", "scale(0.8)"],
+    ]);
+    assert.equal(rule(".update-dot").animation, "kit-dot-breathe calc(var(--dur-ambient) * 1.75) var(--ease-state) infinite");
 });
 
 test("a ticked checkbox draws its tick, short stroke then long, timed by a token; unticking keeps its spring", () => {

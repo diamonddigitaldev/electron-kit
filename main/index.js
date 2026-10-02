@@ -171,6 +171,7 @@ function start(config = {}) {
     ipc.handle(INVOKE.UPDATE_GET_STATUS, () => updates.status());
     ipc.handle(INVOKE.UPDATE_CHECK, () => updates.check());
     ipc.handle(INVOKE.UPDATE_DOWNLOAD, () => updates.download());
+    ipc.handle(INVOKE.UPDATE_INSTALL, () => updates.install());
 
     // On Linux, Electron's spell checker downloads its dictionaries from
     // Google's servers as each session starts, which tells them the user's

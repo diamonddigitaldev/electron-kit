@@ -659,6 +659,10 @@ a:hover {
     margin: 0;
 }
 
+.update-progress[hidden] {
+    display: none;
+}
+
 .update-actions {
     display: flex;
     flex-wrap: wrap;
@@ -690,7 +694,9 @@ a:hover {
    so it has a ring in Bootstrap's warning text colour for the theme, which
    holds 3:1 against the rail and the page in both (7.58:1 light, 9.82:1 dark).
    On the item it sits at its end when the rail is expanded, and on the corner
-   of the glyph when collapsed. */
+   of the glyph when collapsed. It breathes, slowly (fading a little and
+   shrinking a little, 3.5s a breath), to draw the eye without nagging; under
+   reduced motion it's still (below, with the tokens). */
 .update-dot {
     display: inline-block;
     flex-shrink: 0;
@@ -700,20 +706,32 @@ a:hover {
     background-color: var(--bs-warning);
     box-shadow: 0 0 0 1.5px var(--bs-warning-text-emphasis);
     pointer-events: none;
+    animation: kit-dot-breathe calc(var(--dur-ambient) * 1.75) var(--ease-state) infinite;
+}
+
+@keyframes kit-dot-breathe {
+    0%, 100% { opacity: 1;    transform: scale(1); }
+    50%      { opacity: 0.45; transform: scale(0.8); }
 }
 
 .update-dot[hidden] {
     display: none;
 }
 
+/* Smaller on the rail, beside a 20px glyph, than on the Update tab's text. */
 .nav-rail .nav-settings .update-dot {
+    width: 6px;
+    height: 6px;
     margin-left: auto;
 }
 
+/* In the collapsed item's top-right corner, as far in from its right edge as
+   from its top: the item's padding box is 38px wide, so 5px in is 27px from
+   the left for the 6px dot. */
 .nav-rail.collapsed .nav-settings .update-dot {
     position: absolute;
-    top: 7px;
-    left: 26px;
+    top: 5px;
+    left: 27px;
     margin: 0;
 }
 
@@ -1121,6 +1139,11 @@ a:hover {
         --dur-default: 0.01ms;
         --dur-enter:   0.01ms;
         --dur-ambient: 0s;
+    }
+
+    /* The update dot doesn't breathe: it shows, still and whole. */
+    .update-dot {
+        animation: none;
     }
 
     /* A bar whose amount isn't known can't slide: it fills, faded. */
