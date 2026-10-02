@@ -54,7 +54,8 @@ gathered.
 `start({ settings: { defaults } })` gives the app's own settings and their defaults. They're kept by
 `electron-store`, under one `settings` key in its default file (`config.json` in the app's `userData`
 folder), beside the kit's own: `navCollapsed`, off; `autoDownloadUpdates`, on; and `updateChannel`,
-`"stable"`, `"beta"` or `"alpha"`, `null` until the updater saves the running build's own. What's stored is read over the defaults, so a setting
+`"stable"`, `"beta"` or `"alpha"`, `null` until the updater saves the running build's own; and, with the
+memory log only, `keepLogOnDisk`, off ([The Log](#the-log)). What's stored is read over the defaults, so a setting
 added later appears with its default, and a stored value of the wrong kind is never handed out. A change
 must name a known setting and keep its kind (a boolean stays a boolean, a list a list), with JSON values
 only, or it's refused and nothing is stored. A setting whose default is `null` means "not chosen yet", and
@@ -88,7 +89,20 @@ done, and a file written by a newer version is left as it is.
 each launch and starts with a banner (`=== Diamond File Converter 2.0.0 started at … ===`), so it's one run's.
 `kit.log.error()`, `warn()`, `info()` and `debug()` write a timed, levelled line and mirror it to the console.
 The `LOG_LEVEL` environment variable sets the least that's kept (`INFO` if it's not set). Without the option,
-the log goes to the console only. A write that fails never throws into the app: it's said once on the
+the log goes to the console only.
+
+`start({ log: "memory" })` keeps the log in memory instead: the banner and the run's last 1000 lines
+(`{ mode: "memory", lines: 5000 }` for more, from 100 to 100000), and nothing on disk. It adds a setting,
+`keepLogOnDisk`, off by default, for a switch the app shows where it likes (Dropgate's "Keep Log on Disk for
+Troubleshooting"), changed through `kitAPI.setSettings()` like any other:
+
+- **Turned on,** the run so far is written to `debug.log` in `userData`, and each line after it is added. At
+  the next launch, still on, the file starts again with that run's banner.
+- **Turned off,** `debug.log` is deleted. At a launch with it off, a `debug.log` an earlier run kept is
+  deleted too.
+
+In every mode, `kit.log.lines()` gives the banner and the run's last lines, as written, so an app can copy
+them or save them where the person chooses. A write that fails never throws into the app: it's said once on the
 console, and the next line tries again, since a file can be held for a moment (a virus scanner, on Windows).
 
 **Everything is redacted before it's written anywhere:**
