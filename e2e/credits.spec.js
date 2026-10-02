@@ -90,3 +90,28 @@ test("shell:open-external refuses the app's own page anything but an http(s) lin
     for (const result of results) expect(result).toMatch(/electron-kit opens http and https links only/);
     expect(await opened(demo)).toEqual([]);
 });
+
+test.describe("with an allowlist", () => {
+    test.use({ demoEnv: { KIT_DEMO_ALLOW: "https://dropgate.link/docs/" } });
+
+    test("Credits' own links still open, links on the list open, and anything else is refused", async ({ demo }) => {
+        const main = await demo.mainWindow();
+        await standInForShell(demo);
+        const credits = await showCredits(main);
+        await credits.getByRole("link", { name: "Diamond Digital Development" }).click();
+        await credits.getByRole("button", { name: "Donate on Buy Me a Coffee" }).click();
+        await credits.getByRole("button", { name: "View Source Code on GitHub" }).click();
+
+        const ask = (url) => main.evaluate((u) => window.kitAPI.openExternal(u).then(() => "opened", (err) => err.message), url);
+        expect(await ask("https://dropgate.link/docs/self-hosting")).toBe("opened");
+        for (const url of ["https://dropgate.link/", "https://diamonddigital.dev.example.com/", "https://github.com/diamonddigitaldev/electron-kit-fake"]) {
+            expect(await ask(url), url).toMatch(/electron-kit opens links on the app's allowlist only/);
+        }
+        await expect.poll(() => opened(demo)).toEqual([
+            "https://diamonddigital.dev",
+            "https://buymeacoff.ee/willtda",
+            "https://github.com/diamonddigitaldev/electron-kit",
+            "https://dropgate.link/docs/self-hosting",
+        ]);
+    });
+});

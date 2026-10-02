@@ -12,7 +12,7 @@ The channels the kit's preload answers, and `kit.ipc.handle()` for an app's own,
 | `app:get-info` | the page asks | `getInfo()`: `{ name, version, repository, credits: { lines, donate } }`, for the Credits tab |
 | `settings:get` | the page asks | `getSettings()`: every setting, the app's and the kit's, over their defaults |
 | `settings:set` | the page asks | `setSettings(changes)`: changes some settings (`{ navCollapsed: true }`) and resolves with them all |
-| `shell:open-external` | the page asks | `openExternal(url)`: opens an `http(s)` link in the person's browser; anything else is refused |
+| `shell:open-external` | the page asks | `openExternal(url)`: opens an `http(s)` link in the person's browser, on the app's allowlist if it has one ([below](#links-and-the-allowlist)); anything else is refused |
 | `update:get-status` | the page asks | `getUpdateStatus()`: the updater's state ([Updates](updates.md)), without checking |
 | `update:check` | the page asks | `checkForUpdates()`: checks now, and resolves with the state once the check is done |
 | `update:download` | the page asks | `downloadUpdate()`: downloads the update found, and resolves with the state once it's downloaded or has failed |
@@ -33,6 +33,29 @@ call rejects:
 
 ```
 Error invoking remote method 'app:get-version': Error: electron-kit answers "app:get-version" for the app's own page only.
+```
+
+## Links and the Allowlist
+
+`shell:open-external` hands the OS an `http(s)` link only, whatever the page asked for: a `file:`, `javascript:`
+or custom-scheme link could run something on the machine. An app can narrow that to the sites it links to:
+
+```js
+kit.start({
+    openExternal: { allow: ["https://dropgate.link/docs/", "https://github.com/diamonddigitaldev/"] },
+});
+```
+
+Then a link opens only if it's under an entry: the same scheme, host and port, and a path that's the entry's
+or inside it, by whole segments. Entries are matched as URLs, never as text, so `https://diamonddigital.dev`
+doesn't let `https://diamonddigital.dev.example.com` through, nor `https://github.com/diamonddigitaldev` let
+`https://github.com/diamonddigitaldev-fake`. An entry has no user name, query or fragment, and `start()` throws
+on one that isn't an `http(s)` URL. The links the kit shows from the app's own config are always allowed: each
+credit line's link, the donate link, and the repository (and so its releases, which Settings > Update links
+to), so the Credits and Update tabs keep working. Anything else is refused:
+
+```
+Error invoking remote method 'shell:open-external': Error: electron-kit opens links on the app's allowlist only.
 ```
 
 ## The App's Own Channels

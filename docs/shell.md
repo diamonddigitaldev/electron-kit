@@ -70,5 +70,6 @@ and so is the name unless `start({ name })` gives one: an app whose `package.jso
 (`diamond-file-converter`) passes its own, since a top-level `productName` would move its `userData` folder
 and every saved setting with it; the repository is `start({ repository })`, or else the `package.json`'s. Each
 credit line is a sentence, or a list of parts with links as `{ text, href }`. Every link and button opens
-through `shell:open-external`, which opens `http(s)` links only; the page never follows a link itself.
+through `shell:open-external`, which opens `http(s)` links only, and these whatever the app's allowlist
+([IPC](ipc.md#links-and-the-allowlist)); the page never follows a link itself.
 `start()` checks the credits and throws on a link that isn't `http(s)`, so a mistake shows at launch.
