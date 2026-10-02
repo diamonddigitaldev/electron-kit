@@ -111,3 +111,23 @@ test("the app's own channels, through kit.ipc.handle(), refuse a page that isn't
     await demo.openIsolatedWindow(main);
     expect(await windows()).toBe(before + 1);
 });
+
+test("an isolated session's channel answers its own window only, and that window is refused the UI session's", async ({ demo }) => {
+    const main = await demo.mainWindow();
+    const isolated = await demo.openIsolatedWindow(main);
+    const electron = await demo.app.evaluate(() => process.versions.electron);
+    const ask = (page, call) => page.evaluate((name) => window.electronAPI[name]().then((v) => ({ v }), (err) => ({ refused: err.message })), call);
+
+    expect(await ask(isolated, "getIsolatedElectronVersion")).toEqual({ v: electron });
+    expect((await ask(main, "getIsolatedElectronVersion")).refused).toMatch(/"isolated:get-electron-version" is answered for the app's own page only/);
+    expect((await ask(isolated, "getElectronVersion")).refused).toMatch(/"demo:get-electron-version" is answered for the app's own page only/);
+    expect(await ask(main, "getElectronVersion")).toEqual({ v: electron });
+});
+
+test("an isolated session grants no permission and has no dictionaries", async ({ demo }) => {
+    const main = await demo.mainWindow();
+    const isolated = await demo.openIsolatedWindow(main);
+    expect(await isolated.evaluate(() => Notification.requestPermission())).toBe("denied");
+    expect(await isolated.evaluate(() => navigator.permissions.query({ name: "notifications" }).then((p) => p.state))).toBe("denied");
+    expect(await demo.app.evaluate(({ session }, partition) => session.fromPartition(partition).getSpellCheckerLanguages(), ISOLATED_PARTITION)).toEqual([]);
+});

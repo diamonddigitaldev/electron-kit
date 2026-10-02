@@ -75,7 +75,7 @@ test("a window in a partition of its own gets its own preload's bridge and no ki
     });
     // Its own bridge still works there, so the kit's is missing because of the partition, not a broken preload.
     const electron = await demo.app.evaluate(() => process.versions.electron);
-    expect(await isolated.evaluate(() => window.electronAPI.getElectronVersion())).toBe(electron);
+    expect(await isolated.evaluate(() => window.electronAPI.getIsolatedElectronVersion())).toBe(electron);
     await expect(isolated.locator("#kit-api")).toHaveText("Absent");
 
     // And the main window, opened before it, still has both.

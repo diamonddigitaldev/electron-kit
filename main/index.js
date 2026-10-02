@@ -25,7 +25,9 @@
 // person's keepLogOnDisk setting is on (log.js), and migrates the settings once per version
 // (store.js). It takes the single-instance lock, makes the main window with
 // its bounds kept (windows.js), and pushes the files the app is opened with to
-// its page (instance.js).
+// its page (instance.js). kit.sessions.isolated() makes a session without the
+// kit's bridge, for a window such as a hidden transfer renderer, whose own
+// channels kit.ipc.handle() answers there only (sessions.js).
 
 const path = require("path");
 const { app, BrowserWindow, session } = require("electron");
@@ -35,6 +37,7 @@ const instance = require("./instance");
 const ipc = require("./ipc");
 const logging = require("./log");
 const menu = require("./menu");
+const sessions = require("./sessions");
 const shell = require("./shell");
 const store = require("./store");
 const theme = require("./theme");
@@ -87,7 +90,8 @@ function registerPreload(ses) {
  * @returns {{
  *   ready: Promise<void>,
  *   settings: { get(): object, set(changes: object): object },
- *   ipc: { handle(channel: string, handler: (event: Electron.IpcMainInvokeEvent, ...args: any[]) => any): void },
+ *   ipc: { handle(channel: string, handler: (event: Electron.IpcMainInvokeEvent, ...args: any[]) => any, options?: { session?: Electron.Session }): void },
+ *   sessions: { isolated(name: string, options?: { persist?: boolean }): Electron.Session },
  *   log: { error(...args: unknown[]): void, warn(...args: unknown[]): void, info(...args: unknown[]): void, debug(...args: unknown[]): void, lines(): string[] },
  *   windows: { createMain(options: object): Electron.BrowserWindow, main(): Electron.BrowserWindow | null },
  *   files: { open(paths: string[]): void },
@@ -96,8 +100,11 @@ function registerPreload(ses) {
  *   ready resolves once the app is ready, the shared preload is registered and
  *   the menu set: create windows after it. settings are the app's settings,
  *   for its main process. ipc.handle() answers one of the app's own channels,
- *   for the app's own page only (ipc.js). log is the app's log, redacted,
- *   and its lines() the banner and the run's last lines (log.js). windows.createMain() makes the main window (windows.js).
+ *   for the app's own page only (ipc.js), in the UI session or in the
+ *   isolated session given. sessions.isolated() makes a session without the
+ *   kit's bridge (sessions.js). log is the app's log, redacted, and its
+ *   lines() the banner and the run's last lines (log.js).
+ *   windows.createMain() makes the main window (windows.js).
  *   files.open() hands the page files from the app's own menu. primary is
  *   false in a second launch, which is quitting.
  */
@@ -129,6 +136,7 @@ function start(config = {}) {
     });
     started = true;
 
+    const isolation = sessions.createSessions({ preloadId: PRELOAD_ID });
     let windows = null;
     const files = instance.createFiles({ files: config.files === true, main: () => windows.main(), log });
     windows = windowing.createWindows({ bounds: settings.bounds, onMainCreated: files.mainCreated });
@@ -182,7 +190,8 @@ function start(config = {}) {
     return {
         ready,
         settings: { get: settings.get, set: setSettings },
-        ipc: { handle: ipc.handleApp },
+        ipc: { handle: (channel, handler, options) => ipc.handleApp(channel, handler, options, isolation.isIsolated) },
+        sessions: { isolated: isolation.isolated },
         log: { error: log.error, warn: log.warn, info: log.info, debug: log.debug, lines: log.lines },
         windows: { createMain: windows.createMain, main: windows.main },
         files: { open: files.open },
