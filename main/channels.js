@@ -18,6 +18,7 @@ const INVOKE = Object.freeze({
     SHELL_OPEN_EXTERNAL: "shell:open-external",
     UPDATE_CHECK: "update:check",
     UPDATE_DOWNLOAD: "update:download",
+    UPDATE_INSTALL: "update:install",
     UPDATE_GET_STATUS: "update:get-status",
 });
 

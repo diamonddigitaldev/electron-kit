@@ -24,6 +24,7 @@ const CH = {
     SHELL_OPEN_EXTERNAL: "shell:open-external",
     UPDATE_CHECK: "update:check",
     UPDATE_DOWNLOAD: "update:download",
+    UPDATE_INSTALL: "update:install",
     UPDATE_GET_STATUS: "update:get-status",
     THEME_CHANGED: "theme:changed",
     VIEW_SHOW: "view:show",
@@ -58,6 +59,8 @@ contextBridge.exposeInMainWorld("kitAPI", {
     checkForUpdates: () => ipcRenderer.invoke(CH.UPDATE_CHECK),
     // Download the update found; resolves with the state once it's downloaded, or has failed.
     downloadUpdate: () => ipcRenderer.invoke(CH.UPDATE_DOWNLOAD),
+    // Install the update downloaded now: the app quits, and the new version starts.
+    installUpdate: () => ipcRenderer.invoke(CH.UPDATE_INSTALL),
     // The updater's state, on each change.
     onUpdateStatus: (callback) => on(CH.UPDATE_STATUS, callback),
     // "dark" or "light", on each change of the OS theme. page/theme.js applies it.

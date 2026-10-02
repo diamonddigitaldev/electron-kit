@@ -40,7 +40,7 @@ package that's already on npm.
 ## Visual Tests
 
 `e2e/visual.spec.js` compares the demo's window with committed images, in
-`e2e/visual.spec.js-snapshots/`, using Playwright's `toHaveScreenshot()`. It takes 40 images:
+`e2e/visual.spec.js-snapshots/`, using Playwright's `toHaveScreenshot()`. It takes 42 images:
 
 | State | Accents | Themes |
 |---|---|---|
@@ -53,6 +53,7 @@ package that's already on npm.
 | A warning toast with its list shown | the demo's | light and dark |
 | The batch prompt, Save as New focused by keyboard | the demo's | light and dark |
 | A section of files: the drop zone, a bar not known, the action bar with Convert focused | the demo's | light and dark |
+| The update dot on the collapsed rail | the demo's | light and dark |
 
 The app accents are the ones in `test/fixtures/accents/`. The page is 760 × 600 at a scale factor of 1, drawn without the GPU, as on the runner, which has none.
 Motion is reduced, so every transition ends at once. The caret is hidden and the mouse is parked. The

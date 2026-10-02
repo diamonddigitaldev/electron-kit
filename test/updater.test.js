@@ -275,6 +275,44 @@ test("a failed check, and a failed download, are logged as one line each: the ch
     assert.doesNotMatch(download.logged[0], /\n/);
 });
 
+/** Stand in for quitAndInstall on the real autoUpdater, so the made-up installer never runs: records each call. */
+function keepFromRunning(autoUpdater, { starts = true } = {}) {
+    const calls = [];
+    autoUpdater.quitAndInstall = (...args) => {
+        calls.push(args);
+        autoUpdater.quitAndInstallCalled = starts;
+    };
+    return calls;
+}
+
+test("Restart Now installs the update downloaded: silently, then the new version runs", async (t) => {
+    const { updater, sent, autoUpdater, logged } = await updaterFor({ version: "2.0.0", channels: { latest: "2.1.0" } }, t);
+    const calls = keepFromRunning(autoUpdater);
+    await updater.check();
+    await reaches(sent, "downloaded");
+    assert.equal((await updater.install()).state, "downloaded");
+    assert.deepEqual(calls, [[true, true]]);
+    assert.deepEqual(logged, []);
+});
+
+test("Restart Now does nothing until an update has downloaded", async (t) => {
+    const { updater, autoUpdater } = await updaterFor({ version: "2.0.0", channels: { latest: "2.1.0" }, stored: { autoDownloadUpdates: false } }, t);
+    const calls = keepFromRunning(autoUpdater);
+    assert.equal((await updater.install()).state, "idle");
+    assert.equal((await updater.check()).state, "available");
+    assert.equal((await updater.install()).state, "available");
+    assert.deepEqual(calls, []);
+});
+
+test("an installer that can't be started is one warning in the log, and the update still waits", async (t) => {
+    const { updater, sent, autoUpdater, logged } = await updaterFor({ version: "2.0.0", channels: { latest: "2.1.0" } }, t);
+    keepFromRunning(autoUpdater, { starts: false });
+    await updater.check();
+    await reaches(sent, "downloaded");
+    assert.equal((await updater.install()).state, "downloaded");
+    assert.deepEqual(logged, ["Update install failed (version 2.1.0): the installer couldn't be started."]);
+});
+
 test("Download Update does nothing with no update found", async (t) => {
     const { updater, server } = await updaterFor({ version: "2.0.0", channels: { latest: "2.0.0" }, stored: { autoDownloadUpdates: false } }, t);
     assert.equal((await updater.download()).state, "idle");
@@ -394,7 +432,7 @@ test("the updates option is checked when kit.start() is called", () => {
     assert.equal(handlers.size, 0, "nothing is registered");
 });
 
-test("kit.start() answers update:get-status, update:check and update:download, for the app's own page only", async () => {
+test("kit.start() answers update:get-status, update:check, update:download and update:install, for the app's own page only", async () => {
     const { main, handlers, eventFrom } = loadMain({ version: "2.0.0" });
     await main.start({ updates: {} }).ready;
     const page = eventFrom(appPage());
@@ -404,7 +442,8 @@ test("kit.start() answers update:get-status, update:check and update:download, f
     });
     assert.equal((await handlers.get(INVOKE.UPDATE_CHECK)(page)).state, "unavailable");
     assert.equal((await handlers.get(INVOKE.UPDATE_DOWNLOAD)(page)).state, "unavailable");
-    for (const channel of [INVOKE.UPDATE_GET_STATUS, INVOKE.UPDATE_CHECK, INVOKE.UPDATE_DOWNLOAD]) {
+    assert.equal((await handlers.get(INVOKE.UPDATE_INSTALL)(page)).state, "unavailable");
+    for (const channel of [INVOKE.UPDATE_GET_STATUS, INVOKE.UPDATE_CHECK, INVOKE.UPDATE_DOWNLOAD, INVOKE.UPDATE_INSTALL]) {
         assert.throws(() => handlers.get(channel)(eventFrom("https://example.com/")), /for the app's own page only/, channel);
     }
 });

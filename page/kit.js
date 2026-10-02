@@ -18,6 +18,7 @@
 //         settingsTabs: [{ id: "general", label: "General", render: (pane) => { … } }],
 //         credits:  { logo: "assets/logo.png" },
 //         onViewChange: (view) => { … },
+//         busy:     () => converting ? "A conversion is running." : null,   // asked before Restart Now
 //     });
 //     await shell.ready;                    // the settings and the Credits tab are loaded
 //
@@ -25,6 +26,8 @@
 // the header, and the Settings view (the app's tabs, then Update, then Credits
 // last), moves the app's elements into them, and routes between the views.
 // The Update tab and the update dot follow the kit's updater (update:status).
+// Restart Now installs a downloaded update at once; when busy() gives a
+// reason, the kit asks first, with that reason, in its own prompt.
 //
 // kit.ui.toast(message, { type, timeout, action }) shows a toast under the
 // header; its action shows a list under the message (what was skipped).
@@ -89,7 +92,7 @@
     const VIEW_NAME = /^[a-z][a-z0-9-]*$/;
     const KIT_TABS = ["update", "credits"];
 
-    function checkOptions({ title, sections = [], toolbar, settingsTabs = [], onViewChange }) {
+    function checkOptions({ title, sections = [], toolbar, settingsTabs = [], onViewChange, busy }) {
         const fail = (message) => {
             throw new Error(`kit.ui.mountShell(): ${message}`);
         };
@@ -117,6 +120,7 @@
             if (typeof render !== "function") fail(`settingsTabs[${i}].render must be a function.`);
         }
         if (onViewChange !== undefined && typeof onViewChange !== "function") fail("onViewChange must be a function.");
+        if (busy !== undefined && typeof busy !== "function") fail("busy must be a function.");
     }
 
     // -- The Settings view -----------------------------------------------------
@@ -274,15 +278,19 @@
     /**
      * The Update tab: two cards. The first, under the version running, says
      * where the updates stand (a live region, its height kept, so nothing
-     * jumps), with Check for Updates and, when there's one to download,
-     * Download Update. The second holds the preferences: the automatic
+     * jumps), with the download's bar under it while one runs, then Check for
+     * Updates and, when there's one to download, Download Update. Once an
+     * update has downloaded, Restart Now takes Check for Updates' place: it
+     * installs the update now, after asking when the app says it's busy
+     * (mountShell's busy). The second holds the preferences: the automatic
      * downloads switch, whose help says what each way does, and the update
      * channel. Each change is kept as it's made, and the kit's main process
      * acts on it (a new channel checks again).
      * @param {HTMLElement} pane
+     * @param {() => (string | null | Promise<string | null>)} [busy] - what the app is busy with, or null
      * @returns {{ showInfo(info: object): void, showSettings(settings: object): void, showStatus(status: object, appName: string): boolean }}
      */
-    function buildUpdate(pane) {
+    function buildUpdate(pane, busy) {
         const version = el("h3", { className: "update-version", attrs: { id: "update-version" } });
         const check = el("button", { className: "btn btn-secondary", text: "Check for Updates", attrs: { type: "button", id: "update-check" } });
         const statusText = el("span");
@@ -290,6 +298,11 @@
         const statusPercent = el("span", { attrs: { "aria-hidden": "true" } });
         const status = el("p", { className: "update-status", attrs: { id: "update-status", role: "status" } }, [statusText, statusPercent]);
         const download = el("button", { className: "btn btn-primary update-download", text: "Download Update", attrs: { type: "button", id: "update-download", hidden: "" } });
+        const restart = el("button", { className: "btn btn-primary update-restart", text: "Restart Now", attrs: { type: "button", id: "update-restart", hidden: "" } });
+        // Only while a download runs, and gone the moment it ends: never a fade, never a bar left at 100%.
+        const bar = progress({ label: "Download progress" });
+        bar.element.classList.add("update-progress");
+        bar.element.hidden = true;
 
         const auto = el("input", { className: "form-check-input", attrs: { type: "checkbox", role: "switch", id: "update-auto", "aria-describedby": "update-auto-help" } });
         const autoHelp = el("div", { className: "form-text", attrs: { id: "update-auto-help" } });
@@ -313,7 +326,8 @@
             card("update-version", [
                 version,
                 status,
-                el("div", { className: "update-actions" }, [check, download]),
+                bar.element,
+                el("div", { className: "update-actions" }, [check, restart, download]),
             ]),
             card("update-preferences", [
                 el("h3", { className: "update-card-title", text: "Preferences", attrs: { id: "update-preferences" } }),
@@ -332,6 +346,25 @@
         const api = bridge();
         check.addEventListener("click", () => api?.checkForUpdates().catch(() => {}));
         download.addEventListener("click", () => api?.downloadUpdate().catch(() => {}));
+        restart.addEventListener("click", async () => {
+            restart.disabled = true;
+            try {
+                const reason = busy ? await busy() : null;
+                const go = typeof reason !== "string" || reason === "" || await confirm({
+                    title: "Restart Now?",
+                    body: reason,
+                    detail: `${appName} will close to install the update, and open again.`,
+                    confirmLabel: "Restart Now",
+                    variant: "warning",
+                    icon: "restart_alt",
+                });
+                if (go) await api?.installUpdate();
+            } catch {
+                // The update still installs when the app closes.
+            } finally {
+                restart.disabled = false;
+            }
+        });
         auto.addEventListener("change", () => {
             showAutoHelp();
             api?.setSettings({ autoDownloadUpdates: auto.checked }).catch(() => {});
@@ -364,9 +397,19 @@
                 // Bootstrap's emphasis shades, which hold AA on the page in both themes (its plain ones don't on dark).
                 status.classList.toggle("text-warning-emphasis", message.tone === "warning");
                 status.classList.toggle("text-danger-emphasis", message.tone === "danger");
-                // A check can run unless there's no updater, one is running, or an update is downloading or waiting.
-                check.disabled = ["unavailable", "checking", "downloading", "downloaded"].includes(next.state);
+                // A check can run unless there's no updater, one is running, or an update is downloading.
+                check.disabled = ["unavailable", "checking", "downloading"].includes(next.state);
+                // Once it has downloaded, Restart Now takes Check for Updates' place, and the focus with it.
+                const downloaded = next.state === "downloaded";
+                const moveFocus = downloaded && document.activeElement === check;
+                check.hidden = downloaded;
+                restart.hidden = !downloaded;
+                if (moveFocus) restart.focus();
                 download.hidden = !(next.state === "available" || (next.state === "error" && next.error === "download"));
+                // Hidden at 0, so the next download's bar starts empty rather than shrinking from the last.
+                const downloading = next.state === "downloading";
+                bar.set(downloading ? next.percent ?? 0 : 0);
+                bar.element.hidden = !downloading;
                 // With no updater at all, its settings do nothing.
                 const off = next.state === "unavailable" && next.reason === "off";
                 auto.disabled = off;
@@ -741,7 +784,7 @@
      */
     function mountShell(options) {
         checkOptions(options);
-        const { title, sections = [], toolbar, settingsTabs = [], credits = {}, onViewChange } = options;
+        const { title, sections = [], toolbar, settingsTabs = [], credits = {}, onViewChange, busy } = options;
         if (document.querySelector(".app-frame")) throw new Error("kit.ui.mountShell() was called twice.");
 
         // The rail: the app's sections, then Settings, then Collapse.
@@ -785,7 +828,7 @@
 
         // Settings > Update, and the update dot on the rail's Settings and on the Update tab.
         let appName = title;
-        const update = buildUpdate(settings.pane("update"));
+        const update = buildUpdate(settings.pane("update"), busy);
         const dots = [updateDot(settingsItem), updateDot(settings.tab("update"))];
         let toasted = null;
         // "Checking for updates…" shows for CHECK_SHOWN_FOR at least: what comes sooner waits for it (the latest only).

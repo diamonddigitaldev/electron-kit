@@ -64,6 +64,8 @@ async function init() {
         toolbar: $("toolbar"),
         settingsTabs: [{ id: "general", label: "General", render: renderGeneral }],
         credits: { logo: "assets/logo.svg" },
+        // What the demo is busy with, asked before Restart Now: never anything, unless a test says so.
+        busy: () => window.demoBusy ?? null,
     });
 
     await Promise.all([

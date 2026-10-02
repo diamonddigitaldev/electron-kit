@@ -18,6 +18,7 @@ const shell = kit.ui.mountShell({
     settingsTabs: [{ id: "general", label: "General", render: (pane) => { /* the app's own settings */ } }],
     credits:  { logo: "assets/logo.png" },             // beside the app's name on the Credits tab
     onViewChange: (view) => {},
+    busy:     () => (converting ? "A conversion is running." : null),   // asked before Restart Now
 });
 await shell.ready;                                     // the saved settings and the Credits tab are in
 shell.showView("convert");                             // or shell.showSettings("update", { focus: true })
@@ -52,15 +53,23 @@ which puts focus on the selected tab.
 **Update** is two cards in a readable column (36rem at most). The first is headed with the version running
 (`Version 2.0.0`), then a status line (`role="status"`, its height kept), then `Check for Updates` (disabled
 while a check or download runs, or with no updater) and, when there's an update to download, `Download
-Update` beside it. In "Version x is available.", "Version x" is a link to that release's page on GitHub,
+Update` beside it. While an update downloads, a bar in the accent (`kit.ui.progress()`) shows under the
+status line; it goes the moment the download finishes or fails, never fading or left at 100%. Once an update
+has downloaded, **`Restart Now`** takes `Check for Updates`' place (and the focus, if it had it): it installs
+the update at once, silently, and starts the new version. If the app passes `busy`, a function returning
+what it's busy with (`"A conversion is running."`, or `null`), and it returns a reason, the kit asks first, in
+its own warning prompt: "Restart Now?", the reason, "<App> will close to install the update, and open
+again.", with the focus on Cancel. Without `busy`, or with nothing running, it restarts at once. In "Version x is available.", "Version x" is a link to that release's page on GitHub,
 opened in the browser. "Checking for updates…" shows for a second at least, so a check that fails at once still
 looks pressed. A failed check says why, in Bootstrap's warning shade (it passes): "You seem to be offline.",
 "The newest release has no update files yet." or "Try again later."; a failed download is in the danger
 shade. The second card, **Preferences**, holds the `Download updates automatically` switch, on by default,
 whose help says what it does on and what it does off, and the `Update channel`, `Stable`, `Beta` or
 `Alpha`, each with its help line. Each change is kept as it's made, and a new channel checks again. The menu's `Check for Updates` opens this tab and runs a check.
-While an update waits (`dot` in the updater's state), a **yellow dot** shows on the rail's Settings item (at
-its end, or on the corner of its glyph when the rail is collapsed) and on the Update tab. Its ring holds 3:1
+While an update waits (`dot` in the updater's state), a **yellow dot** shows on the rail's Settings item (6px,
+at its end, or in the item's top-right corner when the rail is collapsed, as far in from the right as from the
+top) and on the Update tab (8px). It breathes slowly, a little fainter and smaller every 3.5 seconds, to draw
+the eye without nagging; under reduced motion it's still. Its ring holds 3:1
 on the light rail, where the yellow alone is 1.55:1, and "Update available" becomes part of the item's and the
 tab's names. When an update downloads by itself, one toast says so. The updater itself is under
 [Updates](updates.md). **Credits** replaces the old Credits

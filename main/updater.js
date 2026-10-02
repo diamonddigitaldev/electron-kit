@@ -314,6 +314,22 @@ function createUpdater({ options, app, settings, send, load = loadAutoUpdater, s
     }
 
     /**
+     * Install the update downloaded, now (Restart Now): the app quits, the
+     * installer runs silently, as it would on quit, and the new version starts.
+     * Anything but a downloaded update changes nothing. If the installer can't
+     * be started, it's one warning in the log, and the update still waits for
+     * the app to close. The page asks first when the app says it's busy.
+     * @returns {Promise<object>} the status
+     */
+    function install() {
+        if (!autoUpdater || state !== "downloaded") return Promise.resolve(status());
+        autoUpdater.quitAndInstall(true, true);
+        // electron-updater sets this while the install goes ahead, and clears it if the installer couldn't start.
+        if (autoUpdater.quitAndInstallCalled === false) log?.warn(`Update install failed (version ${found}): the installer couldn't be started.`);
+        return Promise.resolve(status());
+    }
+
+    /**
      * The settings changed (settings:set). A new channel checks again,
      * dropping an update already downloaded that the new channel wouldn't
      * offer, so it isn't installed on quit. Turning automatic downloads on
@@ -343,7 +359,7 @@ function createUpdater({ options, app, settings, send, load = loadAutoUpdater, s
         }
     }
 
-    return { start, check, download, status, settingsChanged };
+    return { start, check, download, install, status, settingsChanged };
 }
 
 /**
