@@ -1,6 +1,6 @@
 {
     "name": "@diamonddigitaldev/electron-kit",
-    "version": "0.1.0-beta.3",
+    "version": "0.1.0-beta.4",
     "description": "The shared design system for Diamond Digital Development's Electron apps: main-process behaviour, a shared preload, page components and CSS, and test helpers.",
     "type": "commonjs",
     "exports": {
