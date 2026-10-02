@@ -38,7 +38,7 @@ const path = require("path");
 const { createRequire } = require("module");
 const { spawn } = require("child_process");
 const { setTimeout: sleep } = require("timers/promises");
-const { outsideLookups } = require("./netlog");
+const { netLogSwitches, outsideLookups, proxyLookups } = require("../../testing");
 
 // No trailing separator: on Windows, a backslash before an argument's closing quote escapes it.
 const DEMO_DIR = path.join(__dirname, "..", "..", "demo");
@@ -210,7 +210,7 @@ const test = base.extend({
         async function launch() {
             const netLog = path.join(root, `netlog-${netLogs.length + 1}.json`);
             netLogs.push(netLog);
-            const switches = [`--user-data-dir=${profile}`, "--no-proxy-server", `--log-net-log=${netLog}`, ...demoSwitches];
+            const switches = [`--user-data-dir=${profile}`, ...netLogSwitches(netLog), ...demoSwitches];
             const launched = await electron.launch({
                 ...(PACKAGED ? { executablePath: PACKAGED, args: [...switches, ...demoFiles] } : { executablePath: electronPath(), args: [...switches, DEMO_DIR, ...demoFiles] }),
                 env,
@@ -259,6 +259,7 @@ ${stderr}`);
             await close(demo.app);
             for (const netLog of netLogs) {
                 expect.soft(outsideLookups(netLog), `names the demo looked up beyond this machine (${path.basename(netLog)})`).toEqual([]);
+                expect.soft(proxyLookups(netLog), `proxy searches the demo made (${path.basename(netLog)})`).toEqual([]);
             }
         } finally {
             await close(demo.app);
