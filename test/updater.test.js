@@ -37,7 +37,7 @@ function memorySettings(stored = {}) {
  * electron-updater at an update server holding `channels`. Started, with its
  * launch check scheduled but not run.
  */
-async function updaterFor({ version, channels, stored = {}, isPackaged = true, options = { checkOnLaunch: true }, online = true }, t) {
+async function updaterFor({ version, channels, stored = {}, isPackaged = true, options = { checkOnLaunch: true }, online = true, before = () => {} }, t) {
     const server = await startUpdateServer(channels);
     t.after(() => server.close());
     const { autoUpdater, dir } = realAutoUpdater({ version, url: server.url });
@@ -47,6 +47,8 @@ async function updaterFor({ version, channels, stored = {}, isPackaged = true, o
     const scheduled = [];
     const logged = [];
     let loads = 0;
+    // What an earlier version left in userData, before the updater starts.
+    before(dir);
     const updater = createUpdater({
         options,
         app: { isPackaged, getVersion: () => version },
@@ -57,7 +59,7 @@ async function updaterFor({ version, channels, stored = {}, isPackaged = true, o
             return autoUpdater;
         },
         schedule: (run, ms) => scheduled.push({ run, ms }),
-        log: { warn: (...args) => logged.push(args.join(" ")) },
+        log: { warn: (...args) => logged.push(args.join(" ")), info: (...args) => logged.push(args.join(" ")) },
         isOnline: () => online,
     });
     updater.start();
@@ -367,14 +369,29 @@ test("a staged release is offered to every install, without an ID to place it", 
     assert.equal(fs.existsSync(path.join(dir, ".updaterId")), false);
 });
 
-test("a .updaterId an earlier version wrote is left as it is, and never read or sent", async (t) => {
-    const { updater, server, dir } = await updaterFor({ version: "2.0.0", channels: { latest: "2.0.0" } }, t);
+test("a .updaterId an earlier version wrote is deleted as the updater starts, and never read or sent", async (t) => {
     const old = "6f1c2a3b-4d5e-5f60-8a7b-9c0d1e2f3a4b";
-    fs.writeFileSync(path.join(dir, ".updaterId"), old);
+    const { updater, server, dir, logged } = await updaterFor({
+        version: "2.0.0",
+        channels: { latest: "2.0.0" },
+        before: (userData) => fs.writeFileSync(path.join(userData, ".updaterId"), old),
+    }, t);
+    assert.equal(fs.existsSync(path.join(dir, ".updaterId")), false, "the old ID is still there");
+    assert.ok(logged.some((line) => line.includes(".updaterId")), "the log says it was deleted");
     await updater.check();
-    assert.equal(fs.readFileSync(path.join(dir, ".updaterId"), "utf8"), old);
+    assert.equal(fs.existsSync(path.join(dir, ".updaterId")), false, "a check wrote one again");
     assert.ok(server.requests.length >= 1);
     assert.ok(!server.requests.some((r) => Object.values(r.headers).includes(old)));
+});
+
+test("run from source, the updater leaves userData alone", async (t) => {
+    const { dir } = await updaterFor({
+        version: "2.0.0",
+        channels: { latest: "2.0.0" },
+        isPackaged: false,
+        before: (userData) => fs.writeFileSync(path.join(userData, ".updaterId"), "x"),
+    }, t);
+    assert.equal(fs.readFileSync(path.join(dir, ".updaterId"), "utf8"), "x");
 });
 
 test("withoutInstallId() throws if electron-updater no longer holds the ID in a Lazy, so an upgrade can't quietly write it again", () => {

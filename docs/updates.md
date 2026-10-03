@@ -33,7 +33,7 @@ false }` turns that off), and whenever the page asks (`checkForUpdates()`). It m
   uses it to place the install in a staged rollout (`stagingPercentage` in the update file). The kit gives it
   `00000000-0000-0000-0000-000000000000` before its first check, so no ID is made and no file is written, and
   every install is offered every release: no app on the kit uses staged rollouts. A `.updaterId` an earlier
-  version wrote is left where it is, and never read or sent. The tests check the profile for the file after a
+  version wrote is deleted as the updater starts, and never read or sent. The tests check the profile for the file after a
   real update, so an electron-updater upgrade that changes how it keeps the ID fails them.
 - **A failed check or download is logged** as one warning (`start({ log })`, redacted like every line):
   the channel, the reason, and the error's code and first line.
