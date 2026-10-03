@@ -71,6 +71,7 @@ function registerPreload(ses) {
  * @param {{
  *   settings?: { defaults?: Record<string, unknown>, version?: number, migrate?: (settings: object, from: number) => object, obsoleteKeys?: string[] },
  *   log?: "file" | "memory" | { mode: "file" | "memory", lines?: number },
+ *   appId?: string,
  *   singleInstance?: boolean,
  *   files?: boolean,
  *   credits?: { lines?: (string | (string | { text: string, href: string })[])[], donate?: string },
@@ -87,7 +88,9 @@ function registerPreload(ses) {
  *   kit's keepLogOnDisk setting is on (log.js); without it, the console
  *   only. settings.version, migrate and obsoleteKeys: the store's migration
  *   (store.js). singleInstance: false lets more than one run (it's one, by
- *   default). files: the app takes files it's opened with (instance.js).
+ *   default). appId: the app's build.appId, its user model ID on Windows
+ *   (instance.js); the app's name without it. files: the app takes files
+ *   it's opened with (instance.js).
  *   openExternal.allow: the sites the page's links may open on, beside the
  *   links the kit shows from this config; any http(s) link without it
  *   (shell.js).
@@ -118,11 +121,13 @@ function start(config = {}) {
     // Every option is checked before anything is registered.
     const { mode, lines } = logging.checkLog(config.log);
     if (config.singleInstance !== undefined && typeof config.singleInstance !== "boolean") throw new Error("kit.start(): singleInstance must be true or false.");
+    instance.checkAppId(config.appId);
     if (config.files !== undefined && typeof config.files !== "boolean") throw new Error("kit.start(): files must be true or false.");
 
     // One instance, before anything else: a second launch hands its argv over
     // and quits, and writes nothing. Its log is the console's only, or it
     // would empty the first's debug.log as it started.
+    instance.setAppId(config.appId);
     const primary = config.singleInstance === false ? true : instance.takeLock();
     const log = logging.createLog({
         mode: primary ? mode : null,

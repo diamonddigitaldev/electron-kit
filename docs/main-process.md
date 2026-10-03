@@ -70,8 +70,10 @@ page in that session only ([IPC](ipc.md#the-apps-own-channels)).
 
 ## One Instance and Files
 
-`start()` takes the single-instance lock before any window, and sets the app's user model ID on Windows, so
-its windows group in the taskbar. A second launch hands its argv to the first and quits: `kit.primary` is
+`start()` takes the single-instance lock before any window, and sets the app's user model ID on Windows:
+`start({ appId })`, the app's `build.appId`. The installer gives the Start menu shortcut that ID, and Windows
+groups the app's windows under its pinned taskbar icon, and shows its notifications, only when the two match.
+Without `appId`, it's the app's name, which matches nothing the installer made. A second launch hands its argv to the first and quits: `kit.primary` is
 `false` there. The first restores and focuses its main window. `start({ singleInstance: false })` lets more
 than one run.
 

@@ -18,6 +18,8 @@ const { BrowserWindow } = require("electron");
 const { IPC, ISOLATED_PARTITION, SETTINGS_DEFAULTS } = require("./constants");
 
 const kit = require("@diamonddigitaldev/electron-kit/main").start({
+    // package.json's build.appId: the Windows user model ID its shortcut carries.
+    appId: "com.diamonddigitaldev.electronkitdemo",
     // Version 1 of the demo's settings: a store from before it loses the
     // setting the demo dropped, and its old key.
     settings: {
