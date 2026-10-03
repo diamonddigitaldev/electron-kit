@@ -73,7 +73,7 @@ function registerPreload(ses) {
  *   log?: "file" | "memory" | { mode: "file" | "memory", lines?: number },
  *   appId?: string,
  *   singleInstance?: boolean,
- *   files?: boolean,
+ *   files?: boolean | { except?: string[] },
  *   credits?: { lines?: (string | (string | { text: string, href: string })[])[], donate?: string },
  *   repository?: string,
  *   name?: string,
@@ -90,7 +90,8 @@ function registerPreload(ses) {
  *   (store.js). singleInstance: false lets more than one run (it's one, by
  *   default). appId: the app's build.appId, its user model ID on Windows
  *   (instance.js); the app's name without it. files: the app takes files
- *   it's opened with (instance.js).
+ *   it's opened with (instance.js); files.except, the switches that make a
+ *   launch the app's own to handle, whose files aren't taken.
  *   openExternal.allow: the sites the page's links may open on, beside the
  *   links the kit shows from this config; any http(s) link without it
  *   (shell.js).
@@ -122,7 +123,7 @@ function start(config = {}) {
     const { mode, lines } = logging.checkLog(config.log);
     if (config.singleInstance !== undefined && typeof config.singleInstance !== "boolean") throw new Error("kit.start(): singleInstance must be true or false.");
     instance.checkAppId(config.appId);
-    if (config.files !== undefined && typeof config.files !== "boolean") throw new Error("kit.start(): files must be true or false.");
+    const except = instance.checkFiles(config.files);
 
     // One instance, before anything else: a second launch hands its argv over
     // and quits, and writes nothing. Its log is the console's only, or it
@@ -155,7 +156,7 @@ function start(config = {}) {
 
     const isolation = sessions.createSessions({ preloadId: PRELOAD_ID });
     let windows = null;
-    const files = instance.createFiles({ files: config.files === true, main: () => windows.main(), log });
+    const files = instance.createFiles({ files: except !== null, except: except ?? [], main: () => windows.main(), log });
     windows = windowing.createWindows({ bounds: settings.bounds, onMainCreated: files.mainCreated });
     files.listen({ isPackaged: app.isPackaged, appPath: app.getAppPath() });
 
@@ -203,7 +204,7 @@ function start(config = {}) {
         theme.followTheme();
         updates.start();
         // The files the app was launched with, once there's a window for them.
-        files.queue(instance.filePathsFromArgv(process.argv, { isPackaged: app.isPackaged, appPath: app.getAppPath() }));
+        files.launched(process.argv, { isPackaged: app.isPackaged, appPath: app.getAppPath() });
     });
     return {
         ready,
