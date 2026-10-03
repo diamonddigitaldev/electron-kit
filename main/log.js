@@ -166,6 +166,9 @@ function createLog({ mode = null, dir, lines: size = MEMORY_LINES.default, level
     // so a file an earlier run kept is deleted when it's not to be kept now.
     let disk = mode === "file" ? true : mode === "memory" ? null : false;
     let failing = false;
+    // The memory log's file, kept on disk, holds at most twice its lines after
+    // the banner: past that, it's written again from the lines in memory.
+    let fileLines = 0;
 
     /**
      * Do something to the file. A failure never throws into the app: it's
@@ -190,11 +193,21 @@ function createLog({ mode = null, dir, lines: size = MEMORY_LINES.default, level
         const line = `[${now().toISOString()}] [${name}] ${message}`;
         recent.push(line);
         if (recent.length > size) recent.shift();
-        if (disk) onFile(() => fileSystem.appendFileSync(file, `${line}\n`));
+        if (disk && mode === "memory" && fileLines >= size * 2) writeWhole();
+        else if (disk) {
+            onFile(() => fileSystem.appendFileSync(file, `${line}\n`));
+            fileLines++;
+        }
         if (name === "ERROR") out.error(message);
         else if (name === "WARN") out.warn(message);
         else out.log(message);
     };
+
+    /** Write the memory log's file again: the banner and the run's last lines. */
+    function writeWhole() {
+        onFile(() => fileSystem.writeFileSync(file, `${[first, ...recent].join("\n")}\n`));
+        fileLines = recent.length;
+    }
 
     /** The memory log: start or stop keeping it on disk. Asked again for what it's doing already, it does nothing. */
     function keepOnDisk(on) {
@@ -202,7 +215,7 @@ function createLog({ mode = null, dir, lines: size = MEMORY_LINES.default, level
         if (typeof on !== "boolean") throw new Error("keepOnDisk() takes true or false.");
         if (on === disk) return;
         disk = on;
-        if (on) onFile(() => fileSystem.writeFileSync(file, `${[first, ...recent].join("\n")}\n`));
+        if (on) writeWhole();
         else onFile(() => fileSystem.rmSync(file, { force: true }));
     }
 

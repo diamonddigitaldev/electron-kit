@@ -230,6 +230,23 @@ test("kept on disk, the run so far is written and each line after it added; not 
     assert.throws(() => log.keepOnDisk("yes"), /takes true or false/);
 }));
 
+test("the memory log's file holds at most twice its lines after the banner, the newest kept", () => withDir((dir) => {
+    const log = createLog({ mode: "memory", dir, lines: 100, console: recordingConsole() });
+    log.keepOnDisk(true);
+    let most = 0;
+    for (let i = 1; i <= 450; i++) {
+        log.info(`line ${i}`);
+        const held = fs.readFileSync(log.file, "utf8").trimEnd().split("\n");
+        most = Math.max(most, held.length);
+        assert.match(held[0], /^=== App started at /, "the banner stays first");
+        assert.match(held.at(-1), new RegExp(`\\] line ${i}$`), "the newest line is always in it");
+    }
+    assert.equal(most, 1 + 200);
+    // The lines in it are the run's, in order, with none missing from the end.
+    const held = fs.readFileSync(log.file, "utf8").trimEnd().split("\n").slice(1).map((line) => Number(line.split(" line ")[1]));
+    assert.deepEqual(held, Array.from({ length: held.length }, (_, i) => 451 - held.length + i));
+}));
+
 test("the first keepOnDisk(false) deletes a file an earlier run kept; only the memory log takes it", () => withDir((dir) => {
     fs.writeFileSync(path.join(dir, LOG_FILE), "an earlier run, kept on disk\n");
     const log = createLog({ mode: "memory", dir, console: recordingConsole() });

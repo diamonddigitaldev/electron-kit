@@ -138,7 +138,8 @@ the log goes to the console only.
 Troubleshooting"), changed through `kitAPI.setSettings()` like any other:
 
 - **Turned on,** the run so far is written to `debug.log` in `userData`, and each line after it is added. At
-  the next launch, still on, the file starts again with that run's banner.
+  the next launch, still on, the file starts again with that run's banner. It holds at most twice the lines
+  kept in memory after the banner: past that, it's written again from the banner and the run's last lines.
 - **Turned off,** `debug.log` is deleted. At a launch with it off, a `debug.log` an earlier run kept is
   deleted too.
 
