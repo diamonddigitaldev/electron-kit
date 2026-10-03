@@ -249,6 +249,15 @@ jobs:
           done
           echo "app.asar carries the kit's files."
 
+      # The asking installer (builder/installer.js), installed silently with the
+      # choices its page would make, its registry read back after each install,
+      # then uninstalled: for one person, then (the runner is an administrator)
+      # for everyone, installed again over it.
+      - name: Install the demo and check what its installer adds
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: ./scripts/check-installer.ps1 -Setup (Get-ChildItem demo/dist/*.exe | Where-Object Name -notlike "*uninstaller*" | Select-Object -First 1).FullName
+
       # builder/index.js's config(): the .desktop file is named for the appId
       # and the running window matches it (desktopName, StartupWMClass), and it
       # lists the demo's file types' MIME types, with %F so a file manager hands
