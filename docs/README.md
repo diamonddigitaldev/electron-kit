@@ -16,7 +16,7 @@ and links here, so these can be corrected without a new release.
 | [Page Components](page-components.md) | Toasts, prompts, the parts of a section of files (drop zone, progress, action bar), the key guard, and `kit.format` |
 | [The Main Process](main-process.md) | The main window, isolated sessions, spell checking, one instance and the files an app is opened with, the settings and their migration, the redacted log, and the menu |
 | [Updates](updates.md) | The updater: when it checks, Stable, Beta and Alpha, automatic downloads, and its state |
-| [Building](building.md) | The electron-builder base config, the update files every release carries, and naming an app's files |
+| [Building](building.md) | `config()`, the electron-builder config every app builds with; the files an app opens, on Linux; the update files every release carries; and naming an app's files |
 | [Theme, Accent and Tokens](theming.md) | The OS theme, an app's accent and its WCAG 2.2 AA check, the house tokens, focus rings and controls |
 | [Testing an App](testing.md) | The helpers for an app's own tests: nothing reached beyond the machine, the preload, the menu, the accent and the build config |
 | [Development](development.md) | Working on the kit: its tests, the demo app, CI and the visual baselines |

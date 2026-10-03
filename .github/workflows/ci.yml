@@ -249,6 +249,31 @@ jobs:
           done
           echo "app.asar carries the kit's files."
 
+      # builder/index.js's config(): the .desktop file is named for the appId
+      # and the running window matches it (desktopName, StartupWMClass), and it
+      # lists the demo's file types' MIME types, with %F so a file manager hands
+      # over every file as a path.
+      - name: Check the .desktop file in the .deb and .rpm
+        if: runner.os == 'Linux'
+        working-directory: demo
+        run: |
+          name=com.diamonddigitaldev.electronkitdemo
+          entry=usr/share/applications/$name.desktop
+          rpm -qlp dist/*.rpm | grep -x "/$entry"
+          dir=$(mktemp -d)
+          dpkg-deb -x dist/*.deb "$dir"
+          cat "$dir/$entry"
+          grep -x "MimeType=text/plain;text/markdown;" "$dir/$entry"
+          grep -E '^Exec=.* %F$' "$dir/$entry"
+          grep -x "StartupWMClass=$name" "$dir/$entry"
+          grep -x "Categories=Development;" "$dir/$entry"
+          node -e '
+            const asar = require("@electron/asar");
+            const pkg = JSON.parse(asar.extractFile(process.argv[1], "package.json").toString());
+            if (pkg.desktopName !== process.argv[2] + ".desktop") { console.log(`::error::The packed package.json has desktopName ${pkg.desktopName}.`); process.exit(1); }
+          ' "$dir/opt/electron-kit Demo/resources/app.asar" "$name"
+          echo "The .desktop file and desktopName match the appId."
+
       # The same tests, against the packaged app: on Windows the unpacked app
       # the installer carries, on Linux the AppImage itself, which runs without
       # FUSE by extracting itself first.
