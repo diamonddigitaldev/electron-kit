@@ -83,7 +83,12 @@ With `start({ files: true })`, the files the app is opened with reach its page a
 500 ms and pushed as one, once the main window's page has loaded, so none is lost to a page still loading.
 From argv, a path is kept only if it isn't a switch, isn't the app's own folder, and is something on disk.
 The app's own Open Files hands its picks over with `kit.files.open(paths)`: at once, after any still being
-gathered.
+gathered. The log says how many files were opened, never which.
+
+A launch the app handles itself, such as Dropgate's "Share with Dropgate" (the file, then `--upload`), names
+its switch in `start({ files: { except: ["--upload"] } })`. A launch, first or second, with one of those
+switches has none of its files taken: the app reads them from argv, or from its own `second-instance`
+handler. A second one still brings the main window back.
 
 ## The Settings
 

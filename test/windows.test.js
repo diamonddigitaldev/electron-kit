@@ -264,6 +264,50 @@ test("a second launch's files are gathered for 500 ms and pushed as one, and the
     assert.deepEqual(win.webContents.sent.at(-1), { channel: "files:opened", args: [["/Users/will/a.mov"]] });
 });
 
+test("a launch with one of files.except's switches is the app's to handle: its files aren't taken, first launch or second", async (t) => {
+    t.mock.timers.enable({ apis: ["setTimeout"] });
+    // Dropgate's Share with Dropgate: the file, then --upload.
+    const { kit, electron } = await started({ files: { except: ["--upload"] } }, { argv: [process.execPath, APP_PATH, __filename, "--upload"] });
+    const win = kit.windows.createMain(MAIN_OPTIONS);
+    win.webContents.finishLoad();
+    t.mock.timers.tick(FILES_BATCH_MS);
+    assert.deepEqual(win.webContents.sent, [], "not the first launch's");
+
+    win.state.minimized = true;
+    electron.app.emit("second-instance", {}, [process.execPath, __filename, "--upload"]);
+    t.mock.timers.tick(FILES_BATCH_MS);
+    assert.deepEqual(win.webContents.sent, [], "nor a second launch's");
+    assert.deepEqual([win.state.restored > 0, win.state.focused], [true, true], "the window is still brought back");
+
+    // A launch without the switch is opened as ever.
+    electron.app.emit("second-instance", {}, [process.execPath, __filename]);
+    t.mock.timers.tick(FILES_BATCH_MS);
+    assert.deepEqual(win.webContents.sent, [{ channel: "files:opened", args: [[__filename]] }]);
+
+    for (const files of [{ except: "--upload" }, { except: ["upload"] }, { except: ["--upload=1"] }, { skip: [] }, null, "yes"]) {
+        assert.throws(() => loadMain().main.start({ files }), /kit\.start\(\): files/);
+    }
+    // { except: [] } is files: true.
+    const plain = await started({ files: {} }, { argv: [process.execPath, APP_PATH, __filename] });
+    const other = plain.kit.windows.createMain(MAIN_OPTIONS);
+    other.webContents.finishLoad();
+    t.mock.timers.tick(FILES_BATCH_MS);
+    assert.deepEqual(other.webContents.sent, [{ channel: "files:opened", args: [[__filename]] }]);
+});
+
+test("the log says how many files were opened, never which", async (t) => {
+    t.mock.timers.enable({ apis: ["setTimeout"] });
+    const { kit } = await started({ files: true, log: "memory" }, { argv: [process.execPath, APP_PATH, __filename] });
+    const win = kit.windows.createMain(MAIN_OPTIONS);
+    win.webContents.finishLoad();
+    t.mock.timers.tick(FILES_BATCH_MS);
+    kit.files.open([__filename, path.join(__dirname, "format.test.js")]);
+    const lines = kit.log.lines().join("\n");
+    assert.match(lines, /Opening 1 file\./);
+    assert.match(lines, /Opening 2 files\./);
+    for (const name of [path.basename(__filename), "format.test.js", "windows.test"]) assert.ok(!lines.includes(name), `the log names ${name}`);
+});
+
 test("kit.files.open() hands the app's own picks to the page at once; without files: true, nothing is taken", async (t) => {
     t.mock.timers.enable({ apis: ["setTimeout"] });
     const { kit } = await started({ files: true });
@@ -280,5 +324,5 @@ test("kit.files.open() hands the app's own picks to the page at once; without fi
     t.mock.timers.tick(FILES_BATCH_MS);
     assert.deepEqual(other.webContents.sent, []);
     assert.throws(() => none.kit.files.open(["/a.mp4"]), /wasn't given files: true/);
-    assert.throws(() => loadMain().main.start({ files: "yes" }), /files must be true or false/);
+    assert.throws(() => loadMain().main.start({ files: "yes" }), /files must be true or false, or \{ except/);
 });

@@ -15,10 +15,13 @@
 //   several are opened from Explorer), from macOS's open-file, and from the
 //   app's own menu (kit.files.open()). Arrivals are gathered for 500 ms and
 //   pushed to the main window's page as one files:opened, once its page has
-//   loaded (did-finish-load): none is lost to a page still loading.
+//   loaded (did-finish-load): none is lost to a page still loading. A launch
+//   with one of the app's own switches (start({ files: { except } }), such as
+//   Dropgate's --upload) is the app's to handle, so its files aren't taken.
 //
 // A path from argv is kept only if it isn't a switch, isn't the app itself,
-// and is something on disk.
+// and is something on disk. The log says how many files were opened, never
+// which: a file's name can say as much about a person as its folder.
 
 const fs = require("fs");
 const path = require("path");
@@ -46,6 +49,28 @@ function filePathsFromArgv(argv, { isPackaged, appPath, exists = fs.existsSync }
             return false;
         }
     });
+}
+
+/**
+ * Check start()'s files: true, or { except }, the switches that mark a launch
+ * as the app's own to handle ("--upload"). Returns them, or null for no files.
+ * @param {unknown} files
+ * @returns {string[] | null}
+ */
+function checkFiles(files) {
+    if (files === undefined || files === false) return null;
+    if (files === true) return [];
+    if (files !== null && typeof files === "object" && !Array.isArray(files)) {
+        for (const key of Object.keys(files)) {
+            if (key !== "except") throw new Error(`kit.start(): files.${key} isn't an option. It takes except.`);
+        }
+        const except = files.except ?? [];
+        if (!Array.isArray(except) || !except.every((arg) => typeof arg === "string" && /^--[a-z0-9][a-z0-9-]*$/.test(arg))) {
+            throw new Error("kit.start(): files.except must be switches, such as [\"--upload\"].");
+        }
+        return [...except];
+    }
+    throw new Error("kit.start(): files must be true or false, or { except: [switches] }.");
 }
 
 /**
@@ -80,10 +105,11 @@ function takeLock() {
 
 /**
  * The files the app is asked to open, pushed to its main window's page.
- * @param {{ files: boolean, main: () => Electron.BrowserWindow | null, log?: { info(...args: unknown[]): void } }} options
- *   files: whether the app takes files at all. main: its main window, or null.
+ * @param {{ files: boolean, except?: string[], main: () => Electron.BrowserWindow | null, log?: { info(...args: unknown[]): void } }} options
+ *   files: whether the app takes files at all. except: the switches that make
+ *   a launch the app's own to handle. main: its main window, or null.
  */
-function createFiles({ files, main, log }) {
+function createFiles({ files, except = [], main, log }) {
     let pending = [];
     let timer = null;
     // The page of each main window that has loaded. Not webContents.isLoading(): that can still be true in
@@ -97,8 +123,13 @@ function createFiles({ files, main, log }) {
         if (pending.length === 0 || !win || !loaded.has(win.webContents)) return;
         const batch = pending;
         pending = [];
-        log?.info(`Opening ${batch.length === 1 ? "1 file" : `${batch.length} files`}:`, JSON.stringify(batch));
+        log?.info(`Opening ${batch.length === 1 ? "1 file" : `${batch.length} files`}.`);
         win.webContents.send(PUSH.FILES_OPENED, batch);
+    }
+
+    /** Whether a launch's argv is the app's own to handle: it holds one of the except switches. */
+    function isAppsOwn(argv) {
+        return argv.some((arg) => except.includes(arg));
     }
 
     /** Gather some paths, and push them all 500 ms after the last arrives. */
@@ -134,7 +165,7 @@ function createFiles({ files, main, log }) {
                 win.show();
                 win.focus();
             }
-            queue(filePathsFromArgv(argv, { isPackaged, appPath }));
+            if (!isAppsOwn(argv)) queue(filePathsFromArgv(argv, { isPackaged, appPath }));
         });
         app.on("open-file", (event, filePath) => {
             event.preventDefault();
@@ -155,7 +186,12 @@ function createFiles({ files, main, log }) {
         });
     }
 
-    return { queue, open, flush, listen, mainCreated };
+    /** The files the app was launched with, unless the launch is the app's own to handle. */
+    function launched(argv, { isPackaged, appPath }) {
+        if (!isAppsOwn(argv)) queue(filePathsFromArgv(argv, { isPackaged, appPath }));
+    }
+
+    return { queue, open, flush, listen, launched, mainCreated };
 }
 
-module.exports = { checkAppId, setAppId, takeLock, createFiles, filePathsFromArgv, FILES_BATCH_MS };
+module.exports = { checkFiles, checkAppId, setAppId, takeLock, createFiles, filePathsFromArgv, FILES_BATCH_MS };
