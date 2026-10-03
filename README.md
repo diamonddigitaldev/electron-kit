@@ -29,7 +29,8 @@ takes it with a version bump:
 - A shared preload, `window.kitAPI`, that answers the app's own page only
 - Page components and CSS on Bootstrap 5.3: the nav rail, the Settings view with its Update and Credits
   tabs, toasts, prompts, drop zones and progress, in each app's accent, meeting WCAG 2.2 AA in both themes
-- An electron-builder base config: an NSIS installer on Windows, AppImage, `.deb` and `.rpm` on Linux
+- An electron-builder config: an NSIS installer on Windows, AppImage, `.deb` and `.rpm` on Linux, and
+  the app in Linux's Open With for the files it opens
 - Test helpers for an app's own tests: the accent's contrast, the menu's shortcuts, the build config
 
 It's in early development, and its versions are betas for now.

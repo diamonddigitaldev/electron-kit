@@ -15,8 +15,9 @@
 // has no modifier but Shift and isn't a function key (the kit's menu builder
 // refuses one too).
 //
-// assertBuildExtendsKit() checks an app's package.json: its electron-builder
-// config extends the kit's builder/base.json, and doesn't undo what it sets.
+// assertBuildExtendsKit() checks an app's electron-builder config (from the
+// kit's builder config(), or package.json's build): it extends the kit's
+// builder/base.json, and doesn't undo what it sets.
 //
 // netLogSwitches(), outsideLookups(), proxyLookups() and
 // assertNoOutsideLookups() check that a test run of the app reached nothing
@@ -116,22 +117,23 @@ ${describeBare(found)}` });
 }
 
 /** What an app's build.extends names the kit's base config as. */
-const KIT_BASE = "@diamonddigitaldev/electron-kit/builder/base.json";
+const { KIT_BASE } = require("../builder");
 
 /**
- * Fail unless an app's package.json builds on the kit's base config
- * (builder/base.json): build.extends names it, by the package's name or its
+ * Fail unless an app's electron-builder config builds on the kit's base config
+ * (builder/base.json): its extends names it, by the package's name or its
  * path in node_modules, and the app doesn't turn off the channel files every
  * release needs (generateUpdatesFilesForAllChannels) or leave out a publish
  * target for the updater to read.
- * @param {{ build?: Record<string, any> }} pkg - the app's package.json, parsed
+ * @param {Record<string, any>} pkg - the config the app's electron-builder.cjs exports, or a package.json
+ *   whose build holds it
  */
 function assertBuildExtendsKit(pkg) {
-    const build = pkg?.build ?? {};
+    const build = pkg?.build ?? (pkg && Object.hasOwn(pkg, "extends") ? pkg : {});
     const extendsList = Array.isArray(build.extends) ? build.extends : [build.extends];
     assert.ok(
         extendsList.some((spec) => spec === KIT_BASE || spec === `node_modules/${KIT_BASE}`),
-        `package.json's build.extends must name "${KIT_BASE}"; it's ${JSON.stringify(build.extends)}.`,
+        `The build config's extends must name "${KIT_BASE}"; it's ${JSON.stringify(build.extends)}.`,
     );
     assert.notEqual(build.generateUpdatesFilesForAllChannels, false, "build.generateUpdatesFilesForAllChannels must stay on: every release carries its channels' update files.");
     assert.ok(build.publish, "build.publish must name where updates come from: electron-builder writes it into the app for the updater.");

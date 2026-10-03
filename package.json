@@ -9,6 +9,7 @@
         "./page/*": "./page/*",
         "./css/*": "./css/*",
         "./testing": "./testing/index.js",
+        "./builder": "./builder/index.js",
         "./builder/*": "./builder/*",
         "./format": "./format/index.js",
         "./package.json": "./package.json"
