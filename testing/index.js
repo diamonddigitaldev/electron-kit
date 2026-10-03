@@ -125,7 +125,7 @@ const { KIT_BASE } = require("../builder");
  * path in node_modules, and the app doesn't turn off the channel files every
  * release needs (generateUpdatesFilesForAllChannels) or leave out a publish
  * target for the updater to read.
- * @param {Record<string, any>} pkg - the config the app's electron-builder.js exports, or a package.json
+ * @param {Record<string, any>} pkg - the config the app's electron-builder.cjs exports, or a package.json
  *   whose build holds it
  */
 function assertBuildExtendsKit(pkg) {

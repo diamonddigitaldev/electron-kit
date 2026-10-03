@@ -6,7 +6,7 @@ The electron-builder config every app builds with, the files it opens on each pl
 
 ## Building
 
-An app's electron-builder config is `electron-builder.js`, beside its `package.json`, made by the kit's
+An app's electron-builder config is `electron-builder.cjs`, beside its `package.json`, made by the kit's
 `config()`:
 
 ```js
@@ -29,7 +29,11 @@ module.exports = config(require("./package.json"), {
 });
 ```
 
-`package.json` has no `build` then: electron-builder reads it before `electron-builder.js`, so `config()`
+It's `.cjs`, never `.js`: on Windows, `electron-builder` typed in that folder (in PowerShell or the Command
+Prompt, or through `npx`) would find `electron-builder.js` first and run it with Windows Script Host instead,
+since `.JS` is a program's extension there.
+
+`package.json` has no `build` then: electron-builder reads it before `electron-builder.cjs`, so `config()`
 refuses a `package.json` that still has one. `build` is the app's own electron-builder options, as they
 were in `package.json`, and `config()` adds the rest:
 
@@ -64,7 +68,7 @@ app's values winning, and **lists joined, never replaced**. So an app can add a 
 but can't take one away; the base holds only what every app ships. A `.deb` or `.rpm` names its maintainer
 from the base's `linux.maintainer`, not from `package.json`'s `author`, which in every app is a name and a
 web address, and which npm would read as the email. An app's tests check
-the config with `assertBuildExtendsKit(require("../electron-builder.js"))` from `electron-kit/testing`.
+the config with `assertBuildExtendsKit(require("../electron-builder.cjs"))` from `electron-kit/testing`.
 
 ## The Files an App Opens
 

@@ -2,7 +2,7 @@
 
 // The packaged demo updating from a local update server: the whole path an app
 // on the kit takes, in the app electron-builder packed from builder/base.json.
-// Its app-update.yml names the server (demo/electron-builder.js's publish), the kit
+// Its app-update.yml names the server (demo/electron-builder.cjs's publish), the kit
 // loads electron-updater from app.asar, and every request goes through
 // Electron's own network stack. test/updater.test.js covers the rules in
 // detail against the same library under Node; this checks they hold in a
@@ -22,7 +22,7 @@ const path = require("path");
 const { test, expect } = require("./helpers/demo");
 const { startUpdateServer } = require("../test/helpers/update-server");
 const { STAGING_ID } = require("../main/updater");
-const demoBuild = require("../demo/electron-builder.js");
+const demoBuild = require("../demo/electron-builder.cjs");
 
 test.describe.configure({ mode: "serial" });
 test.skip(!process.env.KIT_DEMO_EXECUTABLE, "the updater only runs in a packaged app");

@@ -3,8 +3,9 @@
 // config(): an app's whole electron-builder config, built on the kit's base
 // (base.json), from the app's own build options and the files it opens.
 //
-// An app keeps it in electron-builder.js, beside package.json, in place of
-// package.json's build:
+// An app keeps it in electron-builder.cjs, beside package.json, in place of
+// package.json's build (.cjs: on Windows, `electron-builder` typed in a folder
+// holding electron-builder.js runs that file with Windows Script Host):
 //
 //     const { config } = require("@diamonddigitaldev/electron-kit/builder");
 //     module.exports = config(require("./package.json"), {
@@ -98,7 +99,7 @@ function checkFileTypes(fileTypes) {
 function config(pkg, options) {
     if (pkg === null || typeof pkg !== "object" || typeof pkg.name !== "string") throw new Error("config(): the first argument is the app's package.json: require(\"./package.json\").");
     if (pkg.build !== undefined) {
-        throw new Error("config(): package.json still has build, which electron-builder reads before electron-builder.js. Move it into config()'s build.");
+        throw new Error("config(): package.json still has build, which electron-builder reads before electron-builder.cjs. Move it into config()'s build.");
     }
     if (options === null || typeof options !== "object") throw new Error("config(): the second argument is the app's options: { build, fileTypes }.");
     for (const key of Object.keys(options)) {

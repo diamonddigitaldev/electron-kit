@@ -49,7 +49,7 @@ Linux's spell checker downloading dictionaries from Google, which the kit now st
 | `loadPreload(file)` | runs the app's preload as a sandboxed renderer would, with only `electron`, `events`, `timers` and `url` to require, and returns what it required, exposed and sent | below |
 | `assertNoBareAccelerators(template)` | no menu item takes a letter from every text field | [The Main Process](main-process.md#the-menu) |
 | `assertAccentContrast(file)` | the app's accent meets WCAG 2.2 AA in both themes | [Theme, Accent and Tokens](theming.md) |
-| `assertBuildExtendsKit(config)` | the app's electron-builder config (`require("../electron-builder.js")`) extends the kit's, and keeps the update files on | [Building](building.md) |
+| `assertBuildExtendsKit(config)` | the app's electron-builder config (`require("../electron-builder.cjs")`) extends the kit's, and keeps the update files on | [Building](building.md) |
 
 `loadPreload()` catches a preload that isn't self-contained (a sandboxed preload that requires anything else
 leaves its bridge undefined, with no error in main), and lets a test check each bridge call's channel:

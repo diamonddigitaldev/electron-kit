@@ -15,7 +15,7 @@ What the package exports, and the first code an app writes: `start()` in `main.j
 | `@diamonddigitaldev/electron-kit/css/kit.css` | the shared styles, linked after Bootstrap and before the app's `accent.css` |
 | `@diamonddigitaldev/electron-kit/format` | `kit.format` under Node, for a file loaded both in the page and under Node |
 | `@diamonddigitaldev/electron-kit/testing` | helpers for an app's tests ([Testing an App](testing.md)) |
-| `@diamonddigitaldev/electron-kit/builder` | `config()`, the app's electron-builder config in its `electron-builder.js` ([Building](building.md)) |
+| `@diamonddigitaldev/electron-kit/builder` | `config()`, the app's electron-builder config in its `electron-builder.cjs` ([Building](building.md)) |
 
 ## The Shared Preload
 

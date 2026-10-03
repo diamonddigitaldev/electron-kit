@@ -16,7 +16,7 @@ const demoPackage = require("../demo/package.json");
 
 const BASE = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "builder", "base.json"), "utf8"));
 
-/** The demo's electron-builder.js, with the kit it requires being this checkout (the demo's own copy may not be installed). */
+/** The demo's electron-builder.cjs, with the kit it requires being this checkout (the demo's own copy may not be installed). */
 function loadDemoBuild() {
     const resolve = Module._resolveFilename;
     Module._resolveFilename = function (request, ...rest) {
@@ -24,7 +24,7 @@ function loadDemoBuild() {
         return resolve.call(this, request, ...rest);
     };
     try {
-        return require("../demo/electron-builder.js");
+        return require("../demo/electron-builder.cjs");
     } finally {
         Module._resolveFilename = resolve;
     }
@@ -67,7 +67,7 @@ test("the package ships the base config and config(), and exports them by name",
 });
 
 test("the demo builds with config(), and publishes to the local update server its packaged tests run", () => {
-    assert.equal(demoPackage.build, undefined, "package.json's build would win over electron-builder.js");
+    assert.equal(demoPackage.build, undefined, "package.json's build would win over electron-builder.cjs");
     const demo = loadDemoBuild();
     assert.doesNotThrow(() => assertBuildExtendsKit(demo));
     assert.deepEqual(demo.publish, { provider: "generic", url: "http://127.0.0.1:47613/" });
