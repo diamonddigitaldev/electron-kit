@@ -173,7 +173,16 @@ test("start() takes the single-instance lock before anything is ready; a second 
     const many = await started({ singleInstance: false });
     assert.equal(many.calls.lock, 0);
     assert.equal(many.kit.primary, true);
+    assert.equal(many.calls.appUserModelId, process.platform === "win32" ? "Kit Demo" : null, "the ID is set with more than one instance too");
     assert.throws(() => loadMain().main.start({ singleInstance: "yes" }), /singleInstance must be true or false/);
+});
+
+test("start({ appId }) makes the app's build.appId its user model ID on Windows, the one its Start menu shortcut carries", async () => {
+    const given = await started({ appId: "com.diamonddigitaldev.kitdemo" });
+    assert.equal(given.calls.appUserModelId, process.platform === "win32" ? "com.diamonddigitaldev.kitdemo" : null);
+    for (const appId of ["", "kitdemo", "com..kit", "com.diamond digital.kit", 42]) {
+        assert.throws(() => loadMain().main.start({ appId }), /appId must be the app's build\.appId/, JSON.stringify(appId));
+    }
 });
 
 test("a second launch writes no log, so the first's debug.log stays whole, and never becomes ready", async () => {

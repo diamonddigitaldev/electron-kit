@@ -25,6 +25,7 @@ that session also gets `window.kitAPI`. A window in another session or partition
 
 ```js
 const kit = require("@diamonddigitaldev/electron-kit/main").start({
+    appId: "com.diamonddigitaldev.app",                  // package.json's build.appId (main-process.md)
     settings: { defaults: { overwrite: false } },        // the app's own settings (main-process.md)
     credits: {                                           // the Credits tab (shell.md)
         lines: [

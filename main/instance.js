@@ -3,7 +3,10 @@
 // One instance of the app, and the files it's asked to open, as File
 // Converter does it:
 //
-// - on Windows, the app's user model ID, so its windows group in the taskbar;
+// - on Windows, the app's user model ID: the app's build.appId, which the
+//   installer gives its Start menu shortcut, so its windows group under its
+//   pinned taskbar icon and Windows shows its notifications (both need the two
+//   to match). Without one, the app's name;
 // - the single-instance lock, taken in start(), before any window: a second
 //   launch hands its argv to the first and quits. The first restores and
 //   focuses its main window (windows.js);
@@ -46,11 +49,30 @@ function filePathsFromArgv(argv, { isPackaged, appPath, exists = fs.existsSync }
 }
 
 /**
+ * Check start()'s appId: the app's build.appId, such as
+ * "com.diamonddigitaldev.dropgateclient", or left out.
+ * @param {unknown} appId
+ */
+function checkAppId(appId) {
+    if (appId !== undefined && (typeof appId !== "string" || !/^[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)+$/.test(appId))) {
+        throw new Error("kit.start(): appId must be the app's build.appId, such as \"com.diamonddigitaldev.app\".");
+    }
+}
+
+/**
+ * On Windows, set the app's user model ID: its build.appId, the one its Start
+ * menu shortcut carries, or else its name.
+ * @param {string} [appId]
+ */
+function setAppId(appId) {
+    if (process.platform === "win32") app.setAppUserModelId(appId ?? app.getName());
+}
+
+/**
  * Take the single-instance lock, before any window. Returns whether this is
  * the first instance; a second has handed its argv on, and quits.
  */
 function takeLock() {
-    if (process.platform === "win32") app.setAppUserModelId(app.getName());
     const first = app.requestSingleInstanceLock();
     if (!first) app.quit();
     return first;
@@ -136,4 +158,4 @@ function createFiles({ files, main, log }) {
     return { queue, open, flush, listen, mainCreated };
 }
 
-module.exports = { takeLock, createFiles, filePathsFromArgv, FILES_BATCH_MS };
+module.exports = { checkAppId, setAppId, takeLock, createFiles, filePathsFromArgv, FILES_BATCH_MS };
