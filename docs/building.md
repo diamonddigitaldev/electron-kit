@@ -26,6 +26,7 @@ module.exports = config(require("./package.json"), {
         { name: "Audio File", ext: ["mp3", "wav", "flac"] },
         { name: "Video File", ext: ["mp4", "mkv"] },
     ],
+    contextMenu: { label: "Convert with <App>", folders: true },
 });
 ```
 
@@ -38,11 +39,15 @@ refuses a `package.json` that still has one. `build` is the app's own electron-b
 were in `package.json`, and `config()` adds the rest:
 
 - `extends`, the kit's `builder/base.json`;
-- **Linux's desktop entry**, from the app's `appId` and its files (below);
-- nothing from the file types on Windows yet: the kit owns an app's file associations, and never sets
-  electron-builder's `fileAssociations`, which claim every type without asking. So `config()` refuses
-  `fileAssociations` (anywhere), `linux.mimeTypes`, `linux.executableArgs`, `linux.syncDesktopName`,
-  `linux.desktop` and `extraMetadata.desktopName`, and an `extends` of the app's own.
+- **the asking installer** on Windows (below), from the same file types and the app's right-click entry;
+- **Linux's desktop entry**, from the app's `appId` and its files (below).
+
+The kit owns an app's file associations and its installer's questions. It never sets electron-builder's
+`fileAssociations`, which claim every type on Windows without asking. So `config()` refuses
+`fileAssociations` (anywhere), `nsis.include`, `nsis.script`, `nsis.oneClick`, `nsis.perMachine`,
+`nsis.allowElevation`, both `nsis` shortcut options, `linux.mimeTypes`, `linux.executableArgs`,
+`linux.syncDesktopName`, `linux.desktop`, `extraMetadata.desktopName`, and an `extends` of the app's own.
+An app's own `installer.nsh` goes: its right-click entry is `contextMenu`.
 
 `build.appId` (such as `com.diamonddigitaldev.dropgateclient`) and `build.linux.category`, one of
 freedesktop.org's main categories (`AudioVideo`, `Audio`, `Video`, `Development`, `Education`, `Game`,
@@ -52,7 +57,7 @@ freedesktop.org's main categories (`AudioVideo`, `Audio`, `Video`, `Development`
 Digital Development` folder; AppImage, `.deb` and `.rpm` on Linux, built on Linux; and
 `generateUpdatesFilesForAllChannels`, which writes each channel's own update file for an update server
 that has no releases of its own (a `generic` one). The app gives its own identity, files, icons, file
-associations and `publish` (where the updater looks).
+types and `publish` (where the updater looks).
 
 **Every release carries its update files, pre-releases too.** With GitHub (`publish.provider: "github"`),
 electron-builder writes one update file whatever the version, `latest.yml` (`latest-linux.yml` on Linux),
@@ -74,6 +79,49 @@ the config with `assertBuildExtendsKit(require("../electron-builder.cjs"))` from
 
 `fileTypes` lists them in groups, each with a name and its extensions, lowercase and without the dot.
 An app that takes any file (Dropgate) sets `allFiles: true` instead.
+
+
+```js
+fileTypes: [
+    { name: "Audio File", ext: ["mp3", "wav", "flac"] },
+    { name: "Video File", ext: ["mp4", "mkv"] },
+],
+contextMenu: { label: "Convert with Diamond File Converter", folders: true },
+```
+
+`contextMenu` is the app's entry on the menu Explorer shows when a file is right-clicked: its `label`,
+`folders: true` to show it on folders too, and `args`, switches given after the file (Dropgate's
+`["--upload"]`).
+
+### The Asking Installer (Windows)
+
+The installer never claims a file type or adds a right-click entry without asking:
+
+1. **Who it's for:** "Only for me", the default, which needs no administrator, or "Anyone who uses this
+   computer". If the app is already installed for everyone (every install before the kit was), this is
+   skipped and that copy is upgraded, so there are never two.
+2. **The files it opens:** a box for each extension, in the app's groups, every one ticked, with "Tick All"
+   and "Untick All", and a ticked box for the right-click entry. An app with `allFiles` asks only about its
+   right-click entry, on files; an app with neither shows no page.
+3. **The usual shortcuts:** on the desktop and in the Start menu's `Diamond Digital Development` folder,
+   as every app's are.
+
+A ticked type puts the app in its Open With list, and lists the app in Settings > Apps > Default apps,
+where the person can make it the default. It becomes the type's default by itself only where no app has
+been chosen: Windows keeps each person's choice (UserChoice) where no installer can write it, and the
+installer never takes another app's default. The page says so. An unticked type gets nothing, and what an
+earlier install added for it is taken away.
+
+The choices are kept with the install, and the next install starts from them, so an update never adds
+back what was unticked. Uninstalling takes away everything the installer added; an update's uninstall of
+the version before it takes away nothing. Silently (`/S`), `/FILETYPES=all`, `none` or a list such as
+`/FILETYPES=mp3,wav`, and `/NOCONTEXTMENU`, choose instead, with `/allusers` or `/currentuser`
+(electron-builder's) for who it's for.
+
+The page holds four columns of eight types, each group starting a column of its own. The kit's CI installs
+the demo silently with each choice, reads back what it wrote to the registry, and uninstalls it.
+
+### On Linux
 
 **On Linux,** the packages can't ask anything as they install, so the app is offered for its types the
 way Linux does it. The `.desktop` file the `.deb` and `.rpm` install lists each type's MIME types, so the
