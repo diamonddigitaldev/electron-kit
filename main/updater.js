@@ -35,11 +35,14 @@
 //   request (x-user-staging-id) and uses it to place the install in a staged
 //   rollout, which no app on the kit uses. The kit gives it a fixed ID before
 //   it can make one, so none is made, written or sent, and every install is
-//   in every rollout. A .updaterId an earlier version wrote is left as it is,
-//   unread.
+//   in every rollout. A .updaterId an earlier version wrote (an app before it
+//   took the kit) is deleted as the updater starts: it's an ID of the install,
+//   kept for nothing.
 //
 // Every change of state is pushed to the app's own windows as update:status.
 
+const fs = require("fs");
+const path = require("path");
 const version = require("./version");
 
 /** electron-updater's settings for each channel. */
@@ -137,6 +140,26 @@ function withoutInstallId(autoUpdater) {
 }
 
 /**
+ * Delete the ID of the install an earlier version of the app let
+ * electron-updater keep: .updaterId, in the userData folder electron-updater
+ * reads it from. Nothing reads it now, but it's an identifier left on disk.
+ * @param {import("electron-updater").AppUpdater} autoUpdater
+ * @param {{ info?(...args: unknown[]): void, warn(...args: unknown[]): void }} [log]
+ */
+function deleteOldInstallId(autoUpdater, log) {
+    const dir = autoUpdater.app?.userDataPath;
+    if (typeof dir !== "string" || dir === "") return;
+    const file = path.join(dir, ".updaterId");
+    try {
+        if (!fs.existsSync(file)) return;
+        fs.rmSync(file, { force: true });
+        log?.info?.("Deleted the ID of the install an earlier version kept for update checks (.updaterId).");
+    } catch (err) {
+        log?.warn("Couldn't delete the ID of the install an earlier version kept for update checks (.updaterId):", err);
+    }
+}
+
+/**
  * The app's updater.
  * @param {{
  *   options: { checkOnLaunch: boolean } | null,
@@ -212,6 +235,7 @@ function createUpdater({ options, app, settings, send, load = loadAutoUpdater, s
         }
         autoUpdater = load();
         withoutInstallId(autoUpdater);
+        deleteOldInstallId(autoUpdater, log);
         autoUpdater.autoInstallOnAppQuit = true;
         // No app on the kit ships a web installer.
         autoUpdater.disableWebInstaller = true;
