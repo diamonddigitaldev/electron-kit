@@ -411,6 +411,22 @@ test("nothing is checked until the app asks: the launch check is scheduled 5 sec
     const off = await updaterFor({ version: "2.0.0", channels: { latest: "2.0.0" }, options: { checkOnLaunch: false } }, t);
     assert.deepEqual(off.scheduled, []);
     assert.deepEqual(off.server.requests, []);
+    assert.equal(off.updater.status().pending, false);
+});
+
+test("the launch check is pending until a check runs, and a check run sooner takes its place: the launch never checks twice", async (t) => {
+    const { updater, server, scheduled, sent } = await updaterFor({ version: "2.0.0", channels: { latest: "2.0.0" } }, t);
+    assert.deepEqual([updater.status().state, updater.status().pending], ["idle", true]);
+    const checked = updater.check();
+    assert.equal(sent.at(-1).state, "checking");
+    assert.equal(sent.at(-1).pending, false, "the page is told at once");
+    await checked;
+    const requests = server.requests.length;
+    assert.ok(requests > 0);
+    scheduled[0].run();
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    assert.equal(server.requests.length, requests, "the timer checks nothing");
+    assert.equal(updater.status().state, "none");
 });
 
 test("an app run from its source never loads electron-updater, and never checks", async (t) => {
@@ -455,7 +471,7 @@ test("kit.start() answers update:get-status, update:check, update:download and u
     const page = eventFrom(appPage());
     // Run by plain Node, the stand-in app isn't packaged.
     assert.deepEqual(await handlers.get(INVOKE.UPDATE_GET_STATUS)(page), {
-        state: "unavailable", reason: "not-packaged", version: null, tag: null, percent: null, dot: false, auto: false, error: null, current: "2.0.0", channel: "stable",
+        state: "unavailable", reason: "not-packaged", version: null, tag: null, percent: null, dot: false, auto: false, error: null, pending: false, current: "2.0.0", channel: "stable",
     });
     assert.equal((await handlers.get(INVOKE.UPDATE_CHECK)(page)).state, "unavailable");
     assert.equal((await handlers.get(INVOKE.UPDATE_DOWNLOAD)(page)).state, "unavailable");

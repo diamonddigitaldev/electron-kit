@@ -11,6 +11,9 @@ electron-builder wrote into the app (its `publish` config). Without `updates` th
 checked. With it, it runs **only in a packaged app** (`app.isPackaged`; electron-updater isn't even loaded
 otherwise), and checks **only when the app says so**: 5 seconds after launch (`updates: { checkOnLaunch:
 false }` turns that off), and whenever the page asks (`checkForUpdates()`). It makes no other request.
+Settings > Update opened before the launch check has run runs it then, and a check run before it (either
+way) takes its place, so the launch never checks twice. Until a check runs, the tab says "Updates haven't
+been checked yet."
 
 - **Channels:** `stable` offers finished releases only (electron-updater's `latest`), `beta` betas too, and
   `alpha` anything. With no channel saved, the updater saves the running build's own when it starts (an
@@ -50,6 +53,7 @@ The state, from `getUpdateStatus()` and `onUpdateStatus()`:
 | `percent` | the download's, 0–100, or `null` |
 | `dot` | whether the update dot shows |
 | `auto` | whether it downloaded by itself (the page shows a toast then) |
+| `pending` | whether the launch check is still waiting to run |
 | `current`, `channel` | the version running, and the channel in use |
 
 The version rules are `require("@diamonddigitaldev/electron-kit/main").version` (`parse`, `compare`,

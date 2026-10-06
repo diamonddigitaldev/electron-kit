@@ -131,8 +131,9 @@
      * tabs sit on a thin line, and a thicker accent bar under the selected
      * one slides to the next tab chosen, taking its text's width.
      * @param {{ id: string, label: string, render: (pane: HTMLElement) => void }[]} tabs
+     * @param {(id: string) => void} [onSelect] - told each tab selected
      */
-    function buildSettings(tabs) {
+    function buildSettings(tabs, onSelect) {
         const view = el("section", { className: "settings-view", attrs: { "aria-labelledby": "settings-title" } });
         const tablist = el("div", { className: "settings-tabs", attrs: { role: "tablist", "aria-labelledby": "settings-title" } });
         const indicator = el("span", { className: "settings-tab-indicator", attrs: { "aria-hidden": "true" } });
@@ -175,7 +176,7 @@
         }));
 
         /** Show a tab and its pane. Only the selected tab is in the Tab order; the arrow keys move between them. */
-        function select(id, { focus = false } = {}) {
+        function select(id, { focus = false, quiet = false } = {}) {
             const index = tabs.findIndex((tab) => tab.id === id);
             if (index === -1) return;
             buttons.forEach((button, i) => {
@@ -187,6 +188,7 @@
             });
             placeIndicator({ animate: true });
             if (focus) buttons[index].focus();
+            if (!quiet) onSelect?.(id);
         }
 
         tablist.addEventListener("click", (event) => {
@@ -202,7 +204,8 @@
             select(tabs[(next + buttons.length) % buttons.length].id, { focus: true });
         });
 
-        select(tabs[0].id);
+        // Quiet: the view is still being built.
+        select(tabs[0].id, { quiet: true });
         return { view, select, pane: (id) => paneOf.get(id), tab: (id) => buttons[tabs.findIndex((tab) => tab.id === id)], selected: () => tabs[buttons.findIndex((b) => b.getAttribute("aria-selected") === "true")].id };
     }
 
@@ -253,6 +256,8 @@
      */
     function updateMessage({ state, reason, error, version, percent }, appName) {
         switch (state) {
+            case "idle":
+                return { text: "Updates haven't been checked yet." };
             case "unavailable":
                 return { text: reason === "not-packaged" ? "Updates are checked in the installed app." : `${appName} doesn't update itself.` };
             case "checking":
@@ -810,7 +815,7 @@
             ...settingsTabs.map(({ id, label }) => ({ id, label })),
             { id: "update", label: "Update" },
             { id: "credits", label: "Credits" },
-        ]);
+        ], () => checkIfSeen());
         const views = new Map([...sections.map(({ view, element }) => [view, element]), ["settings", settings.view]]);
         // The toolbar is for the app's sections: hidden on Settings (kit.css).
         toolbar?.classList.add("app-toolbar");
@@ -834,8 +839,11 @@
         // "Checking for updates…" shows for CHECK_SHOWN_FOR at least: what comes sooner waits for it (the latest only).
         let checkingSince = 0;
         let held = null;
+        let latest = null;
         function showUpdate(status, { pushed = false } = {}) {
             clearTimeout(held);
+            latest = status;
+            checkIfSeen();
             if (status.state === "checking") {
                 checkingSince = Date.now();
             } else if (checkingSince) {
@@ -855,6 +863,18 @@
             }
         }
 
+        /**
+         * Settings > Update on screen while the launch check waits: it runs
+         * now, so the tab says where the updates stand rather than that
+         * they haven't been checked. The window is up to show what it finds.
+         */
+        function checkIfSeen() {
+            if (latest?.state === "idle" && latest.pending && current === "settings" && settings.selected() === "update") {
+                latest = { ...latest, pending: false };
+                bridge()?.checkForUpdates().catch(() => {});
+            }
+        }
+
         // Routing: one route between views, from the rail, the menu, or the app.
         let current = null;
         function showView(view) {
@@ -868,6 +888,7 @@
                 else item.removeAttribute("aria-current");
             }
             for (const [name, element] of views) element.classList.toggle("kit-view-hidden", name !== view);
+            checkIfSeen();
             onViewChange?.(view);
         }
 
