@@ -55,7 +55,10 @@ const CHANNEL_SETTINGS = Object.freeze({
 /** The ID electron-updater is given in place of making one: what every update request sends as x-user-staging-id. */
 const STAGING_ID = "00000000-0000-0000-0000-000000000000";
 
-/** How long after launch the launch check runs, so the window is up to show what it finds. */
+/**
+ * How long after launch the launch check runs, so the window is up to show
+ * what it finds. Settings > Update, opened sooner, runs it then (pending).
+ */
 const LAUNCH_CHECK_DELAY = 5000;
 
 /**
@@ -190,6 +193,7 @@ function createUpdater({ options, app, settings, send, load = loadAutoUpdater, s
     let dot = false;
     let auto = false;
     let error = null;
+    let pending = false;
 
     let autoUpdater = null;
     let checking = null;
@@ -204,10 +208,12 @@ function createUpdater({ options, app, settings, send, load = loadAutoUpdater, s
      * - version: the update found, if any, and tag, its release's tag where
      *   the server has one (GitHub); percent: the download's, 0–100;
      * - dot: whether the update dot shows; auto: whether it downloaded by
-     *   itself (the toast shows then).
+     *   itself (the toast shows then);
+     * - pending: whether the launch check is still waiting to run (the
+     *   Update tab runs it at once when it's opened first).
      */
     function status() {
-        return { state, reason, version: found, tag, percent, dot, auto, error, current, channel: channel() };
+        return { state, reason, version: found, tag, percent, dot, auto, error, pending, current, channel: channel() };
     }
 
     function report() {
@@ -246,7 +252,11 @@ function createUpdater({ options, app, settings, send, load = loadAutoUpdater, s
                 report();
             }
         });
-        if (options.checkOnLaunch) schedule(() => check().catch(() => {}), LAUNCH_CHECK_DELAY);
+        if (options.checkOnLaunch) {
+            pending = true;
+            // Unless a check has run since: the page's, or the Update tab's at once.
+            schedule(() => pending && check().catch(() => {}), LAUNCH_CHECK_DELAY);
+        }
     }
 
     /**
@@ -267,6 +277,7 @@ function createUpdater({ options, app, settings, send, load = loadAutoUpdater, s
     async function runCheck() {
         const chosen = channel();
         state = "checking";
+        pending = false;
         error = null;
         reason = null;
         report();

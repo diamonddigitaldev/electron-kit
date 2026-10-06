@@ -11,7 +11,7 @@ const { test, expect } = require("./helpers/demo");
 const { contrastRatio, parseColor, over } = require("../testing/contrast");
 
 /** The updater's state at rest, as main/updater.js reports it; each test changes what it needs. */
-const IDLE = { state: "idle", reason: null, version: null, percent: null, dot: false, auto: false, error: null, current: "0.0.0", channel: "stable" };
+const IDLE = { state: "idle", reason: null, version: null, percent: null, dot: false, auto: false, error: null, pending: false, current: "0.0.0", channel: "stable" };
 
 /** Push a state to the page on update:status, as the kit's updater does. */
 const push = (demo, status) => demo.app.evaluate(({ BrowserWindow }, status) => {
@@ -45,7 +45,8 @@ test("the Update tab: the app and version, Check for Updates, automatic download
     await expect(pane.locator(".update-version")).toHaveText(`Version ${version}`);
     const check = pane.getByRole("button", { name: "Check for Updates" });
     if (demo.packaged) {
-        await expect(pane.locator("#update-status")).toHaveText("");
+        // Opened before the launch check, the tab runs it: never an empty line.
+        await expect(pane.locator("#update-status")).not.toHaveText("");
         await expect(check).toBeEnabled();
     } else {
         await expect(pane.getByRole("status")).toHaveText("Updates are checked in the installed app.");
@@ -105,7 +106,7 @@ test("the status line says each state of the updater, in a live region that keep
         [{ state: "error", error: "download", version: "1.1.0", dot: true }, "Version 1.1.0 couldn't be downloaded.", { check: true, download: true, tone: "danger" }],
         [{ state: "unavailable", reason: "not-packaged" }, "Updates are checked in the installed app.", { check: false, download: false }],
         [{ state: "unavailable", reason: "off" }, "electron-kit Demo doesn't update itself.", { check: false, download: false, off: true }],
-        [{ state: "idle" }, "", { check: true, download: false }],
+        [{ state: "idle" }, "Updates haven't been checked yet.", { check: true, download: false }],
     ];
     for (const [pushed, text, expected] of states) {
         await push(demo, pushed);
@@ -352,6 +353,34 @@ test("the download's bar shows only while it downloads, in the accent, and is go
     await push(demo, { state: "downloading", version: "1.1.0", percent: 0, dot: true });
     await expect(bar).toHaveAttribute("aria-valuenow", "0");
     expect(await bar.evaluate((el) => el.querySelector(".progress-bar").style.width)).toBe("0%");
+});
+
+test("the launch check waiting runs as soon as Settings > Update is on screen, once, and not before", async ({ demo }) => {
+    const main = await demo.mainWindow();
+    await spyOnUpdates(demo);
+    const calls = () => demo.app.evaluate(() => globalThis.updateCalls);
+    // Away from the tab, it waits.
+    await main.getByRole("button", { name: "Settings", exact: true }).click();
+    await main.getByRole("tab", { name: "Credits" }).click();
+    await push(demo, { state: "idle", pending: true });
+    await main.waitForTimeout(300);
+    expect(await calls()).toEqual([]);
+
+    const pane = await openUpdate(main);
+    await expect.poll(calls).toEqual(["update:check"]);
+    await expect(pane.locator("#update-status")).toHaveText("Updates haven't been checked yet.");
+    // Back and forth, before main's answer: asked once.
+    await main.getByRole("tab", { name: "Credits" }).click();
+    await main.getByRole("tab", { name: /^Update/ }).click();
+    await main.waitForTimeout(300);
+    expect(await calls()).toEqual(["update:check"]);
+
+    // On the tab when it arrives, it runs at once; with nothing pending, it never does.
+    await push(demo, { state: "idle", pending: true });
+    await expect.poll(calls).toEqual(["update:check", "update:check"]);
+    await push(demo, { state: "idle" });
+    await main.waitForTimeout(300);
+    expect(await calls()).toEqual(["update:check", "update:check"]);
 });
 
 test("Restart Now takes Check for Updates' place once it has downloaded, with the focus, and installs at once", async ({ demo }) => {
