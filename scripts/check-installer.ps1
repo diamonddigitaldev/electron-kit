@@ -9,7 +9,8 @@
 #      are taken away.
 #   3. Installed again as an update does it (--updated), with no options: the
 #      choices kept from step 2, so nothing comes back.
-#   4. Uninstalled: everything the installer added is gone.
+#   4. Uninstalled: everything the installer added is gone, the updater's cache
+#      too (electron-builder's install copies itself there).
 #   5. Run as an administrator only (CI): installed for everyone, then again with
 #      no options, which upgrades that copy and never adds one for one person;
 #      then uninstalled.
@@ -21,6 +22,7 @@ param([Parameter(Mandatory)][string]$Setup)
 $ErrorActionPreference = "Stop"
 $Name = "electron-kit Demo"
 $Key = "electronkitDemo"
+$Cache = Join-Path $env:LOCALAPPDATA "electron-kit-demo-updater"
 $Setup = (Resolve-Path $Setup).Path
 $failures = 0
 
@@ -85,16 +87,19 @@ function CheckState([string]$hive, [string[]]$types, [bool]$menu) {
 
 Install @()
 CheckState "HKCU" @("txt", "md") $true
+Check (Test-Path -LiteralPath $Cache) "the updater's cache is at $Cache"
 
 Install @("/FILETYPES=txt", "/NOCONTEXTMENU")
 CheckState "HKCU" @("txt") $false
 
 Install @("--updated")
 CheckState "HKCU" @("txt") $false
+Check (Test-Path -LiteralPath $Cache) "an update keeps the updater's cache"
 
 UninstallFrom "HKCU"
 CheckState "HKCU" @() $false
 Check (-not (Test-Path -LiteralPath "HKCU:\Software\Diamond Digital Development\$Key")) "HKCU has nothing of the app's left under Diamond Digital Development"
+Check (-not (Test-Path -LiteralPath $Cache)) "uninstalling takes the updater's cache away"
 
 $admin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 if ($admin) {
@@ -106,6 +111,7 @@ if ($admin) {
     Check ($null -eq $perUser) "installing again upgrades the copy for everyone, and adds none for one person"
     UninstallFrom "HKLM"
     CheckState "HKLM" @() $false
+    Check (-not (Test-Path -LiteralPath $Cache)) "uninstalling for everyone takes the updater's cache away too"
 } else {
     Write-Host "--- Not an administrator: the install for everyone isn't checked."
 }

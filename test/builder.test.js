@@ -207,7 +207,9 @@ const DFC_TYPES = [
 test("the installer: with no file types and no right-click entry, it only upgrades an install for everyone in place", () => {
     const script = installerScript({ productName: "App", fileTypes: [] });
     assert.match(script, /!macro customInstallMode[\s\S]*\$hasPerMachineInstallation == "1"[\s\S]*StrCpy \$isForceMachineInstall "1"/);
-    assert.doesNotMatch(script, /customPageAfterChangeDir|customInstall\r\n|customUnInstall|WriteRegStr/);
+    assert.doesNotMatch(script, /customPageAfterChangeDir|customInstall\r\n|WriteRegStr/);
+    // Its uninstall still takes the updater's cache.
+    assert.match(script, /!macro customUnInstall\r\n  \$\{ifNot\} \$\{isUpdated\}\r\n    !ifdef APP_INSTALLER_STORE_FILE/);
     // The uninstaller is built from it too, and makensis -WX fails on anything it doesn't use.
     assert.match(script, /!ifndef BUILD_UNINSTALLER/);
 });
@@ -268,6 +270,8 @@ test("the installer: uninstalling takes everything away, but not when an update 
     ]) {
         assert.ok(uninstall.includes(removed), removed);
     }
+    // The updater's cache, in the person's own app data, and only a folder named for it.
+    assert.match(uninstall, /SetShellVarContext current[\s\S]*\$\{GetParent\} "\$LOCALAPPDATA\\\$\{APP_INSTALLER_STORE_FILE\}" \$R0[\s\S]*\$\{if\} \$R1 == "-updater"\r\n        RMDir \/r "\$R0"[\s\S]*SetShellVarContext all[\s\S]*  \$\{endIf\}\r\n!macroend/);
 });
 
 test("the installer: an app that takes any file asks only about its right-click entry, on files, with its switches", () => {

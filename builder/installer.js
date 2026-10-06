@@ -23,7 +23,9 @@
 //   unticked. Silently, /FILETYPES=all, none or a list (txt,md) and
 //   /NOCONTEXTMENU choose instead;
 // - uninstalling takes away everything it added; an update's uninstall of
-//   the version before it (--updated) takes away nothing.
+//   the version before it (--updated) takes away nothing. That includes the
+//   updater's cache (a copy of the installer and any update it downloaded),
+//   which electron-builder's own uninstaller leaves.
 //
 // electron-builder builds it with makensis -WX: a warning fails the build, so
 // what the uninstaller doesn't use is never compiled into it.
@@ -55,6 +57,36 @@ function columnsOf(fileTypes) {
         }
     }
     return columns;
+}
+
+/**
+ * Uninstalling takes away everything it may have added, and the updater's
+ * cache; an update's uninstall, nothing.
+ * @param {string[]} removals what the page's choices added, indented for the block
+ */
+function uninstall(removals) {
+    return [
+        "!macro customUnInstall",
+        "  ${ifNot} ${isUpdated}",
+        ...removals,
+        // electron-builder's install copies itself there, and electron-updater downloads there: the person's own app data, even for everyone.
+        "    !ifdef APP_INSTALLER_STORE_FILE",
+        '      ${if} $installMode == "all"',
+        "        SetShellVarContext current",
+        "      ${endIf}",
+        '      ${GetParent} "$LOCALAPPDATA\\${APP_INSTALLER_STORE_FILE}" $R0',
+        // Only ever the cache's own folder.
+        '      StrCpy $R1 $R0 "" -8',
+        '      ${if} $R1 == "-updater"',
+        '        RMDir /r "$R0"',
+        "      ${endIf}",
+        '      ${if} $installMode == "all"',
+        "        SetShellVarContext all",
+        "      ${endIf}",
+        "    !endif",
+        "  ${endIf}",
+        "!macroend",
+    ];
 }
 
 /**
@@ -90,7 +122,7 @@ function installerScript({ productName, description = "", fileTypes, contextMenu
         "!macroend",
     ];
 
-    if (!hasPage) return lines.join("\r\n") + "\r\n";
+    if (!hasPage) return [...lines, "", ...uninstall([])].join("\r\n") + "\r\n";
 
     /** Take away what a ticked type added. */
     const unassociate = (ext, indent) => [
@@ -334,16 +366,7 @@ function installerScript({ productName, description = "", fileTypes, contextMenu
     }
     lines.push("  System::Call 'shell32::SHChangeNotify(i 0x08000000, i 0x1000, p 0, p 0)'", "!macroend");
 
-    // Uninstalling takes away everything it may have added; an update's uninstall, nothing.
-    lines.push(
-        "",
-        "!macro customUnInstall",
-        "  ${ifNot} ${isUpdated}",
-        ...removeAll("    "),
-        "    System::Call 'shell32::SHChangeNotify(i 0x08000000, i 0x1000, p 0, p 0)'",
-        "  ${endIf}",
-        "!macroend",
-    );
+    lines.push("", ...uninstall([...removeAll("    "), "    System::Call 'shell32::SHChangeNotify(i 0x08000000, i 0x1000, p 0, p 0)'"]));
     return lines.join("\r\n") + "\r\n";
 }
 
