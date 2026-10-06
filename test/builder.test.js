@@ -185,6 +185,7 @@ test("config() refuses what would claim types without asking, or leave the .desk
         [[PKG, { build: BUILD, contextMenu: "Convert" }], /contextMenu must be \{ label/],
         [[PKG, { build: BUILD, contextMenu: { label: "" } }], /contextMenu\.label must be/],
         [[PKG, { build: BUILD, contextMenu: { label: 'Open "it"' } }], /contextMenu\.label must be/],
+        [[PKG, { build: BUILD, contextMenu: { label: "Convert with ".padEnd(49, "x") } }], /contextMenu\.label is 49 characters; the installer's line holds 48/],
         [[PKG, { build: BUILD, contextMenu: { label: "Open", verb: "open" } }], /contextMenu\.verb isn't an option/],
         [[PKG, { build: BUILD, contextMenu: { label: "Open", folders: "yes" } }], /contextMenu\.folders must be/],
         [[PKG, { build: BUILD, contextMenu: { label: "Open", args: ["upload"] } }], /contextMenu\.args must be switches/],
@@ -229,7 +230,7 @@ test("the installer: a box per file type in its group's column, all ticked unles
         assert.ok(script.includes(`WriteRegStr SHELL_CONTEXT "\${INSTALL_REGISTRY_KEY}" "KitFileType.${ext}" "$KitType${i}"`), ext);
     });
     assert.match(script, /"Tick All"[\s\S]*"Untick All"/);
-    assert.match(script, /"Add \$\\"Convert with Diamond File Converter\$\\" to the menu when you right-click files and folders"/);
+    assert.match(script, /"Add \$\\"Convert with Diamond File Converter\$\\" to the right-click menu"/);
     assert.match(script, /\$\{GetOptions\} \$R0 "\/FILETYPES=" \$R1/);
     assert.match(script, /\$\{GetOptions\} \$R0 "\/NOCONTEXTMENU" \$R1/);
     // An update (--updated) never shows it.
@@ -276,7 +277,7 @@ test("the installer: an app that takes any file asks only about its right-click 
     assert.doesNotMatch(script, /Choose File Types|KitListHas|KitType|FILETYPES|RegisteredApplications|Directory\\shell/);
     assert.match(script, /WriteRegStr SHELL_CONTEXT "Software\\Classes\\\*\\shell\\DropgateClient\\command" "" '"\$appExe" "%1" --upload'/);
     assert.match(script, /WriteRegStr SHELL_CONTEXT "Software\\Classes\\\*\\shell\\DropgateClient" "MultiSelectModel" "Player"/);
-    assert.match(script, /"Add \$\\"Share with Dropgate\$\\" to the menu when you right-click files"/);
+    assert.match(script, /"Add \$\\"Share with Dropgate\$\\" to the right-click menu"/);
 });
 
 test("the installer: text from the app is kept as text in NSIS's strings", () => {

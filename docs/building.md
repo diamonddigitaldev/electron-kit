@@ -91,7 +91,8 @@ contextMenu: { label: "Convert with Diamond File Converter", folders: true },
 
 `contextMenu` is the app's entry on the menu Explorer shows when a file is right-clicked: its `label`,
 `folders: true` to show it on folders too, and `args`, switches given after the file (Dropgate's
-`["--upload"]`).
+`["--upload"]`). The installer's box for it reads `Add "<label>" to the right-click menu` on one line, so a
+`label` holds at most 48 characters.
 
 ### The Asking Installer (Windows)
 
