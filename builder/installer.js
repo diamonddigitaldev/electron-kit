@@ -32,6 +32,13 @@
 const MAX_COLUMNS = 4;
 const ROWS = 8;
 
+/**
+ * The longest right-click label the page's line holds: 'Add "<label>" to the
+ * right-click menu' wraps past about ninety characters, and a checkbox one line
+ * high shows the middle of two lines, clipped top and bottom.
+ */
+const MAX_LABEL = 48;
+
 /** A string inside NSIS's double quotes. */
 function nsisString(text) {
     return String(text)
@@ -169,9 +176,8 @@ function installerScript({ productName, description = "", fileTypes, contextMenu
         );
     }
     if (contextMenu) {
-        const where = contextMenu.folders ? "files and folders" : "files";
         lines.push(
-            `    \${NSD_CreateCheckbox} 0u ${exts.length > 0 ? 129 : 0}u 100% 10u "Add $\\"${controlText(contextMenu.label)}$\\" to the menu when you right-click ${where}"`,
+            `    \${NSD_CreateCheckbox} 0u ${exts.length > 0 ? 129 : 0}u 100% 10u "Add $\\"${controlText(contextMenu.label)}$\\" to the right-click menu"`,
             "    Pop $KitMenuBox",
             '    ${if} $KitMenu == "1"',
             "      ${NSD_Check} $KitMenuBox",
@@ -347,4 +353,4 @@ function installerScript({ productName, description = "", fileTypes, contextMenu
     return lines.join("\r\n") + "\r\n";
 }
 
-module.exports = { installerScript, columnsOf, nsisString, MAX_COLUMNS, ROWS };
+module.exports = { installerScript, columnsOf, nsisString, MAX_COLUMNS, ROWS, MAX_LABEL };

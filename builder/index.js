@@ -33,7 +33,7 @@ const fs = require("fs");
 const os = require("os");
 const path = require("path");
 const { MIME_TYPES, ALL_FILES } = require("./mime");
-const { installerScript, columnsOf, MAX_COLUMNS, ROWS } = require("./installer");
+const { installerScript, columnsOf, MAX_COLUMNS, ROWS, MAX_LABEL } = require("./installer");
 
 /** What an app's config extends: the kit's base config, by the package's name. */
 const KIT_BASE = "@diamonddigitaldev/electron-kit/builder/base.json";
@@ -88,6 +88,9 @@ function checkContextMenu(contextMenu) {
     }
     if (typeof contextMenu.label !== "string" || contextMenu.label.trim() === "" || /["\r\n]/.test(contextMenu.label)) {
         throw new Error("config(): contextMenu.label must be the entry's text, such as \"Convert with App\", on one line, without quotes.");
+    }
+    if (contextMenu.label.length > MAX_LABEL) {
+        throw new Error(`config(): contextMenu.label is ${contextMenu.label.length} characters; the installer's line holds ${MAX_LABEL}. Shorten it, such as "Convert with App".`);
     }
     if (contextMenu.folders !== undefined && typeof contextMenu.folders !== "boolean") throw new Error("config(): contextMenu.folders must be true or false.");
     if (contextMenu.args !== undefined && (!Array.isArray(contextMenu.args) || !contextMenu.args.every((arg) => typeof arg === "string" && /^--[a-z0-9][a-z0-9-]*(=[A-Za-z0-9._-]+)?$/.test(arg)))) {
