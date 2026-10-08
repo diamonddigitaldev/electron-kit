@@ -20,7 +20,7 @@
         "material-icons": "^1.13.14"
     },
     "devDependencies": {
-        "electron": "^44.5.0",
+        "electron": "^44.5.1",
         "electron-builder": "^26.15.3"
     }
 }
