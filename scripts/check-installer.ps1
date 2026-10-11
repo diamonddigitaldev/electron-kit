@@ -1,19 +1,26 @@
 # The asking installer, installed: CI runs the demo's NSIS installer silently,
 # the way the updater and an administrator would, and reads back what it wrote
-# to the registry after each install. Each step's options are the ones the
-# installer's page would have set (builder/installer.js).
+# to the registry, and the shortcuts it made, after each install. Each step's
+# options are the ones the installer's pages would have set
+# (builder/installer.js).
 #
-#   1. A fresh install, for one person: every file type, and the right-click
-#      entry on files and folders, ticked as the page starts.
-#   2. Installed again with txt only and no right-click entry: .md and the entry
-#      are taken away.
+#   1. A fresh install, for one person: every file type, the right-click entry
+#      on files and folders, and both shortcuts, ticked as the pages start.
+#   2. Installed again with txt only, no right-click entry and no shortcuts:
+#      .md, .json, .csv, the entry and both shortcuts are taken away.
 #   3. Installed again as an update does it (--updated), with no options: the
 #      choices kept from step 2, so nothing comes back.
-#   4. Uninstalled: everything the installer added is gone, the updater's cache
-#      too (electron-builder's install copies itself there).
-#   5. Run as an administrator only (CI): installed for everyone, then again with
-#      no options, which upgrades that copy and never adds one for one person;
-#      then uninstalled.
+#   4. Installed again with no Start menu shortcut and --force-run: the app
+#      starts all the same, from its own exe.
+#   5. The kept shortcut choices removed from the registry, then installed
+#      again: both shortcuts are made, as on a fresh install.
+#   6. Uninstalled: everything the installer added is gone, the shortcuts and
+#      the updater's cache too (electron-builder's install copies itself there).
+#   7. Run as an administrator only (CI): installed for everyone, then again
+#      without shortcuts, then with no options, which upgrades that copy and
+#      never adds one for one person; then the shortcut choices removed and
+#      installed again; then uninstalled. Its shortcuts are the common
+#      Desktop's and Start menu's.
 #
 # Usage: pwsh scripts/check-installer.ps1 -Setup demo/dist/electron-kit-Demo-0.0.0.exe
 
@@ -23,6 +30,12 @@ $ErrorActionPreference = "Stop"
 $Name = "electron-kit Demo"
 $Key = "electronkitDemo"
 $Cache = Join-Path $env:LOCALAPPDATA "electron-kit-demo-updater"
+$Types = @("txt", "md", "json", "csv")
+# Each scope's Desktop and Start menu; the shortcut goes in the house's folder (builder/base.json's menuCategory).
+$Folders = @{
+    HKCU = @{ Desktop = [Environment]::GetFolderPath("Desktop"); Programs = [Environment]::GetFolderPath("Programs") }
+    HKLM = @{ Desktop = [Environment]::GetFolderPath("CommonDesktopDirectory"); Programs = [Environment]::GetFolderPath("CommonPrograms") }
+}
 $Setup = (Resolve-Path $Setup).Path
 $failures = 0
 
@@ -36,12 +49,16 @@ function Install([string[]]$options) {
     Check ($process.ExitCode -eq 0) "the installer exits 0"
 }
 
+function Entry([string]$hive) {
+    return Get-ChildItem "${hive}:\Software\Microsoft\Windows\CurrentVersion\Uninstall" |
+        Where-Object { (Get-ItemProperty -LiteralPath $_.PSPath).DisplayName -like "$Name*" } | Select-Object -First 1
+}
+
 function UninstallFrom([string]$hive) {
-    $entry = Get-ChildItem "${hive}:\Software\Microsoft\Windows\CurrentVersion\Uninstall" |
-        Get-ItemProperty | Where-Object { $_.DisplayName -like "$Name*" } | Select-Object -First 1
+    $entry = Entry $hive
     Check ($null -ne $entry) "$Name is in $hive's installed apps"
     if ($null -eq $entry) { return }
-    $exe = ($entry.QuietUninstallString -split '"')[1]
+    $exe = ((Get-ItemProperty -LiteralPath $entry.PSPath).QuietUninstallString -split '"')[1]
     Write-Host "--- Uninstall $exe"
     $process = Start-Process -FilePath $exe -ArgumentList "/S" -Wait -PassThru
     Check ($process.ExitCode -eq 0) "the uninstaller exits 0"
@@ -60,9 +77,16 @@ function Has([string]$path, [string]$name) {
     return $null -ne $item -and $item.GetValueNames() -contains $name
 }
 
+# The install's own key (electron-builder's INSTALL_REGISTRY_KEY), named like its entry in installed apps.
+function InstallKey([string]$hive) {
+    $entry = Entry $hive
+    if ($null -eq $entry) { return $null }
+    return "${hive}:\Software\$($entry.PSChildName)"
+}
+
 function CheckState([string]$hive, [string[]]$types, [bool]$menu) {
     $classes = "${hive}:\Software\Classes"
-    foreach ($ext in @("txt", "md")) {
+    foreach ($ext in $Types) {
         $want = $types -contains $ext
         $progId = "$Key.$ext"
         $command = Value "$classes\$progId\shell\open\command" "(default)"
@@ -85,19 +109,58 @@ function CheckState([string]$hive, [string[]]$types, [bool]$menu) {
     }
 }
 
+function CheckShortcuts([string]$hive, [bool]$desktop, [bool]$startMenu) {
+    $desktopLink = Join-Path $Folders[$hive].Desktop "$Name.lnk"
+    $startMenuLink = Join-Path $Folders[$hive].Programs "Diamond Digital Development\$Name.lnk"
+    Check ($desktop -eq (Test-Path -LiteralPath $desktopLink)) "$hive's desktop shortcut is there: $desktop"
+    Check ($startMenu -eq (Test-Path -LiteralPath $startMenuLink)) "$hive's Start menu shortcut is there: $startMenu"
+    $key = InstallKey $hive
+    if ($null -ne $key) {
+        Check ((Value $key "KitDesktopShortcut") -eq $(if ($desktop) { "1" } else { "0" })) "$hive keeps the desktop shortcut's choice"
+        Check ((Value $key "KitStartMenuShortcut") -eq $(if ($startMenu) { "1" } else { "0" })) "$hive keeps the Start menu shortcut's choice"
+    }
+}
+
+# As if the install had never asked: its next install starts with both boxes ticked.
+function ForgetShortcuts([string]$hive) {
+    Write-Host "--- The kept shortcut choices removed"
+    Remove-ItemProperty -LiteralPath (InstallKey $hive) -Name "KitDesktopShortcut", "KitStartMenuShortcut"
+}
+
 Install @()
-CheckState "HKCU" @("txt", "md") $true
+CheckState "HKCU" $Types $true
+CheckShortcuts "HKCU" $true $true
 Check (Test-Path -LiteralPath $Cache) "the updater's cache is at $Cache"
 
-Install @("/FILETYPES=txt", "/NOCONTEXTMENU")
+Install @("/FILETYPES=txt", "/NOCONTEXTMENU", "/NODESKTOPSHORTCUT", "/NOSTARTMENUSHORTCUT")
 CheckState "HKCU" @("txt") $false
+CheckShortcuts "HKCU" $false $false
 
 Install @("--updated")
 CheckState "HKCU" @("txt") $false
+CheckShortcuts "HKCU" $false $false
 Check (Test-Path -LiteralPath $Cache) "an update keeps the updater's cache"
+
+# The finish page's Run starts the app the same way; --force-run is its silent form.
+Install @("/NOSTARTMENUSHORTCUT", "--force-run")
+$started = $null
+for ($i = 0; $i -lt 30 -and $null -eq $started; $i++) {
+    Start-Sleep -Seconds 1
+    $started = Get-Process -Name $Name -ErrorAction SilentlyContinue
+}
+Check ($null -ne $started) "--force-run starts the app without a Start menu shortcut"
+$started | Stop-Process -Force -ErrorAction SilentlyContinue
+Start-Sleep -Seconds 2
+CheckShortcuts "HKCU" $false $false
+
+ForgetShortcuts "HKCU"
+Install @()
+CheckState "HKCU" @("txt") $false
+CheckShortcuts "HKCU" $true $true
 
 UninstallFrom "HKCU"
 CheckState "HKCU" @() $false
+CheckShortcuts "HKCU" $false $false
 Check (-not (Test-Path -LiteralPath "HKCU:\Software\Diamond Digital Development\$Key")) "HKCU has nothing of the app's left under Diamond Digital Development"
 Check (-not (Test-Path -LiteralPath $Cache)) "uninstalling takes the updater's cache away"
 
@@ -105,12 +168,20 @@ $admin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdenti
 if ($admin) {
     Install @("/allusers", "/FILETYPES=none")
     CheckState "HKLM" @() $true
+    CheckShortcuts "HKLM" $true $true
+    CheckShortcuts "HKCU" $false $false
+    Install @("/NODESKTOPSHORTCUT", "/NOSTARTMENUSHORTCUT")
+    CheckShortcuts "HKLM" $false $false
     Install @()
     CheckState "HKLM" @() $true
-    $perUser = Get-ChildItem "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall" | Get-ItemProperty | Where-Object { $_.DisplayName -like "$Name*" }
-    Check ($null -eq $perUser) "installing again upgrades the copy for everyone, and adds none for one person"
+    CheckShortcuts "HKLM" $false $false
+    Check ($null -eq (Entry "HKCU")) "installing again upgrades the copy for everyone, and adds none for one person"
+    ForgetShortcuts "HKLM"
+    Install @()
+    CheckShortcuts "HKLM" $true $true
     UninstallFrom "HKLM"
     CheckState "HKLM" @() $false
+    CheckShortcuts "HKLM" $false $false
     Check (-not (Test-Path -LiteralPath $Cache)) "uninstalling for everyone takes the updater's cache away too"
 } else {
     Write-Host "--- Not an administrator: the install for everyone isn't checked."

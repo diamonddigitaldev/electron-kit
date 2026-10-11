@@ -1,17 +1,19 @@
 "use strict";
 
 // The asking installer: the NSIS include config() gives electron-builder, made
-// from the app's file types and right-click entry. It never claims a file type
-// or adds a right-click entry without asking (WORKQUEUE 8d):
+// from the app's file types and right-click entry. It never claims a file type,
+// adds a right-click entry or makes a shortcut without asking (WORKQUEUE 8d):
 //
 // - who it's for: electron-builder's own page, "Only for me" (no
 //   administrator prompt) or everyone. If the app is already installed for
 //   everyone, the page is skipped and that copy is upgraded, so an install
 //   from before the kit (which was always for everyone) never becomes two;
-// - the files it opens: a page after it, with a box per extension, in the
-//   app's groups, all ticked, "Tick All" and "Untick All", and a ticked box
-//   for the right-click entry. An app that takes any file (allFiles) has the
-//   right-click box only;
+// - Choose File Types: MUI's Components page, a branch per file type group, as
+//   the app names it, expanded, with a box per extension, all ticked. An app
+//   that takes any file (allFiles), or none, has no such page;
+// - Shortcuts & Right-Click Menu: a ticked box each for the desktop shortcut,
+//   the Start menu shortcut and the right-click entry ("Shortcuts" for an app
+//   without one);
 // - a ticked type: the app is in its Open With list, and it's listed as an
 //   app in Windows' Default apps (Capabilities, RegisteredApplications). It
 //   becomes the type's default only where no app has been chosen: Windows
@@ -19,9 +21,11 @@
 //   it, and another app's default is never taken. An unticked type gets
 //   nothing, and what an earlier install added for it is taken away;
 // - the choices are kept with the install, and the next install starts from
-//   them: an update (silent, run by the updater) never adds back what was
-//   unticked. Silently, /FILETYPES=all, none or a list (txt,md) and
-//   /NOCONTEXTMENU choose instead;
+//   them: an update (silent, run by the updater) shows no page, never adds
+//   back what was unticked and never makes a shortcut. Silently,
+//   /FILETYPES=all, none or a list (txt,md), /NOCONTEXTMENU,
+//   /NODESKTOPSHORTCUT (or electron-builder's --no-desktop-shortcut) and
+//   /NOSTARTMENUSHORTCUT choose instead;
 // - uninstalling takes away everything it added; an update's uninstall of
 //   the version before it (--updated) takes away nothing. That includes the
 //   updater's cache (a copy of the installer and any update it downloaded),
@@ -29,10 +33,6 @@
 //
 // electron-builder builds it with makensis -WX: a warning fails the build, so
 // what the uninstaller doesn't use is never compiled into it.
-
-/** The most file types the page shows: four columns of eight. */
-const MAX_COLUMNS = 4;
-const ROWS = 8;
 
 /**
  * The longest right-click label the page's line holds: 'Add "<label>" to the
@@ -55,21 +55,19 @@ function controlText(text) {
     return nsisString(text).replace(/&/g, "&&");
 }
 
-/** The columns the page lays the file types out in: each group's, eight to a column. */
-function columnsOf(fileTypes) {
-    const columns = [];
-    for (const group of fileTypes) {
-        for (let start = 0; start < group.ext.length; start += ROWS) {
-            columns.push({ heading: start === 0 ? group.name : "", ext: group.ext.slice(start, start + ROWS) });
-        }
-    }
-    return columns;
+/**
+ * How many sections the Choose File Types page declares: a group counts twice
+ * (its start and its end) and each extension once. electron-builder's own
+ * "install" section comes after them, at this index.
+ */
+function sectionCount(fileTypes) {
+    return fileTypes.reduce((count, group) => count + group.ext.length + 2, 0);
 }
 
 /**
  * Uninstalling takes away everything it may have added, and the updater's
  * cache; an update's uninstall, nothing.
- * @param {string[]} removals what the page's choices added, indented for the block
+ * @param {string[]} removals what the pages' choices added, indented for the block
  */
 function uninstall(removals) {
     return [
@@ -97,6 +95,34 @@ function uninstall(removals) {
 }
 
 /**
+ * A shortcut matched to its box, after electron-builder's install has made
+ * (or, over an existing install, kept) it. A ticked one that's missing is made
+ * as electron-builder makes it; an unticked one is taken away. An update never
+ * makes one, and takes away only what electron-builder made just now ($keepShortcuts
+ * "false"), so it never brings back or undoes what the person did by hand.
+ */
+function matchShortcut(choice, link, makeFolder, removeFolder) {
+    return [
+        `  \${if} ${choice} == "1"`,
+        "    ${ifNot} ${isUpdated}",
+        `    \${andIfNot} \${FileExists} "${link}"`,
+        ...makeFolder.map((line) => `      ${line}`),
+        `      CreateShortCut "${link}" "$appExe" "" "$appExe" 0 "" "" "\${APP_DESCRIPTION}"`,
+        "      ClearErrors",
+        `      WinShell::SetLnkAUMI "${link}" "\${APP_ID}"`,
+        "    ${endIf}",
+        "  ${else}",
+        "    ${ifNot} ${isUpdated}",
+        '    ${orIf} $keepShortcuts == "false"',
+        `      WinShell::UninstShortcut "${link}"`,
+        `      Delete "${link}"`,
+        ...removeFolder.map((line) => `      ${line}`),
+        "    ${endIf}",
+        "  ${endIf}",
+    ];
+}
+
+/**
  * The NSIS include for an app.
  * @param {{
  *   productName: string,
@@ -110,26 +136,10 @@ function installerScript({ productName, description = "", fileTypes, contextMenu
     const product = nsisString(productName);
     const exts = fileTypes.flatMap((group) => group.ext);
     const progId = (ext) => `${key}.${ext}`;
-    const columns = columnsOf(fileTypes);
-    const hasPage = exts.length > 0 || contextMenu !== undefined;
+    const sections = sectionCount(fileTypes);
     const capabilities = `Software\\Diamond Digital Development\\${key}\\Capabilities`;
     const menuKeys = contextMenu ? [`Software\\Classes\\*\\shell\\${key}`, ...(contextMenu.folders ? [`Software\\Classes\\Directory\\shell\\${key}`] : [])] : [];
     const menuCommand = contextMenu ? `"$appExe" "%1"${(contextMenu.args ?? []).map((arg) => ` ${arg}`).join("")}` : "";
-
-    const lines = [
-        "; Made by @diamonddigitaldev/electron-kit's config() (builder/installer.js). Don't edit: it's made afresh on every build.",
-        "",
-        // An install for everyone already there is upgraded, never joined by a second for one person.
-        "!macro customInstallMode",
-        "  !ifndef BUILD_UNINSTALLER",
-        '    ${if} $hasPerMachineInstallation == "1"',
-        '      StrCpy $isForceMachineInstall "1"',
-        "    ${endIf}",
-        "  !endif",
-        "!macroend",
-    ];
-
-    if (!hasPage) return [...lines, "", ...uninstall([])].join("\r\n") + "\r\n";
 
     /** Take away what a ticked type added. */
     const unassociate = (ext, indent) => [
@@ -154,81 +164,95 @@ function installerScript({ productName, description = "", fileTypes, contextMenu
         ...menuKeys.map((menuKey) => `${indent}DeleteRegKey SHELL_CONTEXT "${menuKey}"`),
     ];
 
-    // The page, its state and what installing does with it: the installer's alone.
+    const lines = [
+        "; Made by @diamonddigitaldev/electron-kit's config() (builder/installer.js). Don't edit: it's made afresh on every build.",
+        "",
+        "!include Sections.nsh",
+        "",
+        // An install for everyone already there is upgraded, never joined by a second for one person.
+        "!macro customInstallMode",
+        "  !ifndef BUILD_UNINSTALLER",
+        '    ${if} $hasPerMachineInstallation == "1"',
+        '      StrCpy $isForceMachineInstall "1"',
+        "    ${endIf}",
+        "  !endif",
+        "!macroend",
+    ];
+
+    // The pages, their state and what installing does with it: the installer's alone.
     lines.push(
         "",
         "!macro customPageAfterChangeDir",
-        ...exts.flatMap((_, i) => [`  Var KitBox${i}`, `  Var KitType${i}`]),
+        "  Var KitDesktopBox",
+        "  Var KitDesktop",
+        "  Var KitStartMenuBox",
+        "  Var KitStartMenu",
         ...(contextMenu ? ["  Var KitMenuBox", "  Var KitMenu"] : []),
+    );
+    if (exts.length > 0) {
+        // Choose File Types. Its sections only hold the ticks: they run before the app's files exist, so customInstall reads them.
+        lines.push(
+            "",
+            "  !define MUI_COMPONENTSPAGE_NODESC",
+            '  !define MUI_PAGE_HEADER_TEXT "Choose File Types"',
+            `  !define MUI_PAGE_HEADER_SUBTEXT "Choose which files ${product} opens."`,
+            `  !define MUI_COMPONENTSPAGE_TEXT_TOP "Add ${product} to Open With for the file types ticked below. It opens them by default only where you haven't already chosen an app, which you can change in Settings > Apps > Default apps."`,
+            '  !define MUI_COMPONENTSPAGE_TEXT_COMPLIST "Select file types:"',
+            "  !define MUI_PAGE_CUSTOMFUNCTION_PRE KitFileTypesPage",
+            "  !insertmacro MUI_PAGE_COMPONENTS",
+        );
+        let i = 0;
+        for (const group of fileTypes) {
+            lines.push("", `  SectionGroup /e "${nsisString(group.name)}"`);
+            for (const ext of group.ext) {
+                lines.push(`    Section ".${ext}" KitFileType${i}`, "    SectionEnd");
+                i++;
+            }
+            lines.push("  SectionGroupEnd");
+        }
+        lines.push(
+            "",
+            "  Function KitFileTypesPage",
+            "    ${if} ${isUpdated}",
+            "      Abort",
+            "    ${endIf}",
+            "  FunctionEnd",
+        );
+    }
+
+    // Shortcuts & Right-Click Menu.
+    const boxes = [
+        ["KitDesktop", "Add a desktop shortcut"],
+        ["KitStartMenu", "Add a Start menu shortcut"],
+        ...(contextMenu ? [["KitMenu", `Add $\\"${controlText(contextMenu.label)}$\\" to the right-click menu`]] : []),
+    ];
+    lines.push(
         "",
-        "  Page custom KitFilesPage KitFilesPageLeave",
+        "  Page custom KitShortcutsPage KitShortcutsPageLeave",
         "",
-        "  Function KitFilesPage",
+        "  Function KitShortcutsPage",
         "    ${if} ${isUpdated}",
         "      Abort",
         "    ${endIf}",
-    );
-    if (exts.length > 0) {
-        lines.push(
-            `    !insertmacro MUI_HEADER_TEXT "Choose File Types" "Choose which files ${product} opens."`,
-            "    nsDialogs::Create 1018",
-            "    Pop $R0",
-            `    \${NSD_CreateLabel} 0u 0u 100% 24u "Add ${product} to Open With for the file types ticked below. It opens them by default only where you haven't already chosen an app, which you can change in Settings > Apps > Default apps."`,
-            "    Pop $R0",
-        );
-        const width = Math.floor(300 / columns.length);
-        let i = 0;
-        columns.forEach((column, c) => {
-            const x = c * width;
-            if (column.heading) lines.push(`    \${NSD_CreateLabel} ${x}u 28u ${width - 4}u 9u "${controlText(column.heading)}"`, "    Pop $R0");
-            column.ext.forEach((ext, row) => {
-                lines.push(
-                    `    \${NSD_CreateCheckbox} ${x}u ${38 + row * 9}u ${width - 4}u 9u ".${ext}"`,
-                    `    Pop $KitBox${i}`,
-                    `    \${if} $KitType${i} == "1"`,
-                    `      \${NSD_Check} $KitBox${i}`,
-                    "    ${endIf}",
-                );
-                i++;
-            });
-        });
-        lines.push(
-            '    ${NSD_CreateButton} 0u 113u 50u 13u "Tick All"',
-            "    Pop $R0",
-            "    ${NSD_OnClick} $R0 KitTickAll",
-            '    ${NSD_CreateButton} 54u 113u 56u 13u "Untick All"',
-            "    Pop $R0",
-            "    ${NSD_OnClick} $R0 KitUntickAll",
-        );
-    } else {
-        lines.push(
-            `    !insertmacro MUI_HEADER_TEXT "Right-Click Menu" "Choose whether ${product} is on the menu when you right-click a file."`,
-            "    nsDialogs::Create 1018",
-            "    Pop $R0",
-        );
-    }
-    if (contextMenu) {
-        lines.push(
-            `    \${NSD_CreateCheckbox} 0u ${exts.length > 0 ? 129 : 0}u 100% 10u "Add $\\"${controlText(contextMenu.label)}$\\" to the right-click menu"`,
-            "    Pop $KitMenuBox",
-            '    ${if} $KitMenu == "1"',
-            "      ${NSD_Check} $KitMenuBox",
+        // The header is a label: && shows one &.
+        `    !insertmacro MUI_HEADER_TEXT "${contextMenu ? "Shortcuts && Right-Click Menu" : "Shortcuts"}" "Choose where ${product} appears."`,
+        "    nsDialogs::Create 1018",
+        "    Pop $R0",
+        ...boxes.flatMap(([name, label], row) => [
+            `    \${NSD_CreateCheckbox} 0u ${row * 14}u 100% 10u "${label}"`,
+            `    Pop $${name}Box`,
+            `    \${if} $${name} == "1"`,
+            `      \${NSD_Check} $${name}Box`,
             "    ${endIf}",
-        );
-    }
-    lines.push(
+        ]),
         "    nsDialogs::Show",
         "  FunctionEnd",
         "",
-        "  Function KitFilesPageLeave",
-        ...exts.flatMap((_, i) => [`    \${NSD_GetState} $KitBox${i} $KitType${i}`]),
-        ...(contextMenu ? ["    ${NSD_GetState} $KitMenuBox $KitMenu"] : []),
+        "  Function KitShortcutsPageLeave",
+        ...boxes.map(([name]) => `    \${NSD_GetState} $${name}Box $${name}`),
         "  FunctionEnd",
     );
     if (exts.length > 0) {
-        for (const [name, check] of [["KitTickAll", "NSD_Check"], ["KitUntickAll", "NSD_Uncheck"]]) {
-            lines.push("", `  Function ${name}`, "    Pop $R0", ...exts.map((_, i) => `    \${${check}} $KitBox${i}`), "  FunctionEnd");
-        }
         // Whether ",mp3," is in ",txt,mp3,": Push the list, Push the item, Call, Pop 1 or 0.
         lines.push(
             "",
@@ -263,10 +287,26 @@ function installerScript({ productName, description = "", fileTypes, contextMenu
     }
     lines.push("!macroend");
 
+    /** A choice from the last install, else "1"; then "0" for any of its switches. */
+    const choice = (name, value, switches) => [
+        "  ClearErrors",
+        `  ReadRegStr $${name} SHELL_CONTEXT "\${INSTALL_REGISTRY_KEY}" "${value}"`,
+        "  ${if} ${Errors}",
+        `    StrCpy $${name} "1"`,
+        "  ${endIf}",
+        ...switches.flatMap((option) =>
+            option.startsWith("${")
+                ? [`  \${if} ${option}`, `    StrCpy $${name} "0"`, "  ${endIf}"]
+                : ["  ClearErrors", `  \${GetOptions} $R0 "${option}" $R1`, "  ${ifNot} ${Errors}", `    StrCpy $${name} "0"`, "  ${endIf}"],
+        ),
+    ];
+
     // Before any page: the last install's choices, else every box ticked; then the command line's.
     lines.push("", "!macro customInit", "  ${GetParameters} $R0");
     if (exts.length > 0) {
         lines.push(
+            // electron-builder's own section comes after the kit's: no box for it in the tree (customInstall checks the index).
+            `  SectionSetText ${sections} ""`,
             "  ClearErrors",
             '  ${GetOptions} $R0 "/FILETYPES=" $R1',
             "  ${if} ${Errors}",
@@ -278,47 +318,46 @@ function installerScript({ productName, description = "", fileTypes, contextMenu
         exts.forEach((ext, i) => {
             lines.push(
                 "  ClearErrors",
-                `  ReadRegStr $KitType${i} SHELL_CONTEXT "\${INSTALL_REGISTRY_KEY}" "KitFileType.${ext}"`,
+                `  ReadRegStr $R2 SHELL_CONTEXT "\${INSTALL_REGISTRY_KEY}" "KitFileType.${ext}"`,
                 "  ${if} ${Errors}",
-                `    StrCpy $KitType${i} "1"`,
+                '    StrCpy $R2 "1"',
                 "  ${endIf}",
                 '  ${if} $R1 == ",all,"',
-                `    StrCpy $KitType${i} "1"`,
+                '    StrCpy $R2 "1"',
                 '  ${elseIf} $R1 == ",none,"',
-                `    StrCpy $KitType${i} "0"`,
+                '    StrCpy $R2 "0"',
                 '  ${elseIf} $R1 != ""',
                 "    Push $R1",
                 `    Push ",${ext},"`,
                 "    Call KitListHas",
-                `    Pop $KitType${i}`,
+                "    Pop $R2",
+                "  ${endIf}",
+                '  ${if} $R2 == "1"',
+                `    !insertmacro SelectSection \${KitFileType${i}}`,
+                "  ${else}",
+                `    !insertmacro UnselectSection \${KitFileType${i}}`,
                 "  ${endIf}",
             );
         });
     }
-    if (contextMenu) {
-        lines.push(
-            "  ClearErrors",
-            '  ReadRegStr $KitMenu SHELL_CONTEXT "${INSTALL_REGISTRY_KEY}" "KitContextMenu"',
-            "  ${if} ${Errors}",
-            '    StrCpy $KitMenu "1"',
-            "  ${endIf}",
-            "  ClearErrors",
-            '  ${GetOptions} $R0 "/NOCONTEXTMENU" $R1',
-            "  ${ifNot} ${Errors}",
-            '    StrCpy $KitMenu "0"',
-            "  ${endIf}",
-        );
-    }
-    lines.push("!macroend");
+    lines.push(
+        ...choice("KitDesktop", "KitDesktopShortcut", ["/NODESKTOPSHORTCUT", "${isNoDesktopShortcut}"]),
+        ...choice("KitStartMenu", "KitStartMenuShortcut", ["/NOSTARTMENUSHORTCUT"]),
+        ...(contextMenu ? choice("KitMenu", "KitContextMenu", ["/NOCONTEXTMENU"]) : []),
+        "!macroend",
+    );
 
-    // After the app's files: what's ticked is added, what isn't is taken away, and the choices kept.
+    // After the app's files and electron-builder's shortcuts: what's ticked is added, what isn't is taken away, and the choices kept.
     lines.push("", "!macro customInstall");
     if (exts.length > 0) {
         lines.push(
+            `  !if \${INSTALL_SECTION_ID} != ${sections}`,
+            `    !error "electron-kit: electron-builder's install section is \${INSTALL_SECTION_ID}, not ${sections}, so the Choose File Types page would show it. The kit's installer needs updating for this electron-builder."`,
+            "  !endif",
             '  StrCpy $R8 "0"',
             ...exts.flatMap((ext, i) => [
-                `  WriteRegStr SHELL_CONTEXT "\${INSTALL_REGISTRY_KEY}" "KitFileType.${ext}" "$KitType${i}"`,
-                `  \${if} $KitType${i} == "1"`,
+                `  \${if} \${SectionIsSelected} \${KitFileType${i}}`,
+                `    WriteRegStr SHELL_CONTEXT "\${INSTALL_REGISTRY_KEY}" "KitFileType.${ext}" "1"`,
                 '    StrCpy $R8 "1"',
                 `    WriteRegStr SHELL_CONTEXT "Software\\Classes\\${progId(ext)}" "" "${nsisString(fileTypes.find((group) => group.ext.includes(ext)).name)}"`,
                 `    WriteRegStr SHELL_CONTEXT "Software\\Classes\\${progId(ext)}\\DefaultIcon" "" '"$appExe",0'`,
@@ -338,6 +377,7 @@ function installerScript({ productName, description = "", fileTypes, contextMenu
                 `      WriteRegStr SHELL_CONTEXT "Software\\Classes\\.${ext}" "" "${progId(ext)}"`,
                 "    ${endIf}",
                 "  ${else}",
+                `    WriteRegStr SHELL_CONTEXT "\${INSTALL_REGISTRY_KEY}" "KitFileType.${ext}" "0"`,
                 ...unassociate(ext, "    "),
                 `    DeleteRegValue SHELL_CONTEXT "${capabilities}\\FileAssociations" ".${ext}"`,
                 "  ${endIf}",
@@ -354,6 +394,24 @@ function installerScript({ productName, description = "", fileTypes, contextMenu
             "  ${endIf}",
         );
     }
+    lines.push(
+        '  WriteRegStr SHELL_CONTEXT "${INSTALL_REGISTRY_KEY}" "KitDesktopShortcut" "$KitDesktop"',
+        '  WriteRegStr SHELL_CONTEXT "${INSTALL_REGISTRY_KEY}" "KitStartMenuShortcut" "$KitStartMenu"',
+        ...matchShortcut("$KitDesktop", "$newDesktopLink", [], []),
+        ...matchShortcut(
+            "$KitStartMenu",
+            "$newStartMenuLink",
+            ["!ifdef MENU_FILENAME", '  CreateDirectory "$SMPROGRAMS\\${MENU_FILENAME}"', "!endif"],
+            // Only if it's empty: the house's other apps share it.
+            ["!ifdef MENU_FILENAME", '  RMDir "$SMPROGRAMS\\${MENU_FILENAME}"', "!endif"],
+        ),
+        // The finish page's Run, and --force-run: the Start menu shortcut, or the app itself without one.
+        '  ${if} ${FileExists} "$newStartMenuLink"',
+        '    StrCpy $launchLink "$newStartMenuLink"',
+        "  ${else}",
+        '    StrCpy $launchLink "$appExe"',
+        "  ${endIf}",
+    );
     if (contextMenu) {
         lines.push(
             '  WriteRegStr SHELL_CONTEXT "${INSTALL_REGISTRY_KEY}" "KitContextMenu" "$KitMenu"',
@@ -372,8 +430,9 @@ function installerScript({ productName, description = "", fileTypes, contextMenu
     }
     lines.push("  System::Call 'shell32::SHChangeNotify(i 0x08000000, i 0x1000, p 0, p 0)'", "!macroend");
 
-    lines.push("", ...uninstall([...removeAll("    "), "    System::Call 'shell32::SHChangeNotify(i 0x08000000, i 0x1000, p 0, p 0)'"]));
+    const removals = removeAll("    ");
+    lines.push("", ...uninstall(removals.length > 0 ? [...removals, "    System::Call 'shell32::SHChangeNotify(i 0x08000000, i 0x1000, p 0, p 0)'"] : []));
     return lines.join("\r\n") + "\r\n";
 }
 
-module.exports = { installerScript, columnsOf, nsisString, MAX_COLUMNS, ROWS, MAX_LABEL };
+module.exports = { installerScript, nsisString, sectionCount, MAX_LABEL };

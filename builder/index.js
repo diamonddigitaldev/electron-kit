@@ -15,9 +15,10 @@
 //     });
 //
 // One list of file types gives each platform what it can do with it. On
-// Windows, the asking installer (installer.js) offers each type, and the
-// right-click entry, with a box ticked for each, and adds only what stays
-// ticked; it asks whether to install for one person or everyone. On
+// Windows, the asking installer (installer.js) offers each type, the
+// shortcuts and the right-click entry, with a box ticked for each, and adds
+// only what stays ticked; it asks whether to install for one person or
+// everyone. On
 // Linux, the .desktop file lists their MIME types, with %F, so the app is in
 // the file manager's Open With for each and gets every file it's opened with;
 // desktopName names the .desktop file and the running window after the
@@ -33,7 +34,7 @@ const fs = require("fs");
 const os = require("os");
 const path = require("path");
 const { MIME_TYPES, ALL_FILES } = require("./mime");
-const { installerScript, columnsOf, MAX_COLUMNS, ROWS, MAX_LABEL } = require("./installer");
+const { installerScript, MAX_LABEL } = require("./installer");
 
 /** What an app's config extends: the kit's base config, by the package's name. */
 const KIT_BASE = "@diamonddigitaldev/electron-kit/builder/base.json";
@@ -67,7 +68,7 @@ const KIT_OWNED = Object.freeze({
 /** What each key the kit owns is for, in config()'s refusal. */
 function ownedReason(key) {
     if (key === "build.extends") return "config() extends the kit's base config itself.";
-    if (key.startsWith("build.nsis.")) return "The kit's installer asks who it's for and what it adds, and makes both shortcuts.";
+    if (key.startsWith("build.nsis.")) return "The kit's installer asks who it's for, what it adds and which shortcuts it makes.";
     return "Give the files the app opens as fileTypes (or allFiles).";
 }
 
@@ -123,6 +124,8 @@ function checkFileTypes(fileTypes) {
     return fileTypes.map((group, i) => {
         const where = `config(): fileTypes[${i}]`;
         if (typeof group?.name !== "string" || group.name.trim() === "") throw new Error(`${where} needs a name, such as "Audio File".`);
+        // The installer's tree would hide a branch named "-..." and make "!..." bold.
+        if (/^[-!]/.test(group.name)) throw new Error(`${where}: "${group.name}" can't start with - or !.`);
         if (!Array.isArray(group.ext) || group.ext.length === 0) throw new Error(`${where} ("${group.name}") needs ext, a list of extensions.`);
         const extra = group.mimeTypes ?? {};
         if (typeof extra !== "object" || Array.isArray(extra)) throw new Error(`${where}.mimeTypes must map an extension to its MIME types.`);
@@ -184,9 +187,6 @@ function config(pkg, options) {
     if (options.allFiles !== undefined && typeof options.allFiles !== "boolean") throw new Error("config(): allFiles must be true or false.");
     if (options.allFiles && options.fileTypes !== undefined) throw new Error("config(): give fileTypes or allFiles, not both.");
     const fileTypes = options.fileTypes === undefined ? [] : checkFileTypes(options.fileTypes);
-    if (columnsOf(fileTypes).length > MAX_COLUMNS) {
-        throw new Error(`config(): the installer's page holds ${MAX_COLUMNS} columns of ${ROWS} file types, each group starting a column of its own; these need ${columnsOf(fileTypes).length}.`);
-    }
     const contextMenu = options.contextMenu === undefined ? undefined : checkContextMenu(options.contextMenu);
     const productName = build.productName ?? pkg.productName ?? pkg.name;
     if (typeof productName !== "string" || !/[A-Za-z0-9]/.test(productName) || /["\r\n]/.test(productName)) {
