@@ -16,7 +16,7 @@ module.exports = config(require("./package.json"), {
         files: ["src/**/*"],
         // Its packaged tests run this update server.
         publish: { provider: "generic", url: "http://127.0.0.1:47613/" },
-        linux: { category: "Development" },
+        linux: { icon: "src/assets/icon.png", category: "Development" },
     },
     fileTypes: [
         { name: "Text File", ext: ["txt", "md"] },
