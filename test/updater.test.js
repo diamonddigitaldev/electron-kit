@@ -354,7 +354,7 @@ test("the real electron-updater, checking a server that fails, prints nothing, a
     });
     assert.deepEqual(printed, []);
     const lines = log.lines().slice(1);
-    assert.ok(lines.some((line) => /\[DEBUG\] electron-updater: .*Cannot find channel "latest\.yml"/.test(line)), lines.join("\n"));
+    assert.ok(lines.some((line) => /\[DEBUG\] electron-updater: .*Cannot find channel "latest(-linux)?\.yml"/.test(line)), lines.join("\n"));
     // Above debug: the kit's own one line, and nothing of electron-updater's.
     const loud = lines.filter((line) => !line.includes("[DEBUG]"));
     assert.equal(loud.length, 1, loud.join("\n"));
