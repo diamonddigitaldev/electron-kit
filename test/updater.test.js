@@ -12,7 +12,8 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const fs = require("fs");
 const path = require("path");
-const { createUpdater, checkUpdates, applyChannel, withoutInstallId, checkFailureOf, STAGING_ID, LAUNCH_CHECK_DELAY } = require("../main/updater");
+const { createUpdater, checkUpdates, applyChannel, withoutInstallId, checkFailureOf, updaterLogger, STAGING_ID, LAUNCH_CHECK_DELAY } = require("../main/updater");
+const { createLog } = require("../main/log");
 const { createSettings } = require("../main/store");
 const { startUpdateServer, realAutoUpdater } = require("./helpers/update-server");
 const { loadMain, appPage, fakeAutoUpdater } = require("./helpers/main");
@@ -275,6 +276,89 @@ test("a failed check, and a failed download, are logged as one line each: the ch
     assert.equal(download.logged.length, 1);
     assert.match(download.logged[0], /^Update download failed \(version 2\.1\.0\): /);
     assert.doesNotMatch(download.logged[0], /\n/);
+});
+
+/** Run fn with the console's methods recording what reaches them, and return what did. */
+async function consoleDuring(fn) {
+    const printed = [];
+    const kept = {};
+    for (const name of ["log", "info", "warn", "error", "debug"]) {
+        kept[name] = console[name];
+        console[name] = (...args) => printed.push(`${name}: ${args.join(" ")}`);
+    }
+    try {
+        await fn();
+    } finally {
+        Object.assign(console, kept);
+    }
+    return printed;
+}
+
+/** electron-updater's error dump for a failed request, as it logs it: the URL with a token, the response's headers and a stack. */
+const DUMP = [
+    "Error: Error: Cannot find channel \"latest.yml\" update info: HttpError: 404 ",
+    "\"method: GET url: https://example.com/releases/download/v2.1.0/latest.yml?token=SECRET123&x=1\n\nPlease double check\"",
+    "Headers: {\"server\":\"nginx\",\"set-cookie\":\"session=abc\"}",
+    "    at createHttpError (C:\\Users\\will\\AppData\\Local\\Programs\\app\\resources\\app.asar\\node_modules\\builder-util-runtime\\out\\httpExecutor.js:20:12)",
+].join("\n");
+
+test("electron-updater's logger is the kit's log: its info and error dumps at debug only, its warnings at warn, redacted, never on the console", async () => {
+    const autoUpdater = fakeAutoUpdater();
+    const lines = [];
+    const out = { log: (m) => lines.push(`log: ${m}`), warn: (m) => lines.push(`warn: ${m}`), error: (m) => lines.push(`error: ${m}`) };
+    const printed = await consoleDuring(() => {
+        for (const level of ["INFO", "DEBUG"]) {
+            lines.length = 0;
+            const log = createLog({ level, console: out, now: () => new Date(0) });
+            const updater = createUpdater({ options: { checkOnLaunch: false }, app: { isPackaged: true, getVersion: () => "2.0.0" }, settings: memorySettings().settings, send: () => {}, load: () => autoUpdater, log });
+            updater.start();
+            autoUpdater.logger.info("Checking for update");
+            autoUpdater.logger.error(DUMP);
+            autoUpdater.logger.warn("Cannot parse blockmap");
+            const written = log.lines().slice(1).join("\n");
+            if (level === "INFO") {
+                // At the default level, only the warning is kept.
+                assert.deepEqual(log.lines().slice(1), ["[1970-01-01T00:00:00.000Z] [WARN] electron-updater: Cannot parse blockmap"]);
+                assert.deepEqual(lines, ["warn: electron-updater: Cannot parse blockmap"]);
+            } else {
+                assert.match(written, /\[DEBUG\] electron-updater: Checking for update/);
+                assert.match(written, /\[DEBUG\] electron-updater: Error: Error: Cannot find channel/);
+                assert.doesNotMatch(written, /\[(ERROR|INFO)\]/, "nothing above debug but the warning");
+                // Redacted: the URL without its query, the path cut to its file name.
+                assert.ok(written.includes("https://example.com/releases/download/v2.1.0/latest.yml"));
+                assert.doesNotMatch(written, /SECRET123|Users|will/);
+                assert.match(written, /…\\httpExecutor\.js:20:12/);
+            }
+        }
+    });
+    assert.deepEqual(printed, [], "electron-updater writes nothing to the console itself");
+});
+
+test("with no log, electron-updater says nothing at all", async () => {
+    assert.equal(updaterLogger(null), null);
+    const autoUpdater = fakeAutoUpdater();
+    createUpdater({ options: { checkOnLaunch: false }, app: { isPackaged: true, getVersion: () => "2.0.0" }, settings: memorySettings().settings, send: () => {}, load: () => autoUpdater }).start();
+    assert.equal(autoUpdater.logger, null, "null: electron-updater's own no-op logger");
+});
+
+test("the real electron-updater, checking a server that fails, prints nothing, and its dump is in the log at debug only", async (t) => {
+    const server = await startUpdateServer({});
+    t.after(() => server.close());
+    const { autoUpdater, dir } = realAutoUpdater({ version: "2.0.0", url: server.url });
+    t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+    const log = createLog({ level: "DEBUG", console: { log() {}, warn() {}, error() {} } });
+    const updater = createUpdater({ options: { checkOnLaunch: false }, app: { isPackaged: true, getVersion: () => "2.0.0" }, settings: memorySettings().settings, send: () => {}, load: () => autoUpdater, log, isOnline: () => true });
+    const printed = await consoleDuring(async () => {
+        updater.start();
+        assert.equal((await updater.check()).state, "error");
+    });
+    assert.deepEqual(printed, []);
+    const lines = log.lines().slice(1);
+    assert.ok(lines.some((line) => /\[DEBUG\] electron-updater: .*Cannot find channel "latest(-linux)?\.yml"/.test(line)), lines.join("\n"));
+    // Above debug: the kit's own one line, and nothing of electron-updater's.
+    const loud = lines.filter((line) => !line.includes("[DEBUG]"));
+    assert.equal(loud.length, 1, loud.join("\n"));
+    assert.match(loud[0], /\[WARN\] Update check failed \(stable channel, no-files\)/);
 });
 
 /** Stand in for quitAndInstall on the real autoUpdater, so the made-up installer never runs: records each call. */

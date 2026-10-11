@@ -202,6 +202,7 @@ const test = base.extend({
         delete env.ELECTRON_RUN_AS_NODE;
         const toServers = [];
         const netLogs = [];
+        const output = [];
 
         // A hung app gets 10 s to quit, so the teardown can't hang with it.
         const close = (running) => Promise.race([running.close().catch(() => {}), sleep(10_000)]);
@@ -219,11 +220,17 @@ const test = base.extend({
             launched.context().on("request", (request) => {
                 if (toServer(request.url())) toServers.push(request.url());
             });
+            // What the app prints, as a terminal it's run from would show it.
+            for (const stream of [launched.process().stdout, launched.process().stderr]) {
+                stream?.on("data", (chunk) => output.push(String(chunk)));
+            }
             return launched;
         }
 
         const demo = new Demo(await launch());
         demo.profile = profile;
+        /** Everything the app has printed to stdout and stderr, every launch. */
+        demo.output = () => output.join("");
         /** Launch the demo again on the same profile with these files; it hands them over and quits. */
         demo.launchSecond = (files) => new Promise((resolve, reject) => {
             // On Linux the launch Playwright makes runs without Chromium's SUID sandbox helper, which a plain
