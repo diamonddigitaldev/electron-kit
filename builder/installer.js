@@ -197,7 +197,7 @@ function installerScript({ productName, description = "", fileTypes, contextMenu
             '  !define MUI_PAGE_HEADER_TEXT "Choose File Types"',
             `  !define MUI_PAGE_HEADER_SUBTEXT "Choose which files ${product} opens."`,
             `  !define MUI_COMPONENTSPAGE_TEXT_TOP "Add ${product} to Open With for the file types ticked below. It opens them by default only where you haven't already chosen an app, which you can change in Settings > Apps > Default apps."`,
-            '  !define MUI_COMPONENTSPAGE_TEXT_COMPLIST "File types"',
+            '  !define MUI_COMPONENTSPAGE_TEXT_COMPLIST "Select file types:"',
             "  !define MUI_PAGE_CUSTOMFUNCTION_PRE KitFileTypesPage",
             "  !insertmacro MUI_PAGE_COMPONENTS",
         );

@@ -225,6 +225,7 @@ test("the installer: Choose File Types is a Components page, a branch per group 
     const page = script.slice(script.indexOf("!macro customPageAfterChangeDir"), script.indexOf("Page custom KitShortcutsPage"));
     assert.match(page, /!define MUI_COMPONENTSPAGE_NODESC\r\n  !define MUI_PAGE_HEADER_TEXT "Choose File Types"\r\n  !define MUI_PAGE_HEADER_SUBTEXT "Choose which files Diamond File Converter opens\."/);
     assert.match(page, /MUI_COMPONENTSPAGE_TEXT_TOP "Add Diamond File Converter to Open With[^"]*It opens them by default only where you haven't already chosen an app/);
+    assert.match(page, /!define MUI_COMPONENTSPAGE_TEXT_COMPLIST "Select file types:"/);
     assert.match(page, /!define MUI_PAGE_CUSTOMFUNCTION_PRE KitFileTypesPage\r\n  !insertmacro MUI_PAGE_COMPONENTS/);
     // Each group a branch, expanded, as the app names it; each extension an empty section, its tick read when installing.
     let i = 0;
