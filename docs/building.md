@@ -45,7 +45,7 @@ were in `package.json`, and `config()` adds the rest:
 The kit owns an app's file associations and its installer's questions. It never sets electron-builder's
 `fileAssociations`, which claim every type on Windows without asking. So `config()` refuses
 `fileAssociations` (anywhere), `nsis.include`, `nsis.script`, `nsis.oneClick`, `nsis.perMachine`,
-`nsis.allowElevation`, both `nsis` shortcut options, `linux.mimeTypes`, `linux.executableArgs`,
+`nsis.allowElevation`, both `nsis` shortcut options (the installer asks about both), `linux.mimeTypes`, `linux.executableArgs`,
 `linux.syncDesktopName`, `linux.desktop`, `extraMetadata.desktopName`, and an `extends` of the app's own.
 An app's own `installer.nsh` goes: its right-click entry is `contextMenu`.
 
@@ -78,6 +78,8 @@ the config with `assertBuildExtendsKit(require("../electron-builder.cjs"))` from
 ## The Files an App Opens
 
 `fileTypes` lists them in groups, each with a name and its extensions, lowercase and without the dot.
+The installer shows each group as a branch of its own, named as the app names it, so a name can't start
+with `-` or `!` (NSIS would hide the branch or make it bold).
 An app that takes any file (Dropgate) sets `allFiles: true` instead.
 
 
@@ -96,31 +98,49 @@ contextMenu: { label: "Convert with Diamond File Converter", folders: true },
 
 ### The Asking Installer (Windows)
 
-The installer never claims a file type or adds a right-click entry without asking:
+The installer never claims a file type, adds a right-click entry or makes a shortcut without asking:
 
 1. **Who it's for:** "Only for me", the default, which needs no administrator, or "Anyone who uses this
    computer". If the app is already installed for everyone (every install before the kit was), this is
    skipped and that copy is upgraded, so there are never two.
-2. **The files it opens:** a box for each extension, in the app's groups, every one ticked, with "Tick All"
-   and "Untick All", and a ticked box for the right-click entry. An app with `allFiles` asks only about its
-   right-click entry, on files; an app with neither shows no page.
-3. **The usual shortcuts:** on the desktop and in the Start menu's `Diamond Digital Development` folder,
-   as every app's are.
+2. **Choose File Types:** a tree with a branch for each of the app's groups, open, and a box for each
+   extension, every one ticked. A branch's box ticks or unticks all of its types. An app with `allFiles`, or
+   with no `fileTypes`, has no such page.
+3. **Shortcuts & Right-Click Menu:** "Add a desktop shortcut", "Add a Start menu shortcut" (in the Start
+   menu's `Diamond Digital Development` folder) and the right-click entry's box, all ticked. An app without
+   a right-click entry has the two shortcut boxes, on a page called "Shortcuts".
 
 A ticked type puts the app in its Open With list, and lists the app in Settings > Apps > Default apps,
 where the person can make it the default. It becomes the type's default by itself only where no app has
 been chosen: Windows keeps each person's choice (UserChoice) where no installer can write it, and the
 installer never takes another app's default. The page says so. An unticked type gets nothing, and what an
-earlier install added for it is taken away.
+earlier install added for it is taken away. An unticked shortcut is taken away too, and a ticked one that
+was deleted is made again. Without a Start menu shortcut, the finish page's "Run" starts the app itself.
 
-The choices are kept with the install, and the next install starts from them, so an update never adds
-back what was unticked. Uninstalling takes away everything the installer added; an update's uninstall of
-the version before it takes away nothing. Silently (`/S`), `/FILETYPES=all`, `none` or a list such as
-`/FILETYPES=mp3,wav`, and `/NOCONTEXTMENU`, choose instead, with `/allusers` or `/currentuser`
-(electron-builder's) for who it's for.
+**Without a Start menu shortcut, Windows doesn't show the app's notifications** (Electron's `Notification`;
+it still says it showed them), and the app isn't in Start or its search. An app that relies on
+notifications should say so where the person would notice; in-app toasts (`kit.ui.toast()`) don't depend
+on it.
 
-The page holds four columns of eight types, each group starting a column of its own. The kit's CI installs
-the demo silently with each choice, reads back what it wrote to the registry, and uninstalls it.
+The choices are kept with the install, and the next install starts from them. An update (the updater
+runs it silently, with `--updated`) shows no page, never adds back what was unticked and never makes a
+shortcut, so a shortcut the person deleted stays deleted. Uninstalling takes away everything the installer
+added; an update's uninstall of the version before it takes away nothing. Silently (`/S`), these choose
+instead:
+
+| Switch | What it does |
+|---|---|
+| `/FILETYPES=all`, `none`, or a list such as `/FILETYPES=mp3,wav` | the file types |
+| `/NOCONTEXTMENU` | no right-click entry |
+| `/NODESKTOPSHORTCUT` (or electron-builder's `--no-desktop-shortcut`) | no desktop shortcut |
+| `/NOSTARTMENUSHORTCUT` | no Start menu shortcut |
+| `/allusers` or `/currentuser` (electron-builder's) | who it's for |
+
+The kit's CI installs the demo silently with each choice, reads back what it wrote to the registry and
+the shortcuts it made, and uninstalls it (`scripts/check-installer.ps1`). It then runs the installer and
+uninstaller with their pages showing, steps through them, and keeps a picture of each page for 3 days
+(`scripts/capture-installer.ps1`): a change to a page is looked at there, or by running the script after
+building the demo.
 
 ### On Linux
 

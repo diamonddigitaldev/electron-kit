@@ -258,6 +258,15 @@ jobs:
         shell: pwsh
         run: ./scripts/check-installer.ps1 -Setup (Get-ChildItem demo/dist/*.exe | Where-Object Name -notlike "*uninstaller*" | Select-Object -First 1).FullName
 
+      # The installer's and uninstaller's pages, as a person sees them: run with
+      # their pages showing, stepped through with Next, a PNG of each page
+      # saved. They're looked at, not compared (the runner's fonts and scaling
+      # aren't a person's), so they're uploaded below.
+      - name: Capture the installer's pages
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: ./scripts/capture-installer.ps1 -Setup (Get-ChildItem demo/dist/*.exe | Where-Object Name -notlike "*uninstaller*" | Select-Object -First 1).FullName -Out installer-pages
+
       # builder/index.js's config(): the .desktop file is named for the appId
       # and the running window matches it (desktopName, StartupWMClass), and it
       # lists the demo's file types' MIME types, with %F so a file manager hands
@@ -272,7 +281,7 @@ jobs:
           dir=$(mktemp -d)
           dpkg-deb -x dist/*.deb "$dir"
           cat "$dir/$entry"
-          grep -x "MimeType=text/plain;text/markdown;" "$dir/$entry"
+          grep -x "MimeType=text/plain;text/markdown;application/json;text/csv;" "$dir/$entry"
           grep -E '^Exec=.* %F$' "$dir/$entry"
           grep -x "StartupWMClass=$name" "$dir/$entry"
           grep -x "Categories=Development;" "$dir/$entry"
@@ -299,10 +308,20 @@ jobs:
           KIT_DEMO_EXECUTABLE: demo/dist/win-unpacked/electron-kit Demo.exe
         run: npx playwright test
 
-      # The only thing this job uploads: when a visual test fails, the image it
-      # expected, the one it took and the difference, so the failure can be
-      # seen. A workflow artifact is as private as the repository, and it's
-      # kept 3 days. Nothing else is uploaded.
+      # The installer's pages, captured above, to be looked at. A workflow
+      # artifact is as private as the repository, and it's kept 3 days.
+      - name: Upload the installer's pages
+        if: runner.os == 'Windows' && !cancelled()
+        uses: actions/upload-artifact@v7
+        with:
+          name: installer-pages-${{ github.run_attempt }}
+          path: installer-pages/*.png
+          if-no-files-found: ignore
+          retention-days: 3
+
+      # And when a visual test fails, the image it expected, the one it took
+      # and the difference, so the failure can be seen, kept 3 days too.
+      # Nothing else is uploaded.
       - name: Upload the visual differences
         if: failure() && runner.os == 'Windows'
         uses: actions/upload-artifact@v7

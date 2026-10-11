@@ -18,6 +18,9 @@ module.exports = config(require("./package.json"), {
         publish: { provider: "generic", url: "http://127.0.0.1:47613/" },
         linux: { category: "Development" },
     },
-    fileTypes: [{ name: "Text File", ext: ["txt", "md"] }],
+    fileTypes: [
+        { name: "Text File", ext: ["txt", "md"] },
+        { name: "Data File", ext: ["json", "csv"] },
+    ],
     contextMenu: { label: "Open with electron-kit Demo", folders: true },
 });

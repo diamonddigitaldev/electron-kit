@@ -11,7 +11,7 @@ const path = require("path");
 const Module = require("module");
 const { assertBuildExtendsKit, KIT_BASE } = require("../testing");
 const { config, LINUX_CATEGORIES, MIME_TYPES, ALL_FILES, INSTALLER_DIR } = require("../builder");
-const { installerScript, nsisString } = require("../builder/installer");
+const { installerScript, nsisString, sectionCount } = require("../builder/installer");
 const kitPackage = require("../package.json");
 const demoPackage = require("../demo/package.json");
 
@@ -73,7 +73,7 @@ test("the demo builds with config(), and publishes to the local update server it
     assert.doesNotThrow(() => assertBuildExtendsKit(demo));
     assert.deepEqual(demo.publish, { provider: "generic", url: "http://127.0.0.1:47613/" });
     assert.equal(demo.extraMetadata.desktopName, "com.diamonddigitaldev.electronkitdemo.desktop");
-    assert.deepEqual(demo.linux.mimeTypes, ["text/plain", "text/markdown"]);
+    assert.deepEqual(demo.linux.mimeTypes, ["text/plain", "text/markdown", "application/json", "text/csv"]);
 });
 
 test("config(): the app's build on the kit's base, with the asking installer, and the .desktop file named for its appId", () => {
@@ -190,12 +190,15 @@ test("config() refuses what would claim types without asking, or leave the .desk
         [[PKG, { build: BUILD, contextMenu: { label: "Open", folders: "yes" } }], /contextMenu\.folders must be/],
         [[PKG, { build: BUILD, contextMenu: { label: "Open", args: ["upload"] } }], /contextMenu\.args must be switches/],
         [[PKG, { build: BUILD, contextMenu: { label: "Open", args: ["--x\" & del"] } }], /contextMenu\.args must be switches/],
-        [[PKG, { build: BUILD, fileTypes: Array.from({ length: 5 }, (_, i) => ({ name: `G${i}`, ext: [`txt${i}`], mimeTypes: { [`txt${i}`]: "text/plain" } })) }], /holds 4 columns of 8 file types/],
+        [[PKG, { build: BUILD, fileTypes: [{ name: "-Audio", ext: ["mp3"] }] }], /"-Audio" can't start with - or !/],
+        [[PKG, { build: BUILD, fileTypes: [{ name: "!Audio", ext: ["mp3"] }] }], /"!Audio" can't start with - or !/],
     ];
     for (const [args, error] of cases) {
         assert.throws(() => config(...args), error, JSON.stringify(args[1]));
     }
     assert.ok(LINUX_CATEGORIES.includes("AudioVideo") && LINUX_CATEGORIES.includes("Network"));
+    // The tree scrolls, so any number of groups and types fit.
+    assert.doesNotThrow(() => config(PKG, { build: BUILD, fileTypes: Array.from({ length: 6 }, (_, i) => ({ name: `G${i}`, ext: Array.from({ length: 9 }, (_, j) => `t${i}x${j}`), mimeTypes: Object.fromEntries(Array.from({ length: 9 }, (_, j) => [`t${i}x${j}`, "text/plain"])) })) }));
 });
 
 /** File Converter's file types, the most an app has. */
@@ -205,38 +208,97 @@ const DFC_TYPES = [
     { name: "Image File", ext: ["jpg", "jpeg", "png", "webp", "gif", "bmp", "tiff"] },
 ];
 
-test("the installer: with no file types and no right-click entry, it only upgrades an install for everyone in place", () => {
+test("the installer: with no file types and no right-click entry, it asks only about the shortcuts, and upgrades an install for everyone in place", () => {
     const script = installerScript({ productName: "App", fileTypes: [] });
     assert.match(script, /!macro customInstallMode[\s\S]*\$hasPerMachineInstallation == "1"[\s\S]*StrCpy \$isForceMachineInstall "1"/);
-    assert.doesNotMatch(script, /customPageAfterChangeDir|customInstall\r\n|WriteRegStr/);
-    // Its uninstall still takes the updater's cache.
+    assert.match(script, /MUI_HEADER_TEXT "Shortcuts" "Choose where App appears\."/);
+    assert.match(script, /"Add a desktop shortcut"[\s\S]*"Add a Start menu shortcut"/);
+    assert.doesNotMatch(script, /right-click|MUI_PAGE_COMPONENTS|SectionGroup|SectionSetText|INSTALL_SECTION_ID|Software\\Classes/);
+    // Its uninstall still takes the updater's cache, and nothing else of its own.
     assert.match(script, /!macro customUnInstall\r\n  \$\{ifNot\} \$\{isUpdated\}\r\n    !ifdef APP_INSTALLER_STORE_FILE/);
     // The uninstaller is built from it too, and makensis -WX fails on anything it doesn't use.
     assert.match(script, /!ifndef BUILD_UNINSTALLER/);
 });
 
-test("the installer: a box per file type in its group's column, all ticked unless an earlier install's choices say not", () => {
+test("the installer: Choose File Types is a Components page, a branch per group with a box per extension, all ticked unless an earlier install's choices say not", () => {
     const script = installerScript({ productName: "Diamond File Converter", description: "Converts files", fileTypes: DFC_TYPES, contextMenu: { label: "Convert with Diamond File Converter", folders: true, args: [] } });
-    assert.match(script, /MUI_HEADER_TEXT "Choose File Types" "Choose which files Diamond File Converter opens\."/);
-    assert.match(script, /It opens them by default only where you haven't already chosen an app/);
-    for (const [heading, x] of [["Audio File", 0], ["Video File", 100], ["Image File", 200]]) {
-        assert.ok(script.includes(`\${NSD_CreateLabel} ${x}u 28u 96u 9u "${heading}"`), heading);
+    const page = script.slice(script.indexOf("!macro customPageAfterChangeDir"), script.indexOf("Page custom KitShortcutsPage"));
+    assert.match(page, /!define MUI_COMPONENTSPAGE_NODESC\r\n  !define MUI_PAGE_HEADER_TEXT "Choose File Types"\r\n  !define MUI_PAGE_HEADER_SUBTEXT "Choose which files Diamond File Converter opens\."/);
+    assert.match(page, /MUI_COMPONENTSPAGE_TEXT_TOP "Add Diamond File Converter to Open With[^"]*It opens them by default only where you haven't already chosen an app/);
+    assert.match(page, /!define MUI_PAGE_CUSTOMFUNCTION_PRE KitFileTypesPage\r\n  !insertmacro MUI_PAGE_COMPONENTS/);
+    // Each group a branch, expanded, as the app names it; each extension an empty section, its tick read when installing.
+    let i = 0;
+    for (const group of DFC_TYPES) {
+        const sections = group.ext.map((ext) => `    Section ".${ext}" KitFileType${i++}\r\n    SectionEnd\r\n`).join("");
+        assert.ok(page.includes(`  SectionGroup /e "${group.name}"\r\n${sections}  SectionGroupEnd`), group.name);
     }
-    const exts = DFC_TYPES.flatMap((group) => group.ext);
-    exts.forEach((ext, i) => {
-        assert.ok(script.includes(`".${ext}"\r\n    Pop $KitBox${i}`), ext);
-        // The last install's choice, else ticked; then /FILETYPES=.
-        assert.ok(script.includes(`ReadRegStr $KitType${i} SHELL_CONTEXT "\${INSTALL_REGISTRY_KEY}" "KitFileType.${ext}"`), ext);
-        assert.ok(script.includes(`Push ",${ext},"\r\n    Call KitListHas\r\n    Pop $KitType${i}`), ext);
-        // Kept for the next install.
-        assert.ok(script.includes(`WriteRegStr SHELL_CONTEXT "\${INSTALL_REGISTRY_KEY}" "KitFileType.${ext}" "$KitType${i}"`), ext);
-    });
-    assert.match(script, /"Tick All"[\s\S]*"Untick All"/);
-    assert.match(script, /"Add \$\\"Convert with Diamond File Converter\$\\" to the right-click menu"/);
-    assert.match(script, /\$\{GetOptions\} \$R0 "\/FILETYPES=" \$R1/);
-    assert.match(script, /\$\{GetOptions\} \$R0 "\/NOCONTEXTMENU" \$R1/);
     // An update (--updated) never shows it.
-    assert.match(script, /Function KitFilesPage\r\n    \$\{if\} \$\{isUpdated\}\r\n      Abort/);
+    assert.match(page, /Function KitFileTypesPage\r\n    \$\{if\} \$\{isUpdated\}\r\n      Abort/);
+    const init = script.slice(script.indexOf("!macro customInit"), script.indexOf("!macro customInstall\r\n"));
+    const install = script.slice(script.indexOf("!macro customInstall\r\n"), script.indexOf("!macro customUnInstall"));
+    const exts = DFC_TYPES.flatMap((group) => group.ext);
+    exts.forEach((ext, n) => {
+        // The last install's choice, else ticked; then /FILETYPES=; then the box.
+        assert.ok(init.includes(`ReadRegStr $R2 SHELL_CONTEXT "\${INSTALL_REGISTRY_KEY}" "KitFileType.${ext}"`), ext);
+        assert.ok(init.includes(`Push ",${ext},"\r\n    Call KitListHas\r\n    Pop $R2`), ext);
+        assert.ok(init.includes(`!insertmacro SelectSection \${KitFileType${n}}\r\n  \${else}\r\n    !insertmacro UnselectSection \${KitFileType${n}}`), ext);
+        // Read when installing, and kept for the next install.
+        assert.ok(install.includes(`\${if} \${SectionIsSelected} \${KitFileType${n}}\r\n    WriteRegStr SHELL_CONTEXT "\${INSTALL_REGISTRY_KEY}" "KitFileType.${ext}" "1"`), ext);
+        assert.ok(install.includes(`WriteRegStr SHELL_CONTEXT "\${INSTALL_REGISTRY_KEY}" "KitFileType.${ext}" "0"`), ext);
+    });
+    assert.match(init, /\$\{GetOptions\} \$R0 "\/FILETYPES=" \$R1/);
+    assert.doesNotMatch(script, /Tick All|Untick All|NSD_CreateLabel/);
+});
+
+test("the installer: electron-builder's own section has no box in the tree, and a build where it moved fails", () => {
+    assert.equal(sectionCount(DFC_TYPES), 3 * 2 + 22);
+    assert.equal(sectionCount([{ name: "Text File", ext: ["txt", "md"] }, { name: "Data File", ext: ["json", "csv"] }]), 8);
+    const script = installerScript({ productName: "App", fileTypes: DFC_TYPES });
+    // Hidden at init, by the index it will have: the kit's sections come first.
+    assert.match(script, /!macro customInit\r\n  \$\{GetParameters\} \$R0\r\n  SectionSetText 28 ""/);
+    // Inside it, where electron-builder has named it: anything else stops makensis.
+    assert.match(script, /!macro customInstall\r\n  !if \$\{INSTALL_SECTION_ID\} != 28\r\n    !error "electron-kit: electron-builder's install section is \$\{INSTALL_SECTION_ID\}, not 28[^"]*"\r\n  !endif/);
+});
+
+test("the installer: Shortcuts & Right-Click Menu has a ticked box each, kept with the install, with a switch each for a silent install", () => {
+    const script = installerScript({ productName: "Diamond File Converter", fileTypes: DFC_TYPES, contextMenu: { label: "Convert with Diamond File Converter", folders: true, args: [] } });
+    const page = script.slice(script.indexOf("Function KitShortcutsPage"), script.indexOf("Function KitListHas"));
+    assert.match(page, /^Function KitShortcutsPage\r\n    \$\{if\} \$\{isUpdated\}\r\n      Abort\r\n    \$\{endIf\}\r\n    !insertmacro MUI_HEADER_TEXT "Shortcuts && Right-Click Menu" "Choose where Diamond File Converter appears\."/);
+    for (const [name, label, row] of [["KitDesktop", "Add a desktop shortcut", 0], ["KitStartMenu", "Add a Start menu shortcut", 14], ["KitMenu", 'Add $\\"Convert with Diamond File Converter$\\" to the right-click menu', 28]]) {
+        assert.ok(page.includes(`\${NSD_CreateCheckbox} 0u ${row}u 100% 10u "${label}"\r\n    Pop $${name}Box\r\n    \${if} $${name} == "1"\r\n      \${NSD_Check} $${name}Box`), name);
+        assert.ok(page.includes(`\${NSD_GetState} $${name}Box $${name}`), name);
+    }
+    const init = script.slice(script.indexOf("!macro customInit"), script.indexOf("!macro customInstall\r\n"));
+    for (const [name, value, option] of [["KitDesktop", "KitDesktopShortcut", "/NODESKTOPSHORTCUT"], ["KitStartMenu", "KitStartMenuShortcut", "/NOSTARTMENUSHORTCUT"], ["KitMenu", "KitContextMenu", "/NOCONTEXTMENU"]]) {
+        assert.ok(init.includes(`ReadRegStr $${name} SHELL_CONTEXT "\${INSTALL_REGISTRY_KEY}" "${value}"\r\n  \${if} \${Errors}\r\n    StrCpy $${name} "1"`), name);
+        assert.ok(init.includes(`\${GetOptions} $R0 "${option}" $R1\r\n  \${ifNot} \${Errors}\r\n    StrCpy $${name} "0"`), option);
+    }
+    // electron-builder's own switch means the same.
+    assert.match(init, /\$\{if\} \$\{isNoDesktopShortcut\}\r\n    StrCpy \$KitDesktop "0"/);
+    const install = script.slice(script.indexOf("!macro customInstall\r\n"), script.indexOf("!macro customUnInstall"));
+    assert.match(install, /WriteRegStr SHELL_CONTEXT "\$\{INSTALL_REGISTRY_KEY\}" "KitDesktopShortcut" "\$KitDesktop"/);
+    assert.match(install, /WriteRegStr SHELL_CONTEXT "\$\{INSTALL_REGISTRY_KEY\}" "KitStartMenuShortcut" "\$KitStartMenu"/);
+});
+
+test("the installer: each shortcut is made or taken away to match its box, an update never makes one, and Run starts the app without a Start menu shortcut", () => {
+    const script = installerScript({ productName: "App", fileTypes: [] });
+    const install = script.slice(script.indexOf("!macro customInstall\r\n"), script.indexOf("!macro customUnInstall"));
+    for (const [choice, link] of [["$KitDesktop", "$newDesktopLink"], ["$KitStartMenu", "$newStartMenuLink"]]) {
+        const start = install.indexOf(`\${if} ${choice} == "1"`);
+        const block = install.slice(start, install.indexOf("\r\n  ${endIf}\r\n", start));
+        const [ticked, unticked] = block.split("\r\n  ${else}\r\n");
+        // Made as electron-builder makes it, only when missing, and never by an update.
+        assert.ok(ticked.includes(`\${ifNot} \${isUpdated}\r\n    \${andIfNot} \${FileExists} "${link}"`), choice);
+        assert.ok(ticked.includes(`CreateShortCut "${link}" "$appExe" "" "$appExe" 0 "" "" "\${APP_DESCRIPTION}"`), choice);
+        assert.ok(ticked.includes(`WinShell::SetLnkAUMI "${link}" "\${APP_ID}"`), choice);
+        // Taken away, except by an update that kept the shortcuts as they were.
+        assert.ok(unticked.includes(`\${ifNot} \${isUpdated}\r\n    \${orIf} $keepShortcuts == "false"\r\n      WinShell::UninstShortcut "${link}"\r\n      Delete "${link}"`), choice);
+    }
+    // The house's Start menu folder: made when needed, taken away only if it's empty.
+    assert.match(install, /CreateDirectory "\$SMPROGRAMS\\\$\{MENU_FILENAME\}"/);
+    assert.match(install, /RMDir "\$SMPROGRAMS\\\$\{MENU_FILENAME\}"/);
+    assert.doesNotMatch(install, /RMDir \/r/);
+    assert.match(install, /\$\{if\} \$\{FileExists\} "\$newStartMenuLink"\r\n    StrCpy \$launchLink "\$newStartMenuLink"\r\n  \$\{else\}\r\n    StrCpy \$launchLink "\$appExe"/);
 });
 
 test("the installer: a ticked type is in Open With and Default apps, the default only where there's none; an unticked one is taken away", () => {
@@ -275,10 +337,10 @@ test("the installer: uninstalling takes everything away, but not when an update 
     assert.match(uninstall, /SetShellVarContext current[\s\S]*\$\{GetParent\} "\$LOCALAPPDATA\\\$\{APP_INSTALLER_STORE_FILE\}" \$R0[\s\S]*\$\{if\} \$R1 == "-updater"\r\n        RMDir \/r "\$R0"[\s\S]*SetShellVarContext all[\s\S]*  \$\{endIf\}\r\n!macroend/);
 });
 
-test("the installer: an app that takes any file asks only about its right-click entry, on files, with its switches", () => {
+test("the installer: an app that takes any file asks only about its shortcuts and right-click entry, on files, with its switches", () => {
     const script = installerScript({ productName: "Dropgate Client", fileTypes: [], contextMenu: { label: "Share with Dropgate", folders: false, args: ["--upload"] } });
-    assert.match(script, /MUI_HEADER_TEXT "Right-Click Menu"/);
-    assert.doesNotMatch(script, /Choose File Types|KitListHas|KitType|FILETYPES|RegisteredApplications|Directory\\shell/);
+    assert.match(script, /MUI_HEADER_TEXT "Shortcuts && Right-Click Menu" "Choose where Dropgate Client appears\."/);
+    assert.doesNotMatch(script, /Choose File Types|KitListHas|KitFileType|FILETYPES|RegisteredApplications|Directory\\shell|SectionGroup|MUI_PAGE_COMPONENTS|SectionSetText/);
     assert.match(script, /WriteRegStr SHELL_CONTEXT "Software\\Classes\\\*\\shell\\DropgateClient\\command" "" '"\$appExe" "%1" --upload'/);
     assert.match(script, /WriteRegStr SHELL_CONTEXT "Software\\Classes\\\*\\shell\\DropgateClient" "MultiSelectModel" "Player"/);
     assert.match(script, /"Add \$\\"Share with Dropgate\$\\" to the right-click menu"/);
@@ -286,8 +348,10 @@ test("the installer: an app that takes any file asks only about its right-click 
 
 test("the installer: text from the app is kept as text in NSIS's strings", () => {
     assert.equal(nsisString('Say "hi" for $5\nnow `x`'), 'Say $\\"hi$\\" for $$5 now $\\`x$\\`');
-    const script = installerScript({ productName: "R&D $App", fileTypes: [{ name: "Notes & Text", ext: ["txt"] }] });
-    assert.match(script, /"Notes && Text"/);
+    const script = installerScript({ productName: "R&D $App", fileTypes: [{ name: "Notes & Text", ext: ["txt"] }], contextMenu: { label: "Open in R&D" } });
+    // The tree shows a group's name as it is; a box's label would underline the letter after &.
+    assert.match(script, /SectionGroup \/e "Notes & Text"/);
+    assert.match(script, /"Add \$\\"Open in R&&D\$\\" to the right-click menu"/);
     assert.match(script, /Choose which files R&D \$\$App opens\./);
     // Its registry keys keep letters and numbers only.
     assert.match(script, /Software\\Classes\\RDApp\.txt/);
