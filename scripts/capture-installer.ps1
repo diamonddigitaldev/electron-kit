@@ -1,8 +1,10 @@
 # The asking installer's pages, as pictures: runs the demo's installer with its
 # pages showing, steps through them as a person clicking Next would, and saves
-# a PNG of every page; then the same for its uninstaller. Nothing is chosen on
-# a page: each shows what it starts with. What the choices do is
-# check-installer.ps1's.
+# a PNG of every page; then the same for its uninstaller. Each page is saved as
+# it starts. Nothing is chosen on one but the uninstaller's "Also remove
+# settings and logs", ticked after its picture, so the app's data folder
+# (seeded with a marker file first) must be gone after it. What the other
+# choices do is check-installer.ps1's.
 #
 # Each page is saved as NN-<its title>.png (the uninstaller's as
 # NN-uninstall-<its title>.png), taken with PrintWindow, so the window doesn't
@@ -80,6 +82,11 @@ public static class Wizard {
 
     public static void Untick(IntPtr box) { SendMessage(box, BM_SETCHECK, IntPtr.Zero, IntPtr.Zero); }
 
+    public static void Tick(IntPtr box) { SendMessage(box, BM_SETCHECK, (IntPtr)1, IntPtr.Zero); }
+
+    /** A box on the page, by its label. */
+    public static IntPtr Box(IntPtr page, string label) { return FindWindowEx(page, IntPtr.Zero, "Button", label); }
+
     public static int[] Size(IntPtr hwnd) { RECT r; GetWindowRect(hwnd, out r); return new int[] { r.Right - r.Left, r.Bottom - r.Top }; }
 
     // PW_RENDERFULLCONTENT: the window as drawn, even behind others.
@@ -128,7 +135,10 @@ function TitleOf([IntPtr]$wizard, [IntPtr]$page) {
     return [Wizard]::Text([Wizard]::GetDlgItem($page, 1201))
 }
 
-function Capture([string]$titleStart, [string]$prefix) {
+$script:ticked = @()
+
+# Steps through the wizard, ticking each box in $tick after its page's picture.
+function Capture([string]$titleStart, [string]$prefix, [string[]]$tick = @()) {
     $wizard = WaitFor { $w = [Wizard]::Find($titleStart); if ($w -ne [IntPtr]::Zero) { $w } } 60 "the window `"$titleStart`""
     $last = [IntPtr]::Zero
     while ([Wizard]::IsWindow($wizard)) {
@@ -158,6 +168,14 @@ function Capture([string]$titleStart, [string]$prefix) {
             $run = [Wizard]::GetDlgItem($page, 1203)
             if ($run -ne [IntPtr]::Zero -and [Wizard]::Checked($run)) { [Wizard]::Untick($run) }
         }
+        foreach ($label in $tick) {
+            $box = [Wizard]::Box($page, $label)
+            if ($box -ne [IntPtr]::Zero) {
+                [Wizard]::Tick($box)
+                $script:ticked += $label
+                Write-Host "ticked `"$label`""
+            }
+        }
         [Wizard]::Click($wizard, 1)
     }
 }
@@ -172,10 +190,18 @@ $entry = Get-ChildItem "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstal
 if ($null -eq $entry) { throw "$Name isn't installed after its installer finished." }
 $uninstaller = ($entry.UninstallString -split '"')[1]
 
+# The app's settings and logs, as if it had run.
+$data = Join-Path $env:APPDATA $Name
+New-Item -ItemType Directory -Force -Path $data | Out-Null
+Set-Content -LiteralPath (Join-Path $data "capture-installer.marker") -Value "seeded"
+
 Write-Host "--- The uninstaller"
 # It copies itself to a temporary folder and runs from there, so its window is found by its title.
 Start-Process -FilePath $uninstaller | Out-Null
-Capture "$Name Uninstall" "uninstall-"
+Capture "$Name Uninstall" "uninstall-" @("Also remove settings and logs")
 for ($i = 0; $i -lt 30 -and (Test-Path -LiteralPath $uninstaller); $i++) { Start-Sleep -Seconds 1 }
+if ($script:ticked -notcontains "Also remove settings and logs") { throw "The uninstaller's welcome page has no `"Also remove settings and logs`" box." }
+if (Test-Path -LiteralPath $data) { throw "$data is still there after uninstalling with `"Also remove settings and logs`" ticked." }
+Write-Host "$data is gone"
 
 Write-Host "$script:count pages saved in $Out"

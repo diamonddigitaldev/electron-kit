@@ -29,7 +29,12 @@
 // - uninstalling takes away everything it added; an update's uninstall of
 //   the version before it (--updated) takes away nothing. That includes the
 //   updater's cache (a copy of the installer and any update it downloaded),
-//   which electron-builder's own uninstaller leaves.
+//   which electron-builder's own uninstaller leaves;
+// - the installer opens on a welcome page saying what it will ask, and the
+//   uninstaller's says what it does, with an unticked "Also remove settings
+//   and logs" box: ticked, it removes the app's data as electron-builder's
+//   --delete-app-data does. A silent uninstall keeps it unless given
+//   --delete-app-data, and an update's uninstall always keeps it.
 //
 // electron-builder builds it with makensis -WX: a warning fails the build, so
 // what the uninstaller doesn't use is never compiled into it.
@@ -65,8 +70,90 @@ function sectionCount(fileTypes) {
 }
 
 /**
+ * The welcome pages: the installer's says what it will ask; the
+ * uninstaller's what it does, with the box for the app's data under its text.
+ * @param {string} product the app's name, as a label shows it
+ * @param {boolean} hasFileTypes whether the installer asks which files it opens
+ */
+function welcomePages(product, hasFileTypes) {
+    const asks = hasFileTypes ? "who it's for, the files it opens and its shortcuts" : "who it's for and its shortcuts";
+    return [
+        "!macro customWelcomePage",
+        `  !define MUI_WELCOMEPAGE_TITLE "Welcome to ${product} Setup"`,
+        `  !define MUI_WELCOMEPAGE_TEXT "This installs ${product} \${VERSION} on your computer. You'll choose ${asks}.$\\r$\\n$\\r$\\nClick Next to continue."`,
+        "  !define MUI_PAGE_CUSTOMFUNCTION_PRE KitWelcomePage",
+        "  !insertmacro MUI_PAGE_WELCOME",
+        "",
+        "  Function KitWelcomePage",
+        "    ${if} ${isUpdated}",
+        "      Abort",
+        "    ${endIf}",
+        "  FunctionEnd",
+        "!macroend",
+        "",
+        "!macro customUnWelcomePage",
+        "  Var KitRemoveDataBox",
+        "  Var KitRemoveData",
+        `  !define MUI_WELCOMEPAGE_TITLE "Uninstall ${product}"`,
+        `  !define MUI_WELCOMEPAGE_TEXT "This removes ${product} from your computer. Close it first if it's open."`,
+        "  !define MUI_PAGE_CUSTOMFUNCTION_SHOW un.KitUnWelcomeShow",
+        "  !define MUI_PAGE_CUSTOMFUNCTION_LEAVE un.KitUnWelcomeLeave",
+        "  !insertmacro MUI_UNPAGE_WELCOME",
+        "",
+        // MUI's text fills the page's height, so the box would sit under it: the text is cut to the lines it takes, measured in its own font.
+        "  Function un.KitUnWelcomeShow",
+        ...["$0", "$1", "$2", "$3", "$4", "$5", "$6", "$7", "$8", "$9"].map((register) => `    Push ${register}`),
+        "    System::Call '*(i, i, i, i) p .r0'",
+        "    System::Call 'user32::GetWindowRect(p $mui.WelcomePage.Text, p r0)'",
+        "    System::Call 'user32::MapWindowPoints(p 0, p $mui.WelcomePage, p r0, i 2)'",
+        // $1 and $2 its left and top, $3 its width.
+        "    System::Call '*$0(i .r1, i .r2, i .r3, i)'",
+        "    IntOp $3 $3 - $1",
+        "    SendMessage $mui.WelcomePage.Text ${WM_GETFONT} 0 0 $4",
+        "    System::Call 'user32::GetDC(p $mui.WelcomePage.Text) p .r5'",
+        "    System::Call 'gdi32::SelectObject(p r5, p r4) p .r6'",
+        // DT_CALCRECT | DT_WORDBREAK: $7 the text's height at that width, $8 a line's.
+        "    ${NSD_GetText} $mui.WelcomePage.Text $7",
+        "    System::Call '*$0(i 0, i 0, i r3, i 0)'",
+        "    System::Call 'user32::DrawText(p r5, t r7, i -1, p r0, i 0x410) i .r7'",
+        "    System::Call '*$0(i 0, i 0, i r3, i 0)'",
+        "    System::Call 'user32::DrawText(p r5, t \"A\", i -1, p r0, i 0x410) i .r8'",
+        "    System::Call 'gdi32::SelectObject(p r5, p r6)'",
+        "    System::Call 'user32::ReleaseDC(p $mui.WelcomePage.Text, p r5)'",
+        // SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE.
+        "    System::Call 'user32::SetWindowPos(p $mui.WelcomePage.Text, p 0, i 0, i 0, i r3, i r7, i 0x16)'",
+        // A line below the text, the box; a line below the box, the page's last line.
+        "    IntOp $2 $2 + $7",
+        "    IntOp $2 $2 + $8",
+        '    ${NSD_CreateCheckbox} 0 0 195u 10u "Also remove settings and logs"',
+        "    Pop $KitRemoveDataBox",
+        '    SetCtlColors $KitRemoveDataBox "${MUI_TEXTCOLOR}" "${MUI_BGCOLOR}"',
+        // SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE.
+        "    System::Call 'user32::SetWindowPos(p $KitRemoveDataBox, p 0, i r1, i r2, i 0, i 0, i 0x15)'",
+        "    System::Call 'user32::GetWindowRect(p $KitRemoveDataBox, p r0)'",
+        "    System::Call '*$0(i, i .r6, i, i .r9)'",
+        "    IntOp $9 $9 - $6",
+        "    IntOp $2 $2 + $9",
+        "    IntOp $2 $2 + $8",
+        "    System::Free $0",
+        '    ${NSD_CreateLabel} 0 0 195u 10u "Click Next to continue."',
+        "    Pop $0",
+        '    SetCtlColors $0 "${MUI_TEXTCOLOR}" "${MUI_BGCOLOR}"',
+        "    System::Call 'user32::SetWindowPos(p r0, p 0, i r1, i r2, i r3, i r8, i 0x14)'",
+        ...["$9", "$8", "$7", "$6", "$5", "$4", "$3", "$2", "$1", "$0"].map((register) => `    Pop ${register}`),
+        "  FunctionEnd",
+        "",
+        "  Function un.KitUnWelcomeLeave",
+        "    ${NSD_GetState} $KitRemoveDataBox $KitRemoveData",
+        "  FunctionEnd",
+        "!macroend",
+    ];
+}
+
+/**
  * Uninstalling takes away everything it may have added, and the updater's
- * cache; an update's uninstall, nothing.
+ * cache; an update's uninstall, nothing. With the welcome page's box ticked,
+ * the app's data too.
  * @param {string[]} removals what the pages' choices added, indented for the block
  */
 function uninstall(removals) {
@@ -74,6 +161,29 @@ function uninstall(removals) {
         "!macro customUnInstall",
         "  ${ifNot} ${isUpdated}",
         ...removals,
+        // The welcome page's box, or electron-builder's --delete-app-data (it removes the same folders after this, once, with no second try).
+        "    ClearErrors",
+        "    ${GetParameters} $R0",
+        '    ${GetOptions} $R0 "--delete-app-data" $R1',
+        "    ${ifNot} ${Errors}",
+        '      StrCpy $KitRemoveData "1"',
+        "    ${endIf}",
+        // The person's own app data, even for everyone.
+        '    ${if} $KitRemoveData == "1"',
+        '      ${if} $installMode == "all"',
+        "        SetShellVarContext current",
+        "      ${endIf}",
+        '      !insertmacro KitRemoveFolder "$APPDATA\\${APP_FILENAME}"',
+        "      !ifdef APP_PRODUCT_FILENAME",
+        '        !insertmacro KitRemoveFolder "$APPDATA\\${APP_PRODUCT_FILENAME}"',
+        "      !endif",
+        "      !ifdef APP_PACKAGE_NAME",
+        '        !insertmacro KitRemoveFolder "$APPDATA\\${APP_PACKAGE_NAME}"',
+        "      !endif",
+        '      ${if} $installMode == "all"',
+        "        SetShellVarContext all",
+        "      ${endIf}",
+        "    ${endIf}",
         // electron-builder's install copies itself there, and electron-updater downloads there: the person's own app data, even for everyone.
         "    !ifdef APP_INSTALLER_STORE_FILE",
         '      ${if} $installMode == "all"',
@@ -90,6 +200,20 @@ function uninstall(removals) {
         "      ${endIf}",
         "    !endif",
         "  ${endIf}",
+        "!macroend",
+        "",
+        // A folder and all in it. A file just deleted can keep its folder for a moment (a virus scan, the search indexer), so it's tried for up to five seconds.
+        "!macro KitRemoveFolder FOLDER",
+        "  StrCpy $R2 0",
+        "  ${do}",
+        '    RMDir /r "${FOLDER}"',
+        '    ${ifNot} ${FileExists} "${FOLDER}\\*.*"',
+        "    ${orIf} $R2 >= 10",
+        "      ${break}",
+        "    ${endIf}",
+        "    IntOp $R2 $R2 + 1",
+        "    Sleep 500",
+        "  ${loop}",
         "!macroend",
     ];
 }
@@ -177,6 +301,8 @@ function installerScript({ productName, description = "", fileTypes, contextMenu
         "    ${endIf}",
         "  !endif",
         "!macroend",
+        "",
+        ...welcomePages(controlText(productName), exts.length > 0),
     ];
 
     // The pages, their state and what installing does with it: the installer's alone.
