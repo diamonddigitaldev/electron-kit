@@ -162,7 +162,7 @@ sidebar: { colour: "#208637" },  // a colour of its own
 ```
 
 The icon is read as an 8-bit RGB or RGBA PNG that isn't interlaced, as most editors save one; `config()`
-refuses any other, saying how to save it again. Its paths are the app's folder's, where electron-builder runs.
+refuses any other, saying how to save it again. Both paths are from the app's folder, the one its `package.json` is in.
 The same icon and colour always make the same image.
 
 `config()` writes the installer's include and the sidebar outside the app, in a

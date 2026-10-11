@@ -140,6 +140,17 @@ function checkContextMenu(contextMenu) {
     return { label: contextMenu.label, folders: contextMenu.folders === true, args: [...(contextMenu.args ?? [])] };
 }
 
+/**
+ * The app's folder: where the package.json given to config() was required
+ * from, or else where electron-builder runs (its own default). So the app's
+ * electron-builder.cjs gives the same config wherever it's required from.
+ * @param {Record<string, any>} pkg
+ */
+function appDir(pkg) {
+    const found = Object.values(require.cache).find((module) => module?.exports === pkg && module.filename);
+    return found ? path.dirname(found.filename) : process.cwd();
+}
+
 /** Write a file into dir, named for what's in it (name-<hash>.ext), and return its path. */
 function writeOut(dir, name, ext, contents) {
     const file = path.join(dir, `${name}-${crypto.createHash("sha256").update(contents).digest("hex").slice(0, 16)}.${ext}`);
@@ -152,12 +163,13 @@ const SIDEBAR_COLOURS = "\"accent\" (the default: --accent in src/styles/accent.
 
 /**
  * The installer's sidebar, as a BMP: build.linux.icon, a PNG, on the app's
- * colour. Paths are from the app's folder, where electron-builder runs.
+ * colour. Paths are from the app's folder.
+ * @param {string} dir - the app's folder
  * @param {Record<string, any>} build
  * @param {unknown} sidebar - config()'s sidebar option
  * @returns {Buffer}
  */
-function makeSidebar(build, sidebar) {
+function makeSidebar(dir, build, sidebar) {
     if (sidebar !== undefined && (sidebar === null || typeof sidebar !== "object" || Array.isArray(sidebar))) {
         throw new Error(`config(): sidebar must be { colour }, where colour is ${SIDEBAR_COLOURS}.`);
     }
@@ -175,9 +187,9 @@ function makeSidebar(build, sidebar) {
     }
     let png;
     try {
-        png = fs.readFileSync(path.resolve(icon));
+        png = fs.readFileSync(path.resolve(dir, icon));
     } catch (err) {
-        throw new Error(`config(): build.linux.icon, ${icon}, can't be read (${err.code ?? err.message}). It's found from the app's folder, where electron-builder runs.`);
+        throw new Error(`config(): build.linux.icon, ${icon}, can't be read (${err.code ?? err.message}). It's found from the app's folder, ${dir}.`);
     }
     const name = `config(): build.linux.icon, ${icon},`;
 
@@ -186,7 +198,7 @@ function makeSidebar(build, sidebar) {
         colour = logoColour(readPng(png, name));
         if (!colour) throw new Error(`${name} has no colour to take: it's all white, black or grey. Give sidebar.colour as "accent" or "#rrggbb".`);
     } else if (choice === "accent") {
-        const file = path.resolve("src", "styles", "accent.css");
+        const file = path.resolve(dir, "src", "styles", "accent.css");
         if (!fs.existsSync(file)) {
             throw new Error("config(): the installer's sidebar is in the app's --accent, from src/styles/accent.css, which isn't there. Give sidebar: { colour: \"logo\" } or { colour: \"#rrggbb\" } instead.");
         }
@@ -299,7 +311,7 @@ function config(pkg, options) {
         linux.executableArgs = ["%F"];
     }
 
-    const sidebar = makeSidebar(build, options.sidebar);
+    const sidebar = makeSidebar(appDir(pkg), build, options.sidebar);
     const dir = outputDir();
     // With a byte-order mark, so makensis reads an app's name in any language as UTF-8.
     const include = writeOut(dir, "installer", "nsh", "\ufeff" + installerScript({ productName, description: pkg.description, fileTypes, contextMenu }));

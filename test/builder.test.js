@@ -20,19 +20,20 @@ const demoPackage = require("../demo/package.json");
 
 const BASE = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "builder", "base.json"), "utf8"));
 
-/** The demo's electron-builder.cjs, run in its folder as electron-builder runs it, with the kit it requires being this checkout (the demo's own copy may not be installed). */
+/**
+ * The demo's electron-builder.cjs, with the kit it requires being this checkout (the demo's own copy may not
+ * be installed). It's required from another folder, as the kit's Playwright tests do: config() finds the
+ * demo's icon and accent from where its package.json is.
+ */
 function loadDemoBuild() {
     const resolve = Module._resolveFilename;
     Module._resolveFilename = function (request, ...rest) {
         if (request === "@diamonddigitaldev/electron-kit/builder") return require.resolve("../builder");
         return resolve.call(this, request, ...rest);
     };
-    const cwd = process.cwd();
-    process.chdir(path.join(__dirname, "..", "demo"));
     try {
         return require("../demo/electron-builder.cjs");
     } finally {
-        process.chdir(cwd);
         Module._resolveFilename = resolve;
     }
 }
@@ -113,6 +114,9 @@ test("the demo builds with config(), and publishes to the local update server it
     assert.deepEqual(demo.publish, { provider: "generic", url: "http://127.0.0.1:47613/" });
     assert.equal(demo.extraMetadata.desktopName, "com.diamonddigitaldev.electronkitdemo.desktop");
     assert.deepEqual(demo.linux.mimeTypes, ["text/plain", "text/markdown", "application/json", "text/csv"]);
+    // Made from the demo's own icon, though this test runs in another folder.
+    assert.notEqual(process.cwd(), path.join(__dirname, "..", "demo"));
+    assert.ok(fs.statSync(demo.nsis.installerSidebar).size > 0);
 });
 
 test("config(): the app's build on the kit's base, with the asking installer, and the .desktop file named for its appId", () => {
