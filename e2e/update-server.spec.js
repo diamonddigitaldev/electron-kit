@@ -133,4 +133,8 @@ test("with no update server, the check says it couldn't, and nothing else is ask
     await pane.getByRole("button", { name: "Check for Updates" }).click();
     await expect(pane.getByRole("status")).toHaveText("Couldn't check for updates. Try again later.", { timeout: 30_000 });
     await expect(pane.getByRole("button", { name: "Check for Updates" })).toBeEnabled();
+    // electron-updater's own lines are in the log at debug, so none reaches the terminal: only the kit's one warning.
+    const printed = demo.output();
+    expect(printed).toContain("Update check failed");
+    expect(printed).not.toMatch(/Checking for update|^\s+at /m);
 });
