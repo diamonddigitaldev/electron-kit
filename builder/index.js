@@ -63,12 +63,15 @@ const KIT_OWNED = Object.freeze({
     "build.nsis.allowElevation": (b) => b.nsis?.allowElevation,
     "build.nsis.createDesktopShortcut": (b) => b.nsis?.createDesktopShortcut,
     "build.nsis.createStartMenuShortcut": (b) => b.nsis?.createStartMenuShortcut,
+    // The uninstaller's welcome page asks whether to remove the app's data.
+    "build.nsis.removeDefaultUninstallWelcomePage": (b) => b.nsis?.removeDefaultUninstallWelcomePage,
+    "build.nsis.deleteAppDataOnUninstall": (b) => b.nsis?.deleteAppDataOnUninstall,
 });
 
 /** What each key the kit owns is for, in config()'s refusal. */
 function ownedReason(key) {
     if (key === "build.extends") return "config() extends the kit's base config itself.";
-    if (key.startsWith("build.nsis.")) return "The kit's installer asks who it's for, what it adds and which shortcuts it makes.";
+    if (key.startsWith("build.nsis.")) return "The kit's installer asks who it's for, what it adds and which shortcuts it makes, and its uninstaller whether to remove settings and logs.";
     return "Give the files the app opens as fileTypes (or allFiles).";
 }
 

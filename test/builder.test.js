@@ -181,6 +181,8 @@ test("config() refuses what would claim types without asking, or leave the .desk
         [[PKG, { build: { ...BUILD, nsis: { oneClick: true } } }], /build\.nsis\.oneClick is the kit's/],
         [[PKG, { build: { ...BUILD, nsis: { createDesktopShortcut: false } } }], /build\.nsis\.createDesktopShortcut is the kit's/],
         [[PKG, { build: { ...BUILD, nsis: { script: "x.nsi" } } }], /build\.nsis\.script is the kit's/],
+        [[PKG, { build: { ...BUILD, nsis: { deleteAppDataOnUninstall: true } } }], /build\.nsis\.deleteAppDataOnUninstall is the kit's[^]*whether to remove settings and logs/],
+        [[PKG, { build: { ...BUILD, nsis: { removeDefaultUninstallWelcomePage: true } } }], /build\.nsis\.removeDefaultUninstallWelcomePage is the kit's/],
         [[PKG, { build: { ...BUILD, productName: 'The "App"' } }], /build\.productName must be/],
         [[PKG, { build: BUILD, contextMenu: "Convert" }], /contextMenu must be \{ label/],
         [[PKG, { build: BUILD, contextMenu: { label: "" } }], /contextMenu\.label must be/],
@@ -214,8 +216,9 @@ test("the installer: with no file types and no right-click entry, it asks only a
     assert.match(script, /MUI_HEADER_TEXT "Shortcuts" "Choose where App appears\."/);
     assert.match(script, /"Add a desktop shortcut"[\s\S]*"Add a Start menu shortcut"/);
     assert.doesNotMatch(script, /right-click|MUI_PAGE_COMPONENTS|SectionGroup|SectionSetText|INSTALL_SECTION_ID|Software\\Classes/);
-    // Its uninstall still takes the updater's cache, and nothing else of its own.
-    assert.match(script, /!macro customUnInstall\r\n  \$\{ifNot\} \$\{isUpdated\}\r\n    !ifdef APP_INSTALLER_STORE_FILE/);
+    // Its uninstall still takes the updater's cache, and nothing else of its own but the app's data when asked.
+    assert.match(script, /!macro customUnInstall\r\n  \$\{ifNot\} \$\{isUpdated\}\r\n    ClearErrors\r\n    \$\{GetParameters\} \$R0\r\n    \$\{GetOptions\} \$R0 "--delete-app-data"/);
+    assert.match(script, /!ifdef APP_INSTALLER_STORE_FILE/);
     // The uninstaller is built from it too, and makensis -WX fails on anything it doesn't use.
     assert.match(script, /!ifndef BUILD_UNINSTALLER/);
 });
@@ -248,7 +251,7 @@ test("the installer: Choose File Types is a Components page, a branch per group 
         assert.ok(install.includes(`WriteRegStr SHELL_CONTEXT "\${INSTALL_REGISTRY_KEY}" "KitFileType.${ext}" "0"`), ext);
     });
     assert.match(init, /\$\{GetOptions\} \$R0 "\/FILETYPES=" \$R1/);
-    assert.doesNotMatch(script, /Tick All|Untick All|NSD_CreateLabel/);
+    assert.doesNotMatch(page, /Tick All|Untick All|NSD_CreateLabel/);
 });
 
 test("the installer: electron-builder's own section has no box in the tree, and a build where it moved fails", () => {
@@ -356,6 +359,53 @@ test("the installer: text from the app is kept as text in NSIS's strings", () =>
     assert.match(script, /Choose which files R&D \$\$App opens\./);
     // Its registry keys keep letters and numbers only.
     assert.match(script, /Software\\Classes\\RDApp\.txt/);
+});
+
+test("the installer: it opens on a welcome page naming what it asks, which an update never shows", () => {
+    const welcome = (script) => script.slice(script.indexOf("!macro customWelcomePage"), script.indexOf("!macro customUnWelcomePage"));
+    const dfc = welcome(installerScript({ productName: "Diamond File Converter", fileTypes: DFC_TYPES, contextMenu: { label: "Convert with Diamond File Converter" } }));
+    assert.match(dfc, /!define MUI_WELCOMEPAGE_TITLE "Welcome to Diamond File Converter Setup"/);
+    assert.ok(dfc.includes(`!define MUI_WELCOMEPAGE_TEXT "This installs Diamond File Converter \${VERSION} on your computer. You'll choose who it's for, the files it opens and its shortcuts.$\\r$\\n$\\r$\\nClick Next to continue."`));
+    assert.match(dfc, /!define MUI_PAGE_CUSTOMFUNCTION_PRE KitWelcomePage\r\n  !insertmacro MUI_PAGE_WELCOME/);
+    assert.match(dfc, /Function KitWelcomePage\r\n    \$\{if\} \$\{isUpdated\}\r\n      Abort/);
+    // An app with no file types doesn't ask which files it opens.
+    const dropgate = welcome(installerScript({ productName: "Dropgate Client", fileTypes: [], contextMenu: { label: "Share with Dropgate" } }));
+    assert.match(dropgate, /You'll choose who it's for and its shortcuts\./);
+    // Labels: & would underline the next letter.
+    assert.match(welcome(installerScript({ productName: "R&D $App", fileTypes: [] })), /"Welcome to R&&D \$\$App Setup"/);
+});
+
+test("the uninstaller: its welcome page has an unticked \"Also remove settings and logs\" box under the text, read when it's left", () => {
+    const script = installerScript({ productName: "App", fileTypes: [] });
+    const page = script.slice(script.indexOf("!macro customUnWelcomePage"), script.indexOf("!macro customPageAfterChangeDir"));
+    assert.match(page, /!define MUI_WELCOMEPAGE_TITLE "Uninstall App"/);
+    assert.match(page, /!define MUI_WELCOMEPAGE_TEXT "This removes App from your computer\. Close it first if it's open\."/);
+    assert.match(page, /!define MUI_PAGE_CUSTOMFUNCTION_SHOW un\.KitUnWelcomeShow\r\n  !define MUI_PAGE_CUSTOMFUNCTION_LEAVE un\.KitUnWelcomeLeave\r\n  !insertmacro MUI_UNPAGE_WELCOME/);
+    const show = page.slice(page.indexOf("Function un.KitUnWelcomeShow"), page.indexOf("Function un.KitUnWelcomeLeave"));
+    // The text cut to the lines it takes, then the box, then the page's last line, each a line apart, on the page's background.
+    assert.match(show, /user32::DrawText\(p r5, t r7, i -1, p r0, i 0x410\) i \.r7[\s\S]*SetWindowPos\(p \$mui\.WelcomePage\.Text, p 0, i 0, i 0, i r3, i r7/);
+    assert.match(show, /\$\{NSD_CreateCheckbox\} 0 0 195u 10u "Also remove settings and logs"\r\n    Pop \$KitRemoveDataBox\r\n    SetCtlColors \$KitRemoveDataBox "\$\{MUI_TEXTCOLOR\}" "\$\{MUI_BGCOLOR\}"/);
+    assert.match(show, /\$\{NSD_CreateLabel\} 0 0 195u 10u "Click Next to continue\."/);
+    assert.doesNotMatch(show, /NSD_Check/);
+    // Every register it uses is given back.
+    for (let n = 0; n <= 9; n++) assert.ok(show.includes(`Push $${n}`) && show.includes(`Pop $${n}`), `$${n}`);
+    assert.match(page, /Function un\.KitUnWelcomeLeave\r\n    \$\{NSD_GetState\} \$KitRemoveDataBox \$KitRemoveData/);
+});
+
+test("the uninstaller: the box ticked, or --delete-app-data, removes the app's data where electron-builder would; never on an update", () => {
+    const script = installerScript({ productName: "App", fileTypes: [{ name: "Text File", ext: ["txt"] }] });
+    const uninstall = script.slice(script.indexOf("!macro customUnInstall"), script.indexOf("!macro KitRemoveFolder"));
+    assert.match(uninstall, /^!macro customUnInstall\r\n  \$\{ifNot\} \$\{isUpdated\}\r\n/);
+    assert.match(uninstall, /\$\{GetOptions\} \$R0 "--delete-app-data" \$R1\r\n    \$\{ifNot\} \$\{Errors\}\r\n      StrCpy \$KitRemoveData "1"/);
+    // The person's own app data, even for everyone: the three folders electron-builder's --delete-app-data removes.
+    assert.match(uninstall, /\$\{if\} \$KitRemoveData == "1"\r\n      \$\{if\} \$installMode == "all"\r\n        SetShellVarContext current/);
+    for (const name of ["APP_FILENAME", "APP_PRODUCT_FILENAME", "APP_PACKAGE_NAME"]) {
+        assert.ok(uninstall.includes(`!insertmacro KitRemoveFolder "$APPDATA\\\${${name}}"`), name);
+    }
+    assert.match(uninstall, /\$\{if\} \$installMode == "all"\r\n        SetShellVarContext all/);
+    // Tried again for a moment while something still holds a file just deleted.
+    const folder = script.slice(script.indexOf("!macro KitRemoveFolder"));
+    assert.match(folder, /\$\{do\}\r\n    RMDir \/r "\$\{FOLDER\}"\r\n    \$\{ifNot\} \$\{FileExists\} "\$\{FOLDER\}\\\*\.\*"\r\n    \$\{orIf\} \$R2 >= 10\r\n      \$\{break\}[\s\S]*Sleep 500\r\n  \$\{loop\}/);
 });
 
 test("assertBuildExtendsKit() takes the config itself, or a package.json whose build holds it", () => {

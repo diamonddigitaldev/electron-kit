@@ -45,7 +45,8 @@ were in `package.json`, and `config()` adds the rest:
 The kit owns an app's file associations and its installer's questions. It never sets electron-builder's
 `fileAssociations`, which claim every type on Windows without asking. So `config()` refuses
 `fileAssociations` (anywhere), `nsis.include`, `nsis.script`, `nsis.oneClick`, `nsis.perMachine`,
-`nsis.allowElevation`, both `nsis` shortcut options (the installer asks about both), `linux.mimeTypes`, `linux.executableArgs`,
+`nsis.allowElevation`, both `nsis` shortcut options (the installer asks about both), `nsis.deleteAppDataOnUninstall`
+and `nsis.removeDefaultUninstallWelcomePage` (the uninstaller asks), `linux.mimeTypes`, `linux.executableArgs`,
 `linux.syncDesktopName`, `linux.desktop`, `extraMetadata.desktopName`, and an `extends` of the app's own.
 An app's own `installer.nsh` goes: its right-click entry is `contextMenu`.
 
@@ -98,7 +99,9 @@ contextMenu: { label: "Convert with Diamond File Converter", folders: true },
 
 ### The Asking Installer (Windows)
 
-The installer never claims a file type, adds a right-click entry or makes a shortcut without asking:
+The installer never claims a file type, adds a right-click entry or makes a shortcut without asking. It
+opens on a welcome page saying what it will ask ("You'll choose who it's for, the files it opens and its
+shortcuts.", without the files for an app with none), then:
 
 1. **Who it's for:** "Only for me", the default, which needs no administrator, or "Anyone who uses this
    computer". If the app is already installed for everyone (every install before the kit was), this is
@@ -125,8 +128,16 @@ on it.
 The choices are kept with the install, and the next install starts from them. An update (the updater
 runs it silently, with `--updated`) shows no page, never adds back what was unticked and never makes a
 shortcut, so a shortcut the person deleted stays deleted. Uninstalling takes away everything the installer
-added; an update's uninstall of the version before it takes away nothing. Silently (`/S`), these choose
-instead:
+added; an update's uninstall of the version before it takes away nothing.
+
+**The uninstaller asks about the app's settings and logs.** Its welcome page has an "Also remove settings
+and logs" box, unticked. Ticked, it removes the app's folders in the person's own app data
+(`%APPDATA%\<productName>`, and those named for the app's file name and its package), as electron-builder's
+`--delete-app-data` does, even for an install for everyone. Unticked, they stay, so a reinstall starts where
+the person left off. A silent uninstall keeps them unless given `--delete-app-data`; an update's uninstall
+always keeps them.
+
+Silently (`/S`), these choose instead:
 
 | Switch | What it does |
 |---|---|
@@ -135,10 +146,12 @@ instead:
 | `/NODESKTOPSHORTCUT` (or electron-builder's `--no-desktop-shortcut`) | no desktop shortcut |
 | `/NOSTARTMENUSHORTCUT` | no Start menu shortcut |
 | `/allusers` or `/currentuser` (electron-builder's) | who it's for |
+| `--delete-app-data` (electron-builder's), when uninstalling | the app's settings and logs removed too |
 
 The kit's CI installs the demo silently with each choice, reads back what it wrote to the registry and
-the shortcuts it made, and uninstalls it (`scripts/check-installer.ps1`). It then runs the installer and
-uninstaller with their pages showing, steps through them, and keeps a picture of each page for 3 days
+the shortcuts it made, and whether the app's data survives an update and each kind of uninstall
+(`scripts/check-installer.ps1`). It then runs the installer and uninstaller with their pages showing, steps
+through them, ticking only "Also remove settings and logs", and keeps a picture of each page for 3 days
 (`scripts/capture-installer.ps1`): a change to a page is looked at there, or by running the script after
 building the demo.
 
