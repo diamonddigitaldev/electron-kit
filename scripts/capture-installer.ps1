@@ -27,11 +27,8 @@ $Out = (Resolve-Path $Out).Path
 Get-ChildItem -LiteralPath $Out -Filter *.png | Remove-Item
 
 Add-Type -AssemblyName System.Drawing
-Add-Type -ReferencedAssemblies System.Drawing -TypeDefinition @"
+Add-Type -TypeDefinition @"
 using System;
-using System.Collections.Generic;
-using System.Drawing;
-using System.Drawing.Imaging;
 using System.Runtime.InteropServices;
 using System.Text;
 
@@ -83,21 +80,29 @@ public static class Wizard {
 
     public static void Untick(IntPtr box) { SendMessage(box, BM_SETCHECK, IntPtr.Zero, IntPtr.Zero); }
 
-    public static void Save(IntPtr hwnd, string file) {
-        RECT r; GetWindowRect(hwnd, out r);
-        using (var bitmap = new Bitmap(r.Right - r.Left, r.Bottom - r.Top)) {
-            using (var g = Graphics.FromImage(bitmap)) {
-                IntPtr hdc = g.GetHdc();
-                // PW_RENDERFULLCONTENT: the window as drawn, even behind others.
-                PrintWindow(hwnd, hdc, 2);
-                g.ReleaseHdc(hdc);
-            }
-            bitmap.Save(file, ImageFormat.Png);
-        }
-    }
+    public static int[] Size(IntPtr hwnd) { RECT r; GetWindowRect(hwnd, out r); return new int[] { r.Right - r.Left, r.Bottom - r.Top }; }
+
+    // PW_RENDERFULLCONTENT: the window as drawn, even behind others.
+    public static void Print(IntPtr hwnd, IntPtr hdc) { PrintWindow(hwnd, hdc, 2); }
 }
 "@
 [Wizard]::DpiAware()
+
+# The picture is made here, not in the C# above: PowerShell 7 finds System.Drawing's types where 5.1 does, but its C# compiler doesn't.
+function Save([IntPtr]$hwnd, [string]$file) {
+    $size = [Wizard]::Size($hwnd)
+    $bitmap = New-Object System.Drawing.Bitmap $size[0], $size[1]
+    try {
+        $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
+        $hdc = $graphics.GetHdc()
+        [Wizard]::Print($hwnd, $hdc)
+        $graphics.ReleaseHdc($hdc)
+        $graphics.Dispose()
+        $bitmap.Save($file, [System.Drawing.Imaging.ImageFormat]::Png)
+    } finally {
+        $bitmap.Dispose()
+    }
+}
 
 $script:count = 0
 
@@ -138,11 +143,15 @@ function Capture([string]$titleStart, [string]$prefix) {
         if (-not [Wizard]::IsWindow($wizard)) { break }
         if ([Wizard]::Page($wizard) -ne $page) { continue }
         Start-Sleep -Milliseconds 600
-        $last = $page
+        # Still the same page, ready and titled: a page caught as it changes is looked at again, never clicked.
+        if (-not [Wizard]::IsWindow($wizard) -or [Wizard]::Page($wizard) -ne $page -or -not [Wizard]::IsWindowEnabled($next)) { continue }
         $title = TitleOf $wizard $page
+        $size = [Wizard]::Size($wizard)
+        if (-not $title -or $size[0] -le 0 -or $size[1] -le 0) { Start-Sleep -Milliseconds 200; continue }
+        $last = $page
         $script:count++
         $file = Join-Path $Out ("{0:D2}-{1}{2}.png" -f $script:count, $prefix, (Slug $title))
-        [Wizard]::Save($wizard, $file)
+        Save $wizard $file
         Write-Host "saved $(Split-Path $file -Leaf)  ($title)"
         $button = [Wizard]::Text($next)
         if ($button -match "Finish") {
