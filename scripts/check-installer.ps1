@@ -9,13 +9,16 @@
 #   2. Installed again with txt only, no right-click entry and no shortcuts:
 #      .md, .json, .csv, the entry and both shortcuts are taken away.
 #   3. Installed again as an update does it (--updated), with no options: the
-#      choices kept from step 2, so nothing comes back.
+#      choices kept from step 2, so nothing comes back, and the app's settings
+#      and logs (%APPDATA%\<app>, seeded with a marker file) are kept.
 #   4. Installed again with no Start menu shortcut and --force-run: the app
 #      starts all the same, from its own exe.
 #   5. The kept shortcut choices removed from the registry, then installed
 #      again: both shortcuts are made, as on a fresh install.
 #   6. Uninstalled: everything the installer added is gone, the shortcuts and
-#      the updater's cache too (electron-builder's install copies itself there).
+#      the updater's cache too (electron-builder's install copies itself there),
+#      but not the app's settings and logs: a silent uninstall keeps them.
+#      Then installed and uninstalled again with --delete-app-data: they're gone.
 #   7. Run as an administrator only (CI): installed for everyone, then again
 #      without shortcuts, then with no options, which upgrades that copy and
 #      never adds one for one person; then the shortcut choices removed and
@@ -30,6 +33,9 @@ $ErrorActionPreference = "Stop"
 $Name = "electron-kit Demo"
 $Key = "electronkitDemo"
 $Cache = Join-Path $env:LOCALAPPDATA "electron-kit-demo-updater"
+# The app's settings and logs, and a file standing for them.
+$Data = Join-Path $env:APPDATA $Name
+$Marker = Join-Path $Data "check-installer.marker"
 $Types = @("txt", "md", "json", "csv")
 # Each scope's Desktop and Start menu; the shortcut goes in the house's folder (builder/base.json's menuCategory).
 $Folders = @{
@@ -54,16 +60,16 @@ function Entry([string]$hive) {
         Where-Object { (Get-ItemProperty -LiteralPath $_.PSPath).DisplayName -like "$Name*" } | Select-Object -First 1
 }
 
-function UninstallFrom([string]$hive) {
+function UninstallFrom([string]$hive, [string[]]$options = @()) {
     $entry = Entry $hive
     Check ($null -ne $entry) "$Name is in $hive's installed apps"
     if ($null -eq $entry) { return }
     $exe = ((Get-ItemProperty -LiteralPath $entry.PSPath).QuietUninstallString -split '"')[1]
-    Write-Host "--- Uninstall $exe"
-    $process = Start-Process -FilePath $exe -ArgumentList "/S" -Wait -PassThru
+    Write-Host "--- Uninstall $exe $($options -join ' ')"
+    $process = Start-Process -FilePath $exe -ArgumentList (@("/S") + $options) -Wait -PassThru
     Check ($process.ExitCode -eq 0) "the uninstaller exits 0"
-    # The uninstaller copies itself to a temporary folder and runs from there.
-    for ($i = 0; $i -lt 30 -and (Test-Path -LiteralPath $exe); $i++) { Start-Sleep -Seconds 1 }
+    # The uninstaller copies itself to a temporary folder and runs from there; its entry in installed apps is the last thing it removes.
+    for ($i = 0; $i -lt 30 -and ((Test-Path -LiteralPath $exe) -or $null -ne (Entry $hive)); $i++) { Start-Sleep -Seconds 1 }
 }
 
 function Value([string]$path, [string]$name) {
@@ -136,10 +142,13 @@ Install @("/FILETYPES=txt", "/NOCONTEXTMENU", "/NODESKTOPSHORTCUT", "/NOSTARTMEN
 CheckState "HKCU" @("txt") $false
 CheckShortcuts "HKCU" $false $false
 
+New-Item -ItemType Directory -Force -Path $Data | Out-Null
+Set-Content -LiteralPath $Marker -Value "seeded"
 Install @("--updated")
 CheckState "HKCU" @("txt") $false
 CheckShortcuts "HKCU" $false $false
 Check (Test-Path -LiteralPath $Cache) "an update keeps the updater's cache"
+Check (Test-Path -LiteralPath $Marker) "an update keeps the app's settings and logs"
 
 # The finish page's Run starts the app the same way; --force-run is its silent form.
 Install @("/NOSTARTMENUSHORTCUT", "--force-run")
@@ -149,8 +158,13 @@ for ($i = 0; $i -lt 30 -and $null -eq $started; $i++) {
     $started = Get-Process -Name $Name -ErrorAction SilentlyContinue
 }
 Check ($null -ne $started) "--force-run starts the app without a Start menu shortcut"
-$started | Stop-Process -Force -ErrorAction SilentlyContinue
-Start-Sleep -Seconds 2
+# Every one of its processes, including any it starts after the first is found, so none writes to its app data later.
+for ($i = 0; $i -lt 30; $i++) {
+    $running = Get-Process -Name $Name -ErrorAction SilentlyContinue
+    if ($null -eq $running) { break }
+    $running | Stop-Process -Force -ErrorAction SilentlyContinue
+    Start-Sleep -Seconds 1
+}
 CheckShortcuts "HKCU" $false $false
 
 ForgetShortcuts "HKCU"
@@ -163,6 +177,11 @@ CheckState "HKCU" @() $false
 CheckShortcuts "HKCU" $false $false
 Check (-not (Test-Path -LiteralPath "HKCU:\Software\Diamond Digital Development\$Key")) "HKCU has nothing of the app's left under Diamond Digital Development"
 Check (-not (Test-Path -LiteralPath $Cache)) "uninstalling takes the updater's cache away"
+Check (Test-Path -LiteralPath $Marker) "a silent uninstall keeps the app's settings and logs"
+
+Install @()
+UninstallFrom "HKCU" @("--delete-app-data")
+Check (-not (Test-Path -LiteralPath $Data)) "an uninstall with --delete-app-data takes the app's settings and logs away"
 
 $admin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 if ($admin) {
