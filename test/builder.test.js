@@ -7,17 +7,24 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const fs = require("fs");
+const os = require("os");
 const path = require("path");
 const Module = require("module");
 const { assertBuildExtendsKit, KIT_BASE } = require("../testing");
-const { config, LINUX_CATEGORIES, MIME_TYPES, ALL_FILES, INSTALLER_DIR } = require("../builder");
+const { config, outputDir, LINUX_CATEGORIES, MIME_TYPES, ALL_FILES, INSTALLER_DIR } = require("../builder");
 const { installerScript, nsisString, sectionCount } = require("../builder/installer");
+const { readPng, WIDTH, HEIGHT } = require("../builder/sidebar");
+const { encodePng } = require("./helpers/png");
 const kitPackage = require("../package.json");
 const demoPackage = require("../demo/package.json");
 
 const BASE = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "builder", "base.json"), "utf8"));
 
-/** The demo's electron-builder.cjs, with the kit it requires being this checkout (the demo's own copy may not be installed). */
+/**
+ * The demo's electron-builder.cjs, with the kit it requires being this checkout (the demo's own copy may not
+ * be installed). It's required from another folder, as the kit's Playwright tests do: config() finds the
+ * demo's icon and accent from where its package.json is.
+ */
 function loadDemoBuild() {
     const resolve = Module._resolveFilename;
     Module._resolveFilename = function (request, ...rest) {
@@ -29,6 +36,39 @@ function loadDemoBuild() {
     } finally {
         Module._resolveFilename = resolve;
     }
+}
+
+/** A size × size icon: a disc of the colour on nothing, as RGBA. */
+function discIcon(size, [r, g, b]) {
+    const data = Buffer.alloc(size * size * 4);
+    for (let y = 0; y < size; y++) {
+        for (let x = 0; x < size; x++) {
+            if ((x + 0.5 - size / 2) ** 2 + (y + 0.5 - size / 2) ** 2 > (size / 2.5) ** 2) continue;
+            data.set([r, g, b, 255], (y * size + x) * 4);
+        }
+    }
+    return { width: size, height: size, data };
+}
+
+/**
+ * An app's folder, which config() reads from as electron-builder runs it: its
+ * icon (src/app.png, a green disc) and its accent (the demo's, blue).
+ */
+const APP_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "kit-builder-"));
+fs.mkdirSync(path.join(APP_DIR, "src", "styles"), { recursive: true });
+fs.writeFileSync(path.join(APP_DIR, "src", "app.png"), encodePng(discIcon(64, [32, 134, 55])));
+fs.copyFileSync(path.join(__dirname, "..", "demo", "src", "styles", "accent.css"), path.join(APP_DIR, "src", "styles", "accent.css"));
+process.chdir(APP_DIR);
+test.after(() => {
+    process.chdir(__dirname);
+    fs.rmSync(APP_DIR, { recursive: true, force: true });
+});
+
+/** A BMP's pixel at x, y (from the top), as [r, g, b]. */
+function bmpPixel(bmp, x, y) {
+    const rowSize = Math.ceil((bmp.readInt32LE(18) * 3) / 4) * 4;
+    const at = bmp.readUInt32LE(10) + (bmp.readInt32LE(22) - 1 - y) * rowSize + x * 3;
+    return [bmp[at + 2], bmp[at + 1], bmp[at]];
 }
 
 const PKG = Object.freeze({ name: "app", version: "1.0.0" });
@@ -74,6 +114,9 @@ test("the demo builds with config(), and publishes to the local update server it
     assert.deepEqual(demo.publish, { provider: "generic", url: "http://127.0.0.1:47613/" });
     assert.equal(demo.extraMetadata.desktopName, "com.diamonddigitaldev.electronkitdemo.desktop");
     assert.deepEqual(demo.linux.mimeTypes, ["text/plain", "text/markdown", "application/json", "text/csv"]);
+    // Made from the demo's own icon, though this test runs in another folder.
+    assert.notEqual(process.cwd(), path.join(__dirname, "..", "demo"));
+    assert.ok(fs.statSync(demo.nsis.installerSidebar).size > 0);
 });
 
 test("config(): the app's build on the kit's base, with the asking installer, and the .desktop file named for its appId", () => {
@@ -89,6 +132,8 @@ test("config(): the app's build on the kit's base, with the asking installer, an
             createDesktopShortcut: true,
             createStartMenuShortcut: true,
             include: built.nsis.include,
+            installerSidebar: built.nsis.installerSidebar,
+            uninstallerSidebar: built.nsis.installerSidebar,
         },
         extraMetadata: { desktopName: "com.diamonddigitaldev.app.desktop" },
         linux: { icon: "src/app.png", category: "AudioVideo", syncDesktopName: true },
@@ -97,6 +142,9 @@ test("config(): the app's build on the kit's base, with the asking installer, an
     assert.equal(path.dirname(built.nsis.include), INSTALLER_DIR);
     assert.match(path.basename(built.nsis.include), /^installer-[0-9a-f]{16}\.nsh$/);
     assert.equal(config(PKG, { build: BUILD }).nsis.include, built.nsis.include);
+    assert.equal(path.dirname(built.nsis.installerSidebar), INSTALLER_DIR);
+    assert.match(path.basename(built.nsis.installerSidebar), /^sidebar-[0-9a-f]{16}\.bmp$/);
+    assert.ok(path.isAbsolute(built.nsis.installerSidebar));
     assert.ok(fs.readFileSync(built.nsis.include, "utf8").startsWith("﻿; Made by @diamonddigitaldev/electron-kit's config()"));
     assert.doesNotThrow(() => assertBuildExtendsKit(built));
     // The app's own options are left as they were.
@@ -183,6 +231,8 @@ test("config() refuses what would claim types without asking, or leave the .desk
         [[PKG, { build: { ...BUILD, nsis: { script: "x.nsi" } } }], /build\.nsis\.script is the kit's/],
         [[PKG, { build: { ...BUILD, nsis: { deleteAppDataOnUninstall: true } } }], /build\.nsis\.deleteAppDataOnUninstall is the kit's[^]*whether to remove settings and logs/],
         [[PKG, { build: { ...BUILD, nsis: { removeDefaultUninstallWelcomePage: true } } }], /build\.nsis\.removeDefaultUninstallWelcomePage is the kit's/],
+        [[PKG, { build: { ...BUILD, nsis: { installerSidebar: "build/sidebar.bmp" } } }], /build\.nsis\.installerSidebar is the kit's to set\. The kit makes the sidebar from build\.linux\.icon/],
+        [[PKG, { build: { ...BUILD, nsis: { uninstallerSidebar: "build/sidebar.bmp" } } }], /build\.nsis\.uninstallerSidebar is the kit's to set/],
         [[PKG, { build: { ...BUILD, productName: 'The "App"' } }], /build\.productName must be/],
         [[PKG, { build: BUILD, contextMenu: "Convert" }], /contextMenu must be \{ label/],
         [[PKG, { build: BUILD, contextMenu: { label: "" } }], /contextMenu\.label must be/],
@@ -406,6 +456,99 @@ test("the uninstaller: the box ticked, or --delete-app-data, removes the app's d
     // Tried again for a moment while something still holds a file just deleted.
     const folder = script.slice(script.indexOf("!macro KitRemoveFolder"));
     assert.match(folder, /\$\{do\}\r\n    RMDir \/r "\$\{FOLDER\}"\r\n    \$\{ifNot\} \$\{FileExists\} "\$\{FOLDER\}\\\*\.\*"\r\n    \$\{orIf\} \$R2 >= 10\r\n      \$\{break\}[\s\S]*Sleep 500\r\n  \$\{loop\}/);
+});
+
+test("config(): the installer's sidebar is made from build.linux.icon in the app's --accent, the same image for the uninstaller", () => {
+    const built = config(PKG, { build: BUILD });
+    assert.equal(built.nsis.uninstallerSidebar, built.nsis.installerSidebar);
+    const bmp = fs.readFileSync(built.nsis.installerSidebar);
+    assert.equal(bmp.toString("latin1", 0, 2), "BM");
+    assert.equal(bmp.readInt32LE(18), WIDTH);
+    assert.equal(bmp.readInt32LE(22), HEIGHT);
+    assert.equal(bmp.readUInt16LE(28), 24);
+    // The demo's accent is blue: the background is blue, and the icon in the middle is the green disc.
+    const [r, g, b] = bmpPixel(bmp, 4, 4);
+    assert.ok(b > r && b > g, `the corner is ${[r, g, b]}`);
+    assert.deepEqual(bmpPixel(bmp, WIDTH / 2, HEIGHT / 2), [32, 134, 55]);
+    // The same icon and accent always make the same file.
+    assert.equal(config(PKG, { build: BUILD }).nsis.installerSidebar, built.nsis.installerSidebar);
+});
+
+test("config(): sidebar.colour takes the icon's own colour (\"logo\") or a fixed one", () => {
+    const corner = (options) => bmpPixel(fs.readFileSync(config(PKG, { build: BUILD, ...options }).nsis.installerSidebar), 4, 4);
+    const accent = corner({});
+    assert.deepEqual(corner({ sidebar: { colour: "accent" } }), accent);
+    // The icon is green, so "logo" is green.
+    const [r, g, b] = corner({ sidebar: { colour: "logo" } });
+    assert.ok(g > r && g > b, `the corner is ${[r, g, b]}`);
+    const red = corner({ sidebar: { colour: "#C0392B" } });
+    assert.ok(red[0] > red[1] && red[0] > red[2], `the corner is ${red}`);
+    assert.deepEqual(corner({ sidebar: { colour: "#c0392b" } }), red);
+});
+
+test("config() refuses an icon the sidebar can't be made from, and a colour it doesn't take", () => {
+    fs.writeFileSync(path.join(APP_DIR, "src", "grey.png"), encodePng(discIcon(32, [128, 128, 128])));
+    fs.writeFileSync(path.join(APP_DIR, "src", "app16.png"), encodePng(discIcon(8, [255, 0, 0]), { depth: 16 }));
+    fs.writeFileSync(path.join(APP_DIR, "src", "app.ico"), "not a png");
+    const linux = (icon) => ({ ...BUILD, linux: { ...BUILD.linux, icon } });
+    const cases = [
+        [{ build: { ...BUILD, linux: { category: "AudioVideo" } } }, /build\.linux\.icon must be the app's icon as a PNG/],
+        [{ build: linux("src/app.ico") }, /build\.linux\.icon must be the app's icon as a PNG/],
+        [{ build: linux("src/missing.png") }, /build\.linux\.icon, src\/missing\.png, can't be read \(ENOENT\)/],
+        [{ build: linux("src/app16.png") }, /build\.linux\.icon, src\/app16\.png, has 16 bits a channel; the sidebar reads 8\. Save it again as an 8-bit RGBA PNG/],
+        [{ build: linux("src/grey.png"), sidebar: { colour: "logo" } }, /src\/grey\.png, has no colour to take: it's all white, black or grey/],
+        [{ build: BUILD, sidebar: "logo" }, /sidebar must be \{ colour \}/],
+        [{ build: BUILD, sidebar: { color: "logo" } }, /sidebar\.color isn't an option\. It takes colour/],
+        [{ build: BUILD, sidebar: { colour: "blue" } }, /sidebar\.colour is "blue"; it's "accent"/],
+        [{ build: BUILD, sidebar: { colour: "#fff" } }, /sidebar\.colour is "#fff"/],
+    ];
+    for (const [options, error] of cases) {
+        assert.throws(() => config(PKG, options), error, JSON.stringify(options));
+    }
+    // A grey icon is fine on the accent.
+    assert.doesNotThrow(() => config(PKG, { build: linux("src/grey.png") }));
+    // With no accent.css, the accent can't be the colour, but another can.
+    const accent = path.join(APP_DIR, "src", "styles", "accent.css");
+    const kept = fs.readFileSync(accent);
+    fs.rmSync(accent);
+    try {
+        assert.throws(() => config(PKG, { build: BUILD }), /--accent, from src\/styles\/accent\.css, which isn't there\. Give sidebar: \{ colour: "logo" \}/);
+        assert.doesNotThrow(() => config(PKG, { build: BUILD, sidebar: { colour: "#208637" } }));
+    } finally {
+        fs.writeFileSync(accent, kept);
+    }
+});
+
+test("config() writes to a folder of the user's own: the kit's under the temp folder, or a new one when that can't be written to", () => {
+    const base = fs.mkdtempSync(path.join(os.tmpdir(), "kit-output-"));
+    try {
+        const dir = path.join(base, "diamonddigitaldev-electron-kit");
+        assert.equal(outputDir(dir), dir);
+        assert.equal(outputDir(dir), dir, "used again, once made");
+        assert.deepEqual(fs.readdirSync(dir), [], "the probe is cleaned up");
+
+        // A file where the folder would be: it can't be made, so a new folder is.
+        const blocked = path.join(base, "blocked");
+        fs.writeFileSync(blocked, "");
+        const instead = outputDir(blocked);
+        assert.notEqual(instead, blocked);
+        assert.match(path.basename(instead), /^blocked-/);
+        assert.ok(fs.statSync(instead).isDirectory());
+
+        // A folder that can't be written to, as one another user made in a shared /tmp is.
+        // (Root writes anywhere, and Windows ignores the mode, so it's tried as a plain user on Linux.)
+        if (process.platform !== "win32" && process.getuid() !== 0) {
+            const locked = path.join(base, "locked");
+            fs.mkdirSync(locked, { mode: 0o555 });
+            const other = outputDir(locked);
+            assert.notEqual(other, locked);
+            fs.writeFileSync(path.join(other, "x"), "");
+            fs.chmodSync(locked, 0o755);
+        }
+    } finally {
+        // The new folders are beside the ones asked for, so in base too.
+        fs.rmSync(base, { recursive: true, force: true });
+    }
 });
 
 test("assertBuildExtendsKit() takes the config itself, or a package.json whose build holds it", () => {
