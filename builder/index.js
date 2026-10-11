@@ -18,7 +18,8 @@
 // Windows, the asking installer (installer.js) offers each type, the
 // shortcuts and the right-click entry, with a box ticked for each, and adds
 // only what stays ticked; it asks whether to install for one person or
-// everyone. On
+// everyone. Its sidebar is made from the app's icon (build.linux.icon) in its
+// accent (sidebar.js). On
 // Linux, the .desktop file lists their MIME types, with %F, so the app is in
 // the file manager's Open With for each and gets every file it's opened with;
 // desktopName names the .desktop file and the running window after the
@@ -35,6 +36,9 @@ const os = require("os");
 const path = require("path");
 const { MIME_TYPES, ALL_FILES } = require("./mime");
 const { installerScript, MAX_LABEL } = require("./installer");
+const { sidebarBmp, readPng, logoColour } = require("./sidebar");
+const { readAccent } = require("../testing/accent");
+const { parseColor } = require("../testing/contrast");
 
 /** What an app's config extends: the kit's base config, by the package's name. */
 const KIT_BASE = "@diamonddigitaldev/electron-kit/builder/base.json";
@@ -43,7 +47,7 @@ const KIT_BASE = "@diamonddigitaldev/electron-kit/builder/base.json";
 const LINUX_CATEGORIES = Object.freeze(["AudioVideo", "Audio", "Video", "Development", "Education", "Game", "Graphics", "Network", "Office", "Science", "Settings", "System", "Utility"]);
 
 /** What config() takes beside build. */
-const OPTIONS = Object.freeze(["build", "fileTypes", "allFiles", "contextMenu"]);
+const OPTIONS = Object.freeze(["build", "fileTypes", "allFiles", "contextMenu", "sidebar"]);
 
 /** The keys of build the kit sets from fileTypes, so an app never sets them itself. */
 const KIT_OWNED = Object.freeze({
@@ -66,17 +70,50 @@ const KIT_OWNED = Object.freeze({
     // The uninstaller's welcome page asks whether to remove the app's data.
     "build.nsis.removeDefaultUninstallWelcomePage": (b) => b.nsis?.removeDefaultUninstallWelcomePage,
     "build.nsis.deleteAppDataOnUninstall": (b) => b.nsis?.deleteAppDataOnUninstall,
+    // The sidebar is made from the app's icon and colour.
+    "build.nsis.installerSidebar": (b) => b.nsis?.installerSidebar,
+    "build.nsis.uninstallerSidebar": (b) => b.nsis?.uninstallerSidebar,
 });
 
 /** What each key the kit owns is for, in config()'s refusal. */
 function ownedReason(key) {
     if (key === "build.extends") return "config() extends the kit's base config itself.";
+    if (key.endsWith("Sidebar")) return "The kit makes the sidebar from build.linux.icon in the app's accent; sidebar: { colour } chooses another colour.";
     if (key.startsWith("build.nsis.")) return "The kit's installer asks who it's for, what it adds and which shortcuts it makes, and its uninstaller whether to remove settings and logs.";
     return "Give the files the app opens as fileTypes (or allFiles).";
 }
 
-/** Where config() writes the installer's include: outside the app, so it's never packed or committed. */
+/**
+ * Where config() writes the installer's include and sidebar: outside the app,
+ * so they're never packed or committed.
+ */
 const INSTALLER_DIR = path.join(os.tmpdir(), "diamonddigitaldev-electron-kit");
+
+/**
+ * The folder config() writes to: INSTALLER_DIR when it's the running user's
+ * own and can be written to, else a new folder of the user's own beside it.
+ * On Linux, /tmp is shared: a folder another user made there (root, in a
+ * container) never stops a build, and nothing is written into one.
+ * @param {string} [dir]
+ * @returns {string}
+ */
+function outputDir(dir = INSTALLER_DIR) {
+    try {
+        fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+        const stat = fs.lstatSync(dir);
+        const ours = stat.isDirectory() && (typeof process.getuid !== "function" || stat.uid === process.getuid());
+        if (ours) {
+            // A file written and removed: on Windows, only trying it shows the folder can be written to.
+            const probe = path.join(dir, `.probe-${process.pid}`);
+            fs.writeFileSync(probe, "");
+            fs.rmSync(probe);
+            return dir;
+        }
+    } catch {
+        // Not ours, or not writable: a folder of our own instead.
+    }
+    return fs.mkdtempSync(`${dir}-`);
+}
 
 /**
  * Check the app's right-click entry: its label, whether it's on folders too,
@@ -103,13 +140,61 @@ function checkContextMenu(contextMenu) {
     return { label: contextMenu.label, folders: contextMenu.folders === true, args: [...(contextMenu.args ?? [])] };
 }
 
-/** Write the installer's include, named for what's in it, and return its path. */
-function writeInstaller(script) {
-    const file = path.join(INSTALLER_DIR, `installer-${crypto.createHash("sha256").update(script).digest("hex").slice(0, 16)}.nsh`);
-    fs.mkdirSync(INSTALLER_DIR, { recursive: true });
-    // With a byte-order mark, so makensis reads an app's name in any language as UTF-8.
-    fs.writeFileSync(file, "\ufeff" + script, "utf8");
+/** Write a file into dir, named for what's in it (name-<hash>.ext), and return its path. */
+function writeOut(dir, name, ext, contents) {
+    const file = path.join(dir, `${name}-${crypto.createHash("sha256").update(contents).digest("hex").slice(0, 16)}.${ext}`);
+    fs.writeFileSync(file, contents);
     return file;
+}
+
+/** What config()'s sidebar.colour takes. */
+const SIDEBAR_COLOURS = "\"accent\" (the default: --accent in src/styles/accent.css), \"logo\" (the icon's most common colour) or a colour, \"#rrggbb\"";
+
+/**
+ * The installer's sidebar, as a BMP: build.linux.icon, a PNG, on the app's
+ * colour. Paths are from the app's folder, where electron-builder runs.
+ * @param {Record<string, any>} build
+ * @param {unknown} sidebar - config()'s sidebar option
+ * @returns {Buffer}
+ */
+function makeSidebar(build, sidebar) {
+    if (sidebar !== undefined && (sidebar === null || typeof sidebar !== "object" || Array.isArray(sidebar))) {
+        throw new Error(`config(): sidebar must be { colour }, where colour is ${SIDEBAR_COLOURS}.`);
+    }
+    for (const key of Object.keys(sidebar ?? {})) {
+        if (key !== "colour") throw new Error(`config(): sidebar.${key} isn't an option. It takes colour.`);
+    }
+    const choice = sidebar?.colour ?? "accent";
+    if (choice !== "accent" && choice !== "logo" && !(typeof choice === "string" && /^#[0-9a-f]{6}$/i.test(choice))) {
+        throw new Error(`config(): sidebar.colour is ${JSON.stringify(choice)}; it's ${SIDEBAR_COLOURS}.`);
+    }
+
+    const icon = build.linux?.icon;
+    if (typeof icon !== "string" || !/\.png$/i.test(icon)) {
+        throw new Error("config(): build.linux.icon must be the app's icon as a PNG, such as \"src/assets/app.png\" (512 × 512): the installer's sidebar is made from it.");
+    }
+    let png;
+    try {
+        png = fs.readFileSync(path.resolve(icon));
+    } catch (err) {
+        throw new Error(`config(): build.linux.icon, ${icon}, can't be read (${err.code ?? err.message}). It's found from the app's folder, where electron-builder runs.`);
+    }
+    const name = `config(): build.linux.icon, ${icon},`;
+
+    let colour;
+    if (choice === "logo") {
+        colour = logoColour(readPng(png, name));
+        if (!colour) throw new Error(`${name} has no colour to take: it's all white, black or grey. Give sidebar.colour as "accent" or "#rrggbb".`);
+    } else if (choice === "accent") {
+        const file = path.resolve("src", "styles", "accent.css");
+        if (!fs.existsSync(file)) {
+            throw new Error("config(): the installer's sidebar is in the app's --accent, from src/styles/accent.css, which isn't there. Give sidebar: { colour: \"logo\" } or { colour: \"#rrggbb\" } instead.");
+        }
+        colour = parseColor(readAccent(file)["--accent"]);
+    } else {
+        colour = parseColor(choice);
+    }
+    return sidebarBmp(png, colour, name);
 }
 
 /**
@@ -159,11 +244,14 @@ function checkFileTypes(fileTypes) {
  *   fileTypes?: { name: string, ext: string[], mimeTypes?: Record<string, string | string[]> }[],
  *   allFiles?: boolean,
  *   contextMenu?: { label: string, folders?: boolean, args?: string[] },
+ *   sidebar?: { colour: string },
  * }} options
  *   build: the app's electron-builder options (appId, productName, publish, linux.category, ...), without extends.
  *   fileTypes: the files it opens, in groups. allFiles: it takes any file instead.
  *   contextMenu: its entry on the menu Explorer shows when a file (and, with folders, a folder) is
  *   right-clicked: its label, and switches given after the file.
+ *   sidebar: the colour of the installer's sidebar, made from build.linux.icon: the app's
+ *   --accent ("accent", the default), the icon's most common colour ("logo"), or "#rrggbb".
  */
 function config(pkg, options) {
     if (pkg === null || typeof pkg !== "object" || typeof pkg.name !== "string") throw new Error("config(): the first argument is the app's package.json: require(\"./package.json\").");
@@ -211,7 +299,11 @@ function config(pkg, options) {
         linux.executableArgs = ["%F"];
     }
 
-    const include = writeInstaller(installerScript({ productName, description: pkg.description, fileTypes, contextMenu }));
+    const sidebar = makeSidebar(build, options.sidebar);
+    const dir = outputDir();
+    // With a byte-order mark, so makensis reads an app's name in any language as UTF-8.
+    const include = writeOut(dir, "installer", "nsh", "\ufeff" + installerScript({ productName, description: pkg.description, fileTypes, contextMenu }));
+    const sidebarFile = writeOut(dir, "sidebar", "bmp", sidebar);
 
     return {
         ...build,
@@ -225,6 +317,9 @@ function config(pkg, options) {
             createDesktopShortcut: true,
             createStartMenuShortcut: true,
             include,
+            // Beside the welcome and finish pages, the installer's and the uninstaller's.
+            installerSidebar: sidebarFile,
+            uninstallerSidebar: sidebarFile,
         },
         // Written into the packaged package.json, where Electron reads it.
         extraMetadata: { ...build.extraMetadata, desktopName },
@@ -232,4 +327,4 @@ function config(pkg, options) {
     };
 }
 
-module.exports = { config, KIT_BASE, LINUX_CATEGORIES, MIME_TYPES, ALL_FILES, INSTALLER_DIR };
+module.exports = { config, outputDir, KIT_BASE, LINUX_CATEGORIES, MIME_TYPES, ALL_FILES, INSTALLER_DIR };

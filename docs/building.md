@@ -39,20 +39,23 @@ refuses a `package.json` that still has one. `build` is the app's own electron-b
 were in `package.json`, and `config()` adds the rest:
 
 - `extends`, the kit's `builder/base.json`;
-- **the asking installer** on Windows (below), from the same file types and the app's right-click entry;
+- **the asking installer** on Windows (below), from the same file types and the app's right-click entry,
+  with **its sidebar** made from the app's icon and accent (below);
 - **Linux's desktop entry**, from the app's `appId` and its files (below).
 
 The kit owns an app's file associations and its installer's questions. It never sets electron-builder's
 `fileAssociations`, which claim every type on Windows without asking. So `config()` refuses
 `fileAssociations` (anywhere), `nsis.include`, `nsis.script`, `nsis.oneClick`, `nsis.perMachine`,
 `nsis.allowElevation`, both `nsis` shortcut options (the installer asks about both), `nsis.deleteAppDataOnUninstall`
-and `nsis.removeDefaultUninstallWelcomePage` (the uninstaller asks), `linux.mimeTypes`, `linux.executableArgs`,
+and `nsis.removeDefaultUninstallWelcomePage` (the uninstaller asks), `nsis.installerSidebar` and
+`nsis.uninstallerSidebar` (the kit makes the sidebar), `linux.mimeTypes`, `linux.executableArgs`,
 `linux.syncDesktopName`, `linux.desktop`, `extraMetadata.desktopName`, and an `extends` of the app's own.
 An app's own `installer.nsh` goes: its right-click entry is `contextMenu`.
 
 `build.appId` (such as `com.diamonddigitaldev.dropgateclient`) and `build.linux.category`, one of
 freedesktop.org's main categories (`AudioVideo`, `Audio`, `Video`, `Development`, `Education`, `Game`,
-`Graphics`, `Network`, `Office`, `Science`, `Settings`, `System`, `Utility`), are needed.
+`Graphics`, `Network`, `Office`, `Science`, `Settings`, `System`, `Utility`), are needed, and so is
+`build.linux.icon`, the app's icon as a PNG (512 × 512), which the installer's sidebar is made from.
 
 `builder/base.json` gives every app the same builds: NSIS on Windows, in the Start menu's `Diamond
 Digital Development` folder; AppImage, `.deb` and `.rpm` on Linux, built on Linux; and
@@ -147,6 +150,25 @@ Silently (`/S`), these choose instead:
 | `/NOSTARTMENUSHORTCUT` | no Start menu shortcut |
 | `/allusers` or `/currentuser` (electron-builder's) | who it's for |
 | `--delete-app-data` (electron-builder's), when uninstalling | the app's settings and logs removed too |
+
+**The sidebar.** The welcome and finish pages, the installer's and the uninstaller's, show the app's own
+picture on their left, never electron-builder's stock one: `config()` makes it from `build.linux.icon`, the
+icon centred with a drop shadow on a soft gradient in the app's colour. The colour is the app's `--accent`,
+from `src/styles/accent.css`, unless the app chooses another:
+
+```js
+sidebar: { colour: "logo" },     // the icon's most common colour, leaving out white, black and grey
+sidebar: { colour: "#208637" },  // a colour of its own
+```
+
+The icon is read as an 8-bit RGB or RGBA PNG that isn't interlaced, as most editors save one; `config()`
+refuses any other, saying how to save it again. Its paths are the app's folder's, where electron-builder runs.
+The same icon and colour always make the same image.
+
+`config()` writes the installer's include and the sidebar outside the app, in a
+`diamonddigitaldev-electron-kit` folder in the system's temp folder, so they're never packed or committed.
+Where that folder isn't the person's own or can't be written to (on Linux, `/tmp` is shared, and another
+user, or root in a container, may have made it), it uses a new folder of its own beside it instead.
 
 The kit's CI installs the demo silently with each choice, reads back what it wrote to the registry and
 the shortcuts it made, and whether the app's data survives an update and each kind of uninstall
