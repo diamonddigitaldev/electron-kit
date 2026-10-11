@@ -40,6 +40,11 @@ been checked yet."
   real update, so an electron-updater upgrade that changes how it keeps the ID fails them.
 - **A failed check or download is logged** as one warning (`start({ log })`, redacted like every line):
   the channel, the reason, and the error's code and first line.
+- **electron-updater's own lines go to the same log, never the console.** Its detail (what it checks, and
+  a failure's whole dump: the response's headers and the stack) is at `debug`, so it's there for a bug
+  report with `LOG_LEVEL=debug` and out of the way otherwise; its warnings are at `warn`. Every line is
+  redacted, so a URL loses its query (a token in it) and a path keeps only its file name. Without a log,
+  electron-updater says nothing.
 
 The state, from `getUpdateStatus()` and `onUpdateStatus()`:
 

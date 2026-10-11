@@ -178,7 +178,8 @@ function deleteOldInstallId(autoUpdater, log) {
  *   app's windows. load: electron-updater's autoUpdater, unless a test
  *   stands one in; it's called once, when the updater starts in a packaged
  *   app. schedule: the launch check's timer. log: the kit's log, which
- *   redacts what it writes; a failed check or download is a warning there.
+ *   redacts what it writes; a failed check or download is a warning there,
+ *   and electron-updater's own lines go there too (updaterLogger()).
  *   isOnline: whether the computer has a network, after a failed check.
  */
 function createUpdater({ options, app, settings, send, load = loadAutoUpdater, schedule = unrefTimeout, log = null, isOnline = electronIsOnline }) {
@@ -240,6 +241,7 @@ function createUpdater({ options, app, settings, send, load = loadAutoUpdater, s
             return;
         }
         autoUpdater = load();
+        autoUpdater.logger = updaterLogger(log);
         withoutInstallId(autoUpdater);
         deleteOldInstallId(autoUpdater, log);
         autoUpdater.autoInstallOnAppQuit = true;
@@ -416,6 +418,20 @@ function electronIsOnline() {
     }
 }
 
+/**
+ * electron-updater's logger: the kit's log, never the console. Its info lines
+ * and its error dumps (the response's headers, a stack) are detail for a bug
+ * report, at debug; its warnings are warnings. The log redacts every line.
+ * The kit's own one-line warning for a failed check, download or install
+ * stays the record a person sees. With no log, electron-updater says nothing.
+ * @param {{ warn(...args: unknown[]): void, debug?(...args: unknown[]): void } | null} log
+ */
+function updaterLogger(log) {
+    if (!log) return null;
+    const detail = (...args) => log.debug?.("electron-updater:", ...args);
+    return { info: detail, debug: detail, error: detail, warn: (...args) => log.warn("electron-updater:", ...args) };
+}
+
 /** electron-updater's autoUpdater, for this platform. */
 function loadAutoUpdater() {
     return require("electron-updater").autoUpdater;
@@ -426,4 +442,4 @@ function unrefTimeout(run, ms) {
     setTimeout(run, ms).unref?.();
 }
 
-module.exports = { createUpdater, checkUpdates, applyChannel, withoutInstallId, checkFailureOf, CHANNEL_SETTINGS, STAGING_ID, LAUNCH_CHECK_DELAY };
+module.exports = { createUpdater, checkUpdates, applyChannel, withoutInstallId, checkFailureOf, updaterLogger, CHANNEL_SETTINGS, STAGING_ID, LAUNCH_CHECK_DELAY };
