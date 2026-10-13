@@ -182,12 +182,13 @@ test("a selected card looks it: the accent's border and active wash, stronger wh
         const style = getComputedStyle(card);
         return { border: style.borderTopColor === want.border, fill: style.backgroundColor === want.fill, hovered: style.backgroundColor === want.hovered, cursor: style.cursor };
     });
+    // Polled: a hover, and its end, can land a frame after the mouse moves.
     await main.mouse.move(0, 0);
-    expect(await looks("two.txt")).toEqual({ border: true, fill: true, hovered: false, cursor: "pointer" });
+    await expect.poll(() => looks("two.txt")).toEqual({ border: true, fill: true, hovered: false, cursor: "pointer" });
     await main.getByRole("group", { name: "two.txt", exact: true }).locator(".kit-card-meta").hover();
-    expect(await looks("two.txt")).toEqual({ border: true, fill: false, hovered: true, cursor: "pointer" });
+    await expect.poll(() => looks("two.txt")).toEqual({ border: true, fill: false, hovered: true, cursor: "pointer" });
     await main.mouse.move(0, 0);
-    expect(await looks("one.txt")).toEqual({ border: false, fill: false, hovered: false, cursor: "pointer" });
+    await expect.poll(() => looks("one.txt")).toEqual({ border: false, fill: false, hovered: false, cursor: "pointer" });
 });
 
 // -- The keys --------------------------------------------------------------------------
@@ -520,9 +521,11 @@ test("every button on a selected or hovered card, and on the bar, holds 4.5:1 on
             expect(seen.length).toBeGreaterThanOrEqual(10);
             // An unselected card, hovered: its lighter wash.
             await card("poster.png").locator(".kit-card-meta").hover();
+            await expect(main.locator("#queue-view .kit-card:hover")).toHaveAttribute("aria-label", "poster.png");
             seen.push(...await buttonContrasts(main, "#queue-view .kit-card:hover"));
             // A selected one, hovered: the strongest wash.
             await card("talk.mov").locator(".kit-card-meta").hover();
+            await expect(main.locator("#queue-view .kit-card:hover")).toHaveAttribute("aria-label", "talk.mov");
             seen.push(...await buttonContrasts(main, "#queue-view .kit-card:hover"));
             short.push(...seen.filter(([, ratio]) => ratio < 4.5).map(([name, ratio]) => `${accent ?? "demo"}, ${theme}: ${name} is ${ratio}:1`));
         }
@@ -546,8 +549,13 @@ test("axe finds nothing in the Queue with a selection and its bar, in both theme
         for (const theme of ["light", "dark"]) {
             await demo.useTheme(main, theme);
             for (const hovered of [false, true]) {
-                if (hovered) await card("talk.mov").locator(".kit-card-meta").hover();
-                else await main.mouse.move(0, 0);
+                if (hovered) {
+                    await card("talk.mov").locator(".kit-card-meta").hover();
+                    await expect(main.locator("#queue-view .kit-card:hover")).toHaveAttribute("aria-label", "talk.mov");
+                } else {
+                    await main.mouse.move(0, 0);
+                    await expect(main.locator("#queue-view .kit-card:hover")).toHaveCount(0);
+                }
                 await main.evaluate(() => Promise.all(document.getAnimations().filter((a) => a instanceof CSSTransition).map((a) => a.finished)));
                 const { violations } = await new AxeBuilder({ page: main }).setLegacyMode(true).include("#queue-view").withTags(WCAG_22_AA).analyze();
                 found.push(...violations.flatMap((v) => v.nodes.map((node) => `${accent ?? "demo"}, ${theme}${hovered ? ", hovered" : ""}: ${v.id}: ${node.target.join(" ")}: ${node.failureSummary.replace(/\s+/g, " ")}`)));
