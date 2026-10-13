@@ -27,7 +27,7 @@ async function violations(page) {
 }
 
 /** Each place in the demo axe checks: a rail item, and a Settings tab when it's Settings. */
-const PLACES = [["Overview"], ["Controls"], ["Settings", "General"], ["Settings", "Update"], ["Settings", "Credits"]];
+const PLACES = [["Overview"], ["Controls"], ["Queue"], ["Settings", "General"], ["Settings", "Update"], ["Settings", "Credits"]];
 
 /**
  * axe on every view and Settings tab, with the rail expanded and collapsed,

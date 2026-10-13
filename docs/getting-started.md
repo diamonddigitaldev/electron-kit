@@ -11,7 +11,7 @@ What the package exports, and the first code an app writes: `start()` in `main.j
 | `@diamonddigitaldev/electron-kit/main` | `start(config)`, called once at the top of an app's `main.js` |
 | `@diamonddigitaldev/electron-kit/preload.js` | the shared bridge, `window.kitAPI`, registered on the app's session by `start()` |
 | `@diamonddigitaldev/electron-kit/page/theme.js` | the theme script, loaded in `<head>`: draws the page in the OS theme and follows it |
-| `@diamonddigitaldev/electron-kit/page/kit.js` | the page library, `window.kit`, loaded as a classic script: `kit.ui.mountShell()` builds the nav rail, the header and the Settings view; `kit.ui.toast()`, `kit.ui.confirm()`, the parts of a section of files, `kit.keys` and `kit.format` |
+| `@diamonddigitaldev/electron-kit/page/kit.js` | the page library, `window.kit`, loaded as a classic script: `kit.ui.mountShell()` builds the nav rail, the header and the Settings view; `kit.ui.toast()`, `kit.ui.confirm()`, the parts of a section of files, `kit.ui.card()` and `kit.ui.busy()`, `kit.keys` and `kit.format` |
 | `@diamonddigitaldev/electron-kit/css/kit.css` | the shared styles, linked after Bootstrap and before the app's `accent.css` |
 | `@diamonddigitaldev/electron-kit/format` | `kit.format` under Node, for a file loaded both in the page and under Node |
 | `@diamonddigitaldev/electron-kit/testing` | helpers for an app's tests ([Testing an App](testing.md)) |

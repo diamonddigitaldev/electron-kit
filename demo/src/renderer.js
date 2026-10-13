@@ -1,6 +1,6 @@
 "use strict";
 
-// The demo's page: kit.ui.mountShell() builds the frame around its two
+// The demo's page: kit.ui.mountShell() builds the frame around its three
 // sections and its own Settings tab, then the page shows what each bridge and
 // each of the kit's page files gave it, and marks itself ready
 // (body[data-ready]), which the tests wait for.
@@ -49,17 +49,150 @@ function applySettings(settings) {
     $("accent-sample").classList.toggle("d-none", !settings.showAccentSample);
 }
 
+// -- The Queue -------------------------------------------------------------------
+//
+// kit.ui.card() as the two apps use it: files to convert, with File Converter's
+// format row and output line, and transfers, with Dropgate's "To" row and the
+// link a finished upload gives. Each is drawn from its state, and its buttons
+// move it on as the app would, a pause or a resume taking a moment.
+
+/** A select for a card's route, named for what it chooses. */
+function routeSelect(name, options, value) {
+    const select = document.createElement("select");
+    select.className = "form-select form-select-sm";
+    select.setAttribute("aria-label", name);
+    for (const [optionValue, label] of options) select.append(new Option(label, optionValue));
+    select.value = value;
+    return select;
+}
+
+const FORMATS = [["", "Choose format…"], ["mp4", "MP4"], ["webm", "WebM"], ["gif", "GIF"], ["png", "PNG Frames"], ["mp3", "MP3"], ["webp", "WebP"]];
+const SERVERS = [["drop", "Example Drop (default)"], ["family", "Family Files"], ["nas", "NAS"]];
+const FOLDERS = [["downloads", "Downloads"], ["videos", "Videos"]];
+
+/** What the demo's buttons say they'd do, in a toast. */
+const says = (message) => () => window.kit.ui.toast(message, { type: "info" });
+
+/** Draw an item again in the state it's moved to; a pause or a resume takes a moment, with its button busy. */
+function moveTo(item, state, { button, busyLabel } = {}) {
+    if (button) window.kit.ui.busy(button, busyLabel);
+    const move = () => {
+        item.state = state;
+        item.draw();
+    };
+    if (button) setTimeout(move, 700);
+    else move();
+}
+
+/** A file to convert, as File Converter draws one. */
+function conversion(spec) {
+    const item = { ...spec };
+    const select = routeSelect(`Convert ${spec.name} to`, FORMATS, spec.target);
+    const output = document.createElement("button");
+    output.type = "button";
+    output.className = "demo-output";
+    output.textContent = spec.output ?? "";
+    output.addEventListener("click", says("Advanced Options open here."));
+    const card = window.kit.ui.card({
+        icon: spec.icon,
+        name: spec.name,
+        onConfigure: says("Advanced Options open here."),
+        onRemove: () => card.element.remove(),
+        route: { from: spec.from, control: select },
+    });
+    item.draw = () => {
+        const states = {
+            ready: { status: { text: "Ready", tone: "ready" } },
+            running: { status: { text: "Converting", tone: "running" }, percent: item.percent, locked: true, actions: [{ label: "Cancel", variant: "outline-danger", onClick: () => moveTo(item, "cancelled") }] },
+            done: { status: { text: "Done", tone: "success" }, actions: [{ label: "Show in Folder", onClick: says("The file shows in its folder here.") }] },
+            failed: { status: { text: "Failed: The file ended early.", tone: "danger" }, actions: [{ label: "Retry", onClick: () => moveTo(item, "ready") }] },
+            cancelled: { status: { text: "Cancelled", tone: "muted" }, actions: [{ label: "Retry", onClick: () => moveTo(item, "ready") }] },
+        };
+        output.disabled = item.state === "running";
+        card.update({ meta: item.meta, settings: item.settings, rows: item.output ? [output] : [], ...states[item.state] });
+    };
+    item.draw();
+    return card.element;
+}
+
+/** A transfer, as Dropgate draws one: an upload to a server, or a download from a link. */
+function transfer(spec) {
+    const item = { ...spec };
+    const upload = spec.icon !== "download";
+    const select = upload ? routeSelect("Upload to", SERVERS, spec.server) : routeSelect("Save to", FOLDERS, "downloads");
+    const link = document.createElement("input");
+    link.className = "form-control form-control-sm demo-link";
+    link.readOnly = true;
+    link.value = spec.link ?? "";
+    link.setAttribute("aria-label", "Link");
+    const card = window.kit.ui.card({
+        icon: spec.icon,
+        name: spec.name,
+        onConfigure: says("Advanced Options open here."),
+        onRemove: () => card.element.remove(),
+        route: { label: upload ? "To" : "Save to", control: select },
+    });
+    item.draw = () => {
+        const cancel = { label: "Cancel", variant: "outline-danger", onClick: () => moveTo(item, "cancelled") };
+        const files = item.files > 1 ? ` · File ${item.fileAt} of ${item.files}` : "";
+        const states = {
+            reading: { name: "Reading the link…", status: { text: "Reading the file list…", tone: "running" }, route: false, locked: true },
+            ready: { status: { text: "Ready", tone: "ready" }, actions: [{ label: "Upload", variant: "primary", onClick: () => moveTo(item, "running") }] },
+            queued: { status: { text: "Queued: Starts when one of the 3 running finishes.", tone: "muted" }, locked: true, actions: [cancel] },
+            running: {
+                status: { text: `Uploading ${item.percent}%${files}`, tone: "running" }, percent: item.percent, locked: true,
+                actions: [{ label: "Pause", onClick: (button) => moveTo(item, "paused", { button, busyLabel: "Pausing…" }) }, cancel],
+            },
+            paused: {
+                status: { text: "Paused. Kept until 14:32.", tone: "warning" }, percent: item.percent, paused: true, locked: true,
+                actions: [{ label: "Resume", onClick: (button) => moveTo(item, "running", { button, busyLabel: "Resuming…" }) }, cancel],
+            },
+            done: {
+                status: { text: "Uploaded · End-to-End Encrypted", tone: "success" }, rows: [link], locked: true,
+                actions: [
+                    { label: "Copy Link", onClick: () => navigator.clipboard.writeText(link.value).then(says("Copied the link.")) },
+                    { label: "Delete", variant: "outline-danger", onClick: (button) => moveTo(item, "deleted", { button, busyLabel: "Deleting…" }) },
+                ],
+            },
+            deleted: { status: { text: "Deleted from the server. Its link no longer works.", tone: "muted" }, locked: true },
+            cancelled: { status: { text: "Cancelled", tone: "muted" }, actions: [{ label: "Retry", onClick: () => moveTo(item, "ready") }] },
+        };
+        card.update({ name: item.name, meta: item.meta, settings: item.settings, ...states[item.state] });
+    };
+    item.draw();
+    return card.element;
+}
+
+/** The Queue: the two shapes side by side, in every tone between them. */
+function fillQueue() {
+    $("queue").replaceChildren(
+        conversion({ icon: "movie", name: "clip.mp4", from: "MP4", target: "png", meta: "1920×1080 · 2:14 · 48 MB", settings: "Every 2nd Frame", output: "Writes about 2,010 images", state: "ready" }),
+        transfer({ icon: "upload_file", name: "site-backup.tar", server: "family", meta: "3.1 GB", state: "paused", percent: 35 }),
+        conversion({ icon: "movie", name: "talk.mov", from: "MOV", target: "mp4", meta: "3840×2160 · 41:07 · 6.2 GB", settings: "H.265 · CRF 26", state: "running", percent: 62 }),
+        transfer({ icon: "upload_file", name: "quarterly-report.pdf", server: "drop", meta: "2.4 MB", state: "done", link: "https://drop.example.com/f5aa7a2f-c0de" }),
+        conversion({ icon: "audio_file", name: "interview.wav", from: "WAV", target: "mp3", meta: "48 kHz · 12:30 · 126 MB", state: "failed" }),
+        transfer({ icon: "upload_file", name: "receipts.csv", server: "drop", meta: "22 KB", state: "queued" }),
+        transfer({ icon: "upload_file", name: "printer-manual.pdf", server: "nas", meta: "5.2 MB", settings: { text: "Not encrypted: This server is plain HTTP.", tone: "warning" }, state: "ready" }),
+        conversion({ icon: "image", name: "poster.png", from: "PNG", target: "webp", meta: "2400×3600 · 8.1 MB", state: "done" }),
+        transfer({ icon: "file_copy", name: "38 files", server: "drop", meta: "1.2 GB · IMG_2041.jpg and 37 More", state: "running", percent: 62, files: 38, fileAt: 24 }),
+        conversion({ icon: "audio_file", name: "notes.m4a", from: "M4A", target: "mp3", meta: "44.1 kHz · 3:12 · 4.4 MB", state: "cancelled" }),
+        transfer({ icon: "download", name: "Link from drop.example.com", meta: "drop.example.com", state: "reading" }),
+    );
+}
+
 // The files the demo is opened with, kept for the tests (it shows none).
 window.filesOpened = [];
 window.kitAPI?.onFilesOpened((paths) => window.filesOpened.push(paths));
 
 async function init() {
     showTheme();
+    fillQueue();
     const shell = window.kit.ui.mountShell({
         title: "electron-kit Demo",
         sections: [
             { view: "overview", label: "Overview", icon: "dashboard", element: $("overview-view") },
             { view: "controls", label: "Controls", icon: "tune", element: $("controls-view") },
+            { view: "queue", label: "Queue", icon: "view_module", element: $("queue-view") },
         ],
         toolbar: $("toolbar"),
         settingsTabs: [{ id: "general", label: "General", render: renderGeneral }],

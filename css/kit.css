@@ -306,6 +306,13 @@ a:hover {
     --bs-btn-color: var(--bs-secondary-color);
 }
 
+/* Its outline danger button (a card's Cancel or Delete) does the same: #dc3545
+   is 3.4:1 on the dark page, so on dark its text is the theme's danger text
+   colour (over 6:1); its border, and its fill when hovered, stay Bootstrap's. */
+[data-bs-theme="dark"] .btn-outline-danger {
+    --bs-btn-color: var(--bs-danger-text-emphasis);
+}
+
 .form-check-input:focus {
     border-color: var(--bs-secondary-color);
     box-shadow: none;
@@ -912,6 +919,273 @@ a:hover {
     to   { transform: translateX(250%); }
 }
 
+/* A paused piece of work (set(percent, { paused: true })): the bar keeps its
+   value, faded and still. One whose amount isn't known doesn't slide: it's
+   the whole bar, faded, as under reduced motion. */
+.kit-progress-paused {
+    opacity: 0.45;
+}
+
+.kit-progress-paused .progress-bar {
+    transition: none;
+}
+
+.kit-progress-paused.kit-progress-unknown .progress-bar {
+    width: 100%;
+    opacity: var(--opacity-disabled);
+    animation: none;
+}
+
+/* -- Busy buttons -----------------------------------------------------------------
+   kit.ui.busy(): Bootstrap's small spinner before the label, sized to the
+   button's own text (0.8em, its ring 0.15em), so a busy button is the same
+   height as it was. The spinner turns under reduced motion too, slower
+   (Bootstrap's own rule): it's the only sign the work goes on. */
+.kit-busy .spinner-border-sm {
+    --bs-spinner-width: 0.8em;
+    --bs-spinner-height: 0.8em;
+    --bs-spinner-border-width: 0.15em;
+    --bs-spinner-vertical-align: -0.1em;
+    margin-right: 0.35em;
+}
+
+/* -- Cards ------------------------------------------------------------------------
+   kit.ui.card(): one piece of work in a list. A card that can be picked
+   washes in the accent when hovered. Its lines are one line each, cut off
+   with an ellipsis (the whole text is the title). */
+.kit-card {
+    display: flex;
+    flex-direction: column;
+    gap: 0.45rem;
+    min-width: 0;
+    padding: 0.7rem 0.75rem;
+    border-radius: var(--radius-card);
+    border: 1px solid var(--bs-border-color);
+    background-color: var(--bs-body-bg);
+    transition: border-color var(--dur-micro) var(--ease-micro),
+                background-color var(--dur-micro) var(--ease-micro);
+}
+
+.kit-card-pickable {
+    cursor: pointer;
+}
+
+.kit-card-pickable:hover {
+    border-color: rgba(var(--accent-rgb), var(--wash-hover-border));
+    background-color: rgba(var(--accent-rgb), var(--wash-hover-fill));
+}
+
+.kit-card > [hidden] {
+    display: none;
+}
+
+.kit-card-head {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.kit-card-select {
+    flex-shrink: 0;
+    margin: 0;
+    cursor: pointer;
+    --bs-form-check-bg: var(--bs-body-bg);
+}
+
+.kit-card-icon {
+    flex-shrink: 0;
+    font-size: 18px;
+    color: var(--bs-secondary-color);
+}
+
+.kit-card-name {
+    flex: 1 1 0;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 0.875rem;
+    font-weight: 500;
+}
+
+.kit-card-configure {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    padding: 0;
+    border: none;
+    background: none;
+    color: var(--bs-secondary-color);
+    cursor: pointer;
+    transition: color var(--dur-micro) var(--ease-micro);
+}
+
+.kit-card-configure:hover:not(:disabled) {
+    color: var(--accent-text);
+}
+
+.kit-card-configure .material-icons-round {
+    display: block;
+    font-size: 16px;
+    line-height: 1;
+}
+
+.kit-card-remove {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    width: 20px;
+    height: 20px;
+    padding: 0;
+    border-radius: 50%;
+    border: 1px solid var(--bs-border-color);
+    background: var(--bs-body-bg);
+    color: var(--bs-secondary-color);
+    cursor: pointer;
+    transition: background-color var(--dur-micro) var(--ease-micro),
+                color var(--dur-micro) var(--ease-micro),
+                border-color var(--dur-micro) var(--ease-micro);
+}
+
+.kit-card-remove:hover:not(:disabled) {
+    background-color: var(--bs-danger);
+    border-color: var(--bs-danger);
+    color: #fff;
+}
+
+.kit-card-remove .material-icons-round {
+    display: block;
+    font-size: 14px;
+    line-height: 1;
+}
+
+/* Locked while its work is under way. */
+.kit-card-configure:disabled,
+.kit-card-remove:disabled {
+    opacity: 0.4;
+    cursor: default;
+}
+
+.kit-card-meta,
+.kit-card-settings,
+.kit-status-text {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.kit-card-meta {
+    min-height: 1.2em;
+    font-size: 0.78rem;
+    color: var(--bs-secondary-color);
+}
+
+/* What has been set on it, so a card set up its own way looks it. */
+.kit-card-settings {
+    font-size: 0.72rem;
+    color: var(--accent-text);
+}
+
+.kit-card-settings-warning {
+    color: var(--bs-warning-text-emphasis);
+}
+
+/* The route: "TO" or "MP4 →", then the app's control. */
+.kit-card-route {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+}
+
+.kit-card-route-label,
+.kit-card-from {
+    flex-shrink: 0;
+    font-size: 0.7rem;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    color: var(--bs-secondary-color);
+}
+
+.kit-card-route-label {
+    text-transform: uppercase;
+}
+
+.kit-card-arrow {
+    flex-shrink: 0;
+    font-size: 15px;
+    color: var(--bs-secondary-color);
+}
+
+.kit-card-route > :last-child {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+.kit-card-route .form-select {
+    font-size: 0.8rem;
+    padding: 0.15rem 1.4rem 0.15rem 0.5rem;
+}
+
+/* The status line: a dot in the tone's colour, then the text. Work under way
+   (running) pulses; under reduced motion it's still (below, with the tokens). */
+.kit-card-status {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    min-height: 1.4em;
+    font-size: 0.75rem;
+}
+
+.kit-status-dot {
+    flex-shrink: 0;
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background-color: var(--bs-secondary-color);
+}
+
+.kit-tone-ready .kit-status-dot { background-color: var(--accent); }
+.kit-tone-ready .kit-status-text { color: var(--bs-secondary-color); }
+.kit-tone-running .kit-status-dot { background-color: var(--accent); animation: kit-status-pulse var(--dur-ambient) var(--ease-state) infinite; }
+.kit-tone-running .kit-status-text { color: var(--accent-text); }
+.kit-tone-warning .kit-status-dot { background-color: var(--bs-warning); }
+.kit-tone-warning .kit-status-text { color: var(--bs-warning-text-emphasis); }
+.kit-tone-danger .kit-status-dot { background-color: var(--bs-danger); }
+.kit-tone-danger .kit-status-text { color: var(--bs-danger-text-emphasis); }
+.kit-tone-success .kit-status-dot { background-color: var(--bs-success); }
+.kit-tone-success .kit-status-text { color: var(--bs-success-text-emphasis); }
+.kit-tone-muted .kit-status-dot { opacity: var(--opacity-muted); }
+.kit-tone-muted .kit-status-text { color: var(--bs-secondary-color); }
+
+@keyframes kit-status-pulse {
+    0%, 100% { opacity: 0.75; }
+    50%      { opacity: 0.4; }
+}
+
+.kit-card-rows,
+.kit-card-actions {
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+}
+
+.kit-card-actions {
+    flex-direction: row;
+    flex-wrap: wrap;
+}
+
+/* Every button on a card is one size, whatever its variant, and while it's
+   busy: set outright, not through Bootstrap's size variables. */
+.kit-card .btn {
+    padding: 0.1rem 0.45rem;
+    border-width: 1px;
+    font-size: 0.72rem;
+    line-height: 1.5;
+    min-height: 0;
+}
+
 /* -- The action bar -------------------------------------------------------------
    kit.ui.actionBar(): the status line over the batch's bar on the left, then
    Clear and the one primary action (or its abort) on the right. */
@@ -1150,6 +1424,11 @@ a:hover {
     .kit-progress-unknown .progress-bar {
         width: 100%;
         opacity: var(--opacity-disabled);
+        animation: none;
+    }
+
+    /* A card's running dot doesn't pulse: it shows, still and whole. */
+    .kit-tone-running .kit-status-dot {
         animation: none;
     }
 }

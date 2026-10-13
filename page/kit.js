@@ -37,7 +37,9 @@
 // kit.ui.progress(), kit.ui.actionBar() and kit.ui.dropZone() are the parts of
 // a section that works through a list of files: a bar (null is "not known"),
 // the bar under the list with its status line and its one primary action, and
-// files dropped from the desktop. kit.keys.onKey() listens for a section's own
+// files dropped from the desktop. kit.ui.card() is one piece of work in a list
+// (its name, lines, status dot, bar and buttons), and kit.ui.busy() shows a
+// button doing what it says. kit.keys.onKey() listens for a section's own
 // shortcuts, never while someone types or a modal is open; kit.format is the
 // house's wording for counts, sizes and times.
 // The shared markup is built with createElement and textContent, never HTML
@@ -951,10 +953,12 @@
      * it (0 to 100); set(null) says the amount isn't known, and a 40% bar
      * slides across instead of sitting at 0%, which reads as a hang. Under
      * reduced motion, the unknown state is the whole bar, faded, and still.
+     * set(percent, { paused: true }) is a paused piece of work: the bar keeps
+     * its value and is still and faded, and an unknown one doesn't slide.
      * @param {{ label: string, thin?: boolean }} options
      *   label: its accessible name. thin: 4px, one item's, rather than the
      *   6px of a batch's.
-     * @returns {{ element: HTMLElement, set(percent: number | null): void }}
+     * @returns {{ element: HTMLElement, set(percent: number | null, options?: { paused?: boolean }): void }}
      */
     function progress({ label, thin = false } = {}) {
         if (typeof label !== "string" || label === "") throw new Error("kit.ui.progress(): label must name what it measures.");
@@ -964,14 +968,16 @@
             className: thin ? "progress kit-progress kit-progress-thin" : "progress kit-progress",
             attrs: { role: "progressbar", "aria-label": label, "aria-valuemin": "0", "aria-valuemax": "100" },
         }, [bar]);
-        function set(percent) {
+        function set(percent, { paused = false } = {}) {
+            if (typeof paused !== "boolean") throw new Error("kit.ui.progress(): paused must be true or false.");
+            if (percent !== null && !Number.isFinite(percent)) throw new Error("kit.ui.progress(): set() takes a percent, or null when it isn't known.");
+            element.classList.toggle("kit-progress-paused", paused);
             if (percent === null) {
                 element.classList.add("kit-progress-unknown");
                 element.removeAttribute("aria-valuenow");
                 bar.style.removeProperty("width");
                 return;
             }
-            if (!Number.isFinite(percent)) throw new Error("kit.ui.progress(): set() takes a percent, or null when it isn't known.");
             const value = Math.round(Math.min(100, Math.max(0, percent)));
             element.classList.remove("kit-progress-unknown");
             element.setAttribute("aria-valuenow", String(value));
@@ -1138,6 +1144,247 @@
         return { zone };
     }
 
+    // -- Busy buttons --------------------------------------------------------------
+
+    /**
+     * A button doing what it says: disabled, with Bootstrap's small spinner
+     * before a "[Doing it]…" label (Pause becomes "Pausing…"). The spinner is
+     * sized to the button's text, so the button doesn't grow. restore() puts its
+     * own label back, and the enabled state it had; it's safe to call twice.
+     * @param {HTMLButtonElement} button
+     * @param {string} label
+     * @returns {() => void} restore
+     */
+    function busy(button, label) {
+        const fail = (message) => {
+            throw new Error(`kit.ui.busy(): ${message}`);
+        };
+        if (!(button instanceof HTMLButtonElement)) fail("the button must be a <button>.");
+        if (typeof label !== "string" || label === "") fail('label must be text, such as "Pausing…".');
+        if (button.classList.contains("kit-busy")) fail("the button is already busy.");
+        const was = [...button.childNodes];
+        const wasDisabled = button.disabled;
+        button.replaceChildren(el("span", { className: "spinner-border spinner-border-sm", attrs: { "aria-hidden": "true" } }), label);
+        button.disabled = true;
+        button.classList.add("kit-busy");
+        let restored = false;
+        return () => {
+            if (restored) return;
+            restored = true;
+            button.replaceChildren(...was);
+            button.disabled = wasDisabled;
+            button.classList.remove("kit-busy");
+        };
+    }
+
+    // -- Cards ---------------------------------------------------------------------
+
+    /** A status line's tones: what each colours its dot and its text. running pulses. */
+    const CARD_TONES = ["ready", "running", "warning", "danger", "success", "muted"];
+
+    /** What a card's update() takes. */
+    const CARD_STATE = ["name", "meta", "settings", "status", "percent", "paused", "actions", "rows", "locked", "route"];
+
+    /** The elements a click on a card belongs to rather than the card: a click on one of them doesn't pick it. */
+    const CARD_CONTROLS = "button, input, select, textarea, a[href], label, summary, [contenteditable], [tabindex]";
+
+    /**
+     * One piece of work in a list: a file to convert, a transfer. The app keeps
+     * its state and draws it with update(), which takes the whole of it each
+     * time: anything left out is drawn empty (or hidden), bar the name.
+     *
+     * The head: a selection box, the kind's glyph, the name, then Advanced
+     * Options (with onConfigure) and Remove (with onRemove). Under it, in order:
+     * the meta line, the settings line, the route (an uppercase label such as
+     * "To", or "MP4 →", then the app's own control), the status line with its
+     * dot, the thin bar, the app's own rows, and the card's buttons. The
+     * buttons are rebuilt only when their labels or variants change, so one
+     * isn't swapped out from under the pointer as the card ticks; each calls
+     * the onClick it was last given. A click on the card, or its box, calls
+     * onPick (not one on its controls).
+     * @param {{
+     *   icon: string,
+     *   name: string,
+     *   onConfigure?: () => void,
+     *   onRemove?: () => void,
+     *   route?: { label?: string, from?: string, control: HTMLElement },
+     *   onPick?: (event: MouseEvent, how: { box: boolean }) => void,
+     * }} options
+     * @returns {{ element: HTMLElement, update(state: {
+     *   name?: string,
+     *   meta?: string,
+     *   settings?: string | { text: string, tone?: "warning" },
+     *   status?: { text: string, tone: string },
+     *   percent?: number | null,
+     *   paused?: boolean,
+     *   actions?: { label: string, variant?: string, onClick: (button: HTMLButtonElement) => void }[],
+     *   rows?: HTMLElement[],
+     *   locked?: boolean,
+     *   route?: boolean,
+     * }): void }}
+     */
+    function card(options = {}) {
+        const fail = (message) => {
+            throw new Error(`kit.ui.card(): ${message}`);
+        };
+        const unknown = (given, known, where) => {
+            const extra = Object.keys(given).find((key) => !known.includes(key));
+            if (extra !== undefined) fail(`${where} has no option "${extra}".`);
+        };
+        const text = (value) => typeof value === "string" && value !== "";
+        if (options === null || typeof options !== "object") fail("options must be { icon, name, … }.");
+        unknown(options, ["icon", "name", "onConfigure", "onRemove", "route", "onPick"], "it");
+        const { icon: glyph, name, onConfigure, onRemove, route, onPick } = options;
+        if (!text(glyph)) fail("icon must be a Material Icons Round glyph.");
+        if (!text(name)) fail("name must be text.");
+        for (const [key, value] of Object.entries({ onConfigure, onRemove, onPick })) {
+            if (value !== undefined && typeof value !== "function") fail(`${key} must be a function, or left out.`);
+        }
+        if (route !== undefined) {
+            if (route === null || typeof route !== "object") fail("route must be { label, control } or { from, control }.");
+            unknown(route, ["label", "from", "control"], "route");
+            if ((route.label === undefined) === (route.from === undefined)) fail("route takes a label (\"To\") or a from (\"MP4\"), not both.");
+            if (!text(route.label ?? route.from)) fail(`route.${route.label !== undefined ? "label" : "from"} must be text.`);
+            if (!(route.control instanceof HTMLElement)) fail("route.control must be the app's element.");
+        }
+
+        const box = el("input", { className: "form-check-input kit-card-select", attrs: { type: "checkbox" } });
+        const nameText = el("span", { className: "kit-card-name" });
+        const configure = onConfigure && el("button", {
+            className: "kit-card-configure",
+            attrs: { type: "button", title: "Advanced Options", "aria-label": "Advanced Options" },
+        }, [icon("tune")]);
+        const remove = onRemove && el("button", { className: "kit-card-remove", attrs: { type: "button", title: "Remove" } }, [icon("close")]);
+        configure?.addEventListener("click", () => onConfigure());
+        remove?.addEventListener("click", () => onRemove());
+
+        const meta = el("div", { className: "kit-card-meta" });
+        const settings = el("div", { className: "kit-card-settings" });
+        const routeLine = route && el("div", { className: "kit-card-route" }, [
+            ...(route.label !== undefined
+                ? [el("span", { className: "kit-card-route-label", text: route.label })]
+                : [el("span", { className: "kit-card-from", text: route.from }), icon("arrow_forward", "kit-card-arrow")]),
+            route.control,
+        ]);
+        const statusText = el("span", { className: "kit-status-text" });
+        const status = el("div", { className: "kit-card-status" }, [el("span", { className: "kit-status-dot" }), statusText]);
+        const bar = progress({ label: name, thin: true });
+        bar.element.classList.add("kit-card-progress");
+        const rowSlot = el("div", { className: "kit-card-rows" });
+        const actionSlot = el("div", { className: "kit-card-actions" });
+
+        const element = el("div", { className: `kit-card${onPick ? " kit-card-pickable" : ""}`, attrs: { role: "group" } }, [
+            el("div", { className: "kit-card-head" }, [box, icon(glyph, "kit-card-icon"), nameText, configure, remove]),
+            meta,
+            settings,
+            routeLine,
+            status,
+            bar.element,
+            rowSlot,
+            actionSlot,
+        ]);
+
+        if (onPick) {
+            box.addEventListener("click", (event) => onPick(event, { box: true }));
+            element.addEventListener("click", (event) => {
+                const control = event.target.closest(CARD_CONTROLS);
+                if (control && element.contains(control) && control !== element) return;
+                onPick(event, { box: false });
+            });
+        }
+
+        let current = name;
+        function rename(value) {
+            current = value;
+            nameText.textContent = value;
+            nameText.title = value;
+            element.setAttribute("aria-label", value);
+            box.setAttribute("aria-label", `Select ${value}`);
+            remove?.setAttribute("aria-label", `Remove ${value}`);
+            bar.element.setAttribute("aria-label", value);
+        }
+
+        /** The buttons drawn now, with what each was last asked to do. */
+        let drawn = { key: null, handlers: [] };
+        function drawActions(actions) {
+            const key = actions.map(({ label, variant }) => `${variant}\u0000${label}`).join("\u0001");
+            if (key !== drawn.key) {
+                const handlers = [];
+                actionSlot.replaceChildren(...actions.map(({ label, variant }, i) => {
+                    const b = el("button", { className: `btn btn-sm btn-${variant}`, text: label, attrs: { type: "button" } });
+                    b.addEventListener("click", () => handlers[i](b));
+                    return b;
+                }));
+                drawn = { key, handlers };
+            }
+            actions.forEach(({ onClick }, i) => {
+                drawn.handlers[i] = onClick;
+            });
+            actionSlot.hidden = actions.length === 0;
+        }
+
+        function update(state = {}) {
+            if (state === null || typeof state !== "object") fail("update() takes the card's state, { status, … }.");
+            unknown(state, CARD_STATE, "update()");
+            const {
+                name: renamed, meta: metaText, settings: settingsLine, status: statusLine, percent, paused = false,
+                actions = [], rows = [], locked = false, route: showRoute = true,
+            } = state;
+            // Everything is checked before anything is drawn, so a mistake leaves the card as it was.
+            if (renamed !== undefined && !text(renamed)) fail("update(): name must be text.");
+            if (metaText !== undefined && typeof metaText !== "string") fail("update(): meta must be text.");
+            const settingsOf = typeof settingsLine === "string" ? { text: settingsLine } : settingsLine;
+            if (settingsOf !== undefined && (settingsOf === null || typeof settingsOf !== "object" || typeof settingsOf.text !== "string"
+                || (settingsOf.tone !== undefined && settingsOf.tone !== "warning"))) {
+                fail('update(): settings must be text, or { text, tone: "warning" }.');
+            }
+            if (statusLine !== undefined && (statusLine === null || typeof statusLine !== "object" || typeof statusLine.text !== "string" || !CARD_TONES.includes(statusLine.tone))) {
+                fail(`update(): status must be { text, tone }, the tone one of ${CARD_TONES.join(", ")}.`);
+            }
+            if (percent !== undefined && percent !== null && !Number.isFinite(percent)) fail("update(): percent must be a number, or null when it isn't known.");
+            if (typeof paused !== "boolean") fail("update(): paused must be true or false.");
+            if (!Array.isArray(actions)) fail("update(): actions must be a list of { label, variant, onClick }.");
+            const buttons = actions.map((action) => {
+                const { label, variant = "outline-secondary", onClick } = action ?? {};
+                if (!text(label)) fail("update(): each action's label must be text.");
+                if (!BUTTON_VARIANTS.includes(variant)) fail(`update(): an action's variant must be one of ${BUTTON_VARIANTS.join(", ")}.`);
+                if (typeof onClick !== "function") fail("update(): each action's onClick must be a function.");
+                return { label, variant, onClick };
+            });
+            if (!Array.isArray(rows) || !rows.every((row) => row instanceof HTMLElement)) fail("update(): rows must be a list of the app's elements.");
+            if (typeof locked !== "boolean") fail("update(): locked must be true or false.");
+            if (typeof showRoute !== "boolean") fail("update(): route must be true or false: whether the route shows.");
+
+            if (renamed !== undefined && renamed !== current) rename(renamed);
+            meta.hidden = metaText === undefined;
+            meta.textContent = metaText ?? "";
+            meta.title = metaText ?? "";
+            settings.hidden = !settingsOf?.text;
+            settings.textContent = settingsOf?.text ?? "";
+            settings.title = settingsOf?.text ?? "";
+            settings.classList.toggle("kit-card-settings-warning", settingsOf?.tone === "warning");
+            if (routeLine) routeLine.hidden = !showRoute;
+            status.hidden = statusLine === undefined;
+            status.className = `kit-card-status kit-tone-${statusLine?.tone ?? "muted"}`;
+            statusText.textContent = statusLine?.text ?? "";
+            statusText.title = statusLine?.text ?? "";
+            bar.element.hidden = percent === undefined;
+            if (percent !== undefined) bar.set(percent, { paused });
+            // The app's rows, put back only when they're other elements, so one being typed in or selected keeps it.
+            const same = rows.length === rowSlot.children.length && rows.every((row, i) => rowSlot.children[i] === row);
+            if (!same) rowSlot.replaceChildren(...rows);
+            rowSlot.hidden = rows.length === 0;
+            drawActions(buttons);
+            if (configure) configure.disabled = locked;
+            if (remove) remove.disabled = locked;
+            if (route && "disabled" in route.control) route.control.disabled = locked;
+        }
+
+        rename(name);
+        update();
+        return { element, update };
+    }
+
     // -- Keys ----------------------------------------------------------------------
 
     /** The input types a person doesn't type into: a key pressed there is still the page's. */
@@ -1285,7 +1532,7 @@
     }, true);
 
     window.kit = {
-        ui: { mountShell, toast, confirm, progress, actionBar, dropZone },
+        ui: { mountShell, toast, confirm, progress, actionBar, dropZone, busy, card },
         format: { plural, countOf, groupDigits, formatBytes, formatEta, formatDuration, summarise },
         keys: { isTyping, onKey },
     };

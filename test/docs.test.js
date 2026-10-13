@@ -6,12 +6,14 @@
 // alone, absolute and on master, and never to a page, which could be renamed
 // or split after a release; docs/README.md lists the pages instead. Every
 // relative link between the docs must reach a file in the repository, and the
-// contents must list every page.
+// contents must list every page. Every helper the page library gives an app
+// (kit.ui, kit.keys, kit.format) is documented.
 
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const fs = require("fs");
 const path = require("path");
+const vm = require("vm");
 
 const ROOT = path.join(__dirname, "..");
 const DOCS = path.join(ROOT, "docs");
@@ -46,5 +48,17 @@ test("docs/README.md lists every page of the docs", () => {
     const listed = linkTargets(path.join(DOCS, "README.md"));
     for (const page of pages.filter((name) => name !== "README.md")) {
         assert.ok(listed.includes(page), `docs/README.md doesn't list ${page}`);
+    }
+});
+
+test("every helper in page/kit.js is documented, by its full name (a format helper in its table)", () => {
+    const window = {};
+    vm.runInNewContext(fs.readFileSync(path.join(ROOT, "page", "kit.js"), "utf8"), { window, document: { addEventListener() {} } });
+    const docs = pages.map((page) => fs.readFileSync(path.join(DOCS, page), "utf8")).join("\n");
+    for (const [space, helpers] of Object.entries(window.kit)) {
+        for (const name of Object.keys(helpers)) {
+            const written = space === "format" ? `\`${name}(` : `kit.${space}.${name}(`;
+            assert.ok(docs.includes(written), `docs/ doesn't document kit.${space}.${name}() (looked for ${written})`);
+        }
     }
 });
