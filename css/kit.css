@@ -1186,6 +1186,99 @@ a:hover {
     min-height: 0;
 }
 
+/* Bootstrap's outline buttons are see-through, and their text only just
+   holds AA on the page itself (#6c757d is 4.69:1 on white, #dc3545 4.53:1):
+   on the accent's wash, as a hovered or selected card is and the bulk bar
+   always is, it falls short. On a card or the bar they're filled with the
+   page's colour instead, as a card's Remove is; hovered, they fill as
+   Bootstrap's do. */
+.kit-card .btn-outline-secondary,
+.kit-card .btn-outline-danger,
+.kit-bulk-bar .btn-outline-secondary,
+.kit-bulk-bar .btn-outline-danger {
+    --bs-btn-bg: var(--bs-body-bg);
+    --bs-btn-disabled-bg: var(--bs-body-bg);
+}
+
+/* -- The card grid ------------------------------------------------------------------
+   kit.ui.cardGrid(): as many columns of at least 272px as fit, the cards
+   filling each row. A selected card takes the accent's active washes; one
+   that's selected and hovered keeps a stronger fill, so it never reads as
+   less selected than one only hovered. */
+.kit-card-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(272px, 1fr));
+    gap: 0.75rem;
+    align-content: start;
+}
+
+.kit-card.selected {
+    border-color: rgba(var(--accent-rgb), var(--wash-active-border));
+    background-color: rgba(var(--accent-rgb), var(--wash-active-fill));
+}
+
+.kit-card.selected:hover {
+    background-color: rgba(var(--accent-rgb), calc(var(--wash-active-fill) * 1.8));
+}
+
+/* -- The bulk bar -------------------------------------------------------------------
+   kit.ui.bulkBar(): a strip in the accent's semantic washes over the grid:
+   the select-all box and the count, a rule, the target's label, select and
+   note, then the actions on the right. It wraps onto a second line when
+   the window is narrow. */
+.kit-bulk-bar {
+    display: flex;
+    flex-shrink: 0;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.6rem;
+    padding: 0.45rem 0.75rem;
+    border-radius: var(--radius-card);
+    border: 1px solid rgba(var(--accent-rgb), var(--wash-semantic-border));
+    background-color: rgba(var(--accent-rgb), var(--wash-semantic-fill));
+}
+
+.kit-bulk-bar[hidden],
+.kit-bulk-bar [hidden] {
+    display: none;
+}
+
+.kit-bulk-select {
+    flex-shrink: 0;
+    margin: 0;
+    cursor: pointer;
+    --bs-form-check-bg: var(--bs-body-bg);
+}
+
+.kit-bulk-count {
+    font-size: 0.875rem;
+    font-weight: 600;
+}
+
+.kit-bulk-sep {
+    width: 1px;
+    align-self: stretch;
+    margin: 0 0.15rem;
+    background-color: var(--bs-border-color);
+}
+
+.kit-bulk-label,
+.kit-bulk-note {
+    font-size: 0.875rem;
+    color: var(--bs-secondary-color);
+}
+
+.kit-bulk-bar .kit-bulk-target {
+    width: auto;
+    min-width: 150px;
+}
+
+.kit-bulk-actions {
+    display: flex;
+    gap: 0.35rem;
+    margin-left: auto;
+}
+
 /* -- The action bar -------------------------------------------------------------
    kit.ui.actionBar(): the status line over the batch's bar on the left, then
    Clear and the one primary action (or its abort) on the right. */

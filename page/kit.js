@@ -38,10 +38,11 @@
 // a section that works through a list of files: a bar (null is "not known"),
 // the bar under the list with its status line and its one primary action, and
 // files dropped from the desktop. kit.ui.card() is one piece of work in a list
-// (its name, lines, status dot, bar and buttons), and kit.ui.busy() shows a
-// button doing what it says. kit.keys.onKey() listens for a section's own
-// shortcuts, never while someone types or a modal is open; kit.format is the
-// house's wording for counts, sizes and times.
+// (its name, lines, status dot, bar and buttons), kit.ui.cardGrid() lays a
+// list's cards out and selects them, kit.ui.bulkBar() acts on what's selected,
+// and kit.ui.busy() shows a button doing what it says. kit.keys.onKey()
+// listens for a section's own shortcuts, never while someone types or a modal
+// is open; kit.format is the house's wording for counts, sizes and times.
 // The shared markup is built with createElement and textContent, never HTML
 // strings, and every icon is aria-hidden: an item's name is its label, which a
 // collapsed rail hides visually but keeps for screen readers.
@@ -1183,10 +1184,17 @@
     const CARD_TONES = ["ready", "running", "warning", "danger", "success", "muted"];
 
     /** What a card's update() takes. */
-    const CARD_STATE = ["name", "meta", "settings", "status", "percent", "paused", "actions", "rows", "locked", "route"];
+    const CARD_STATE = ["name", "meta", "settings", "status", "percent", "paused", "actions", "rows", "locked", "canRemove", "route"];
 
     /** The elements a click on a card belongs to rather than the card: a click on one of them doesn't pick it. */
     const CARD_CONTROLS = "button, input, select, textarea, a[href], label, summary, [contenteditable], [tabindex]";
+
+    /**
+     * Each card's parts a grid works with, kept out of the card's own API: a
+     * grid sets who hears its picks, and draws it selected or not.
+     * @type {WeakMap<object, { element: HTMLElement, ownPick: boolean, inGrid: boolean, setPick(fn: Function | null): void, setSelected(selected: boolean): void }>}
+     */
+    const cardParts = new WeakMap();
 
     /**
      * One piece of work in a list: a file to convert, a transfer. The app keeps
@@ -1200,8 +1208,12 @@
      * dot, the thin bar, the app's own rows, and the card's buttons. The
      * buttons are rebuilt only when their labels or variants change, so one
      * isn't swapped out from under the pointer as the card ticks; each calls
-     * the onClick it was last given. A click on the card, or its box, calls
-     * onPick (not one on its controls).
+     * the onClick it was last given. locked disables Advanced Options, the
+     * route's control and Remove, while its work is under way; canRemove,
+     * which follows locked unless given, sets Remove apart (a queued upload
+     * is locked, yet can be taken off the list). A click on the card, or its
+     * box, calls onPick (not one on its controls); in a grid (cardGrid()),
+     * the grid hears it instead.
      * @param {{
      *   icon: string,
      *   name: string,
@@ -1220,6 +1232,7 @@
      *   actions?: { label: string, variant?: string, onClick: (button: HTMLButtonElement) => void }[],
      *   rows?: HTMLElement[],
      *   locked?: boolean,
+     *   canRemove?: boolean,
      *   route?: boolean,
      * }): void }}
      */
@@ -1273,7 +1286,7 @@
         const rowSlot = el("div", { className: "kit-card-rows" });
         const actionSlot = el("div", { className: "kit-card-actions" });
 
-        const element = el("div", { className: `kit-card${onPick ? " kit-card-pickable" : ""}`, attrs: { role: "group" } }, [
+        const element = el("div", { className: "kit-card", attrs: { role: "group" } }, [
             el("div", { className: "kit-card-head" }, [box, icon(glyph, "kit-card-icon"), nameText, configure, remove]),
             meta,
             settings,
@@ -1284,14 +1297,25 @@
             actionSlot,
         ]);
 
-        if (onPick) {
-            box.addEventListener("click", (event) => onPick(event, { box: true }));
-            element.addEventListener("click", (event) => {
-                const control = event.target.closest(CARD_CONTROLS);
-                if (control && element.contains(control) && control !== element) return;
-                onPick(event, { box: false });
-            });
+        // Who hears a pick: the app's onPick, or the grid the card is in.
+        let picker = null;
+        function setPick(fn) {
+            picker = fn;
+            element.classList.toggle("kit-card-pickable", picker !== null);
         }
+        const onControl = (event) => {
+            const control = event.target.closest(CARD_CONTROLS);
+            return control !== null && element.contains(control) && control !== element;
+        };
+        box.addEventListener("click", (event) => picker?.(event, { box: true }));
+        element.addEventListener("click", (event) => {
+            if (picker && !onControl(event)) picker(event, { box: false });
+        });
+        // Shift picks a range: it doesn't also select the text between.
+        element.addEventListener("mousedown", (event) => {
+            if (picker && event.shiftKey && !onControl(event)) event.preventDefault();
+        });
+        setPick(onPick ?? null);
 
         let current = name;
         function rename(value) {
@@ -1328,7 +1352,7 @@
             unknown(state, CARD_STATE, "update()");
             const {
                 name: renamed, meta: metaText, settings: settingsLine, status: statusLine, percent, paused = false,
-                actions = [], rows = [], locked = false, route: showRoute = true,
+                actions = [], rows = [], locked = false, canRemove = !locked, route: showRoute = true,
             } = state;
             // Everything is checked before anything is drawn, so a mistake leaves the card as it was.
             if (renamed !== undefined && !text(renamed)) fail("update(): name must be text.");
@@ -1353,6 +1377,7 @@
             });
             if (!Array.isArray(rows) || !rows.every((row) => row instanceof HTMLElement)) fail("update(): rows must be a list of the app's elements.");
             if (typeof locked !== "boolean") fail("update(): locked must be true or false.");
+            if (typeof canRemove !== "boolean") fail("update(): canRemove must be true or false.");
             if (typeof showRoute !== "boolean") fail("update(): route must be true or false: whether the route shows.");
 
             if (renamed !== undefined && renamed !== current) rename(renamed);
@@ -1376,13 +1401,325 @@
             rowSlot.hidden = rows.length === 0;
             drawActions(buttons);
             if (configure) configure.disabled = locked;
-            if (remove) remove.disabled = locked;
+            if (remove) remove.disabled = !canRemove;
             if (route && "disabled" in route.control) route.control.disabled = locked;
         }
 
         rename(name);
         update();
-        return { element, update };
+        const made = { element, update };
+        cardParts.set(made, {
+            element,
+            ownPick: onPick !== undefined,
+            inGrid: false,
+            setPick,
+            setSelected(selected) {
+                element.classList.toggle("selected", selected);
+                box.checked = selected;
+            },
+        });
+        return made;
+    }
+
+    // -- The card grid -------------------------------------------------------------
+
+    /**
+     * The selection a click leaves, by File Converter's rules: a plain click
+     * selects the one clicked, or keeps a multi-selection it's inside (so a
+     * group can be acted on without collapsing to one first); Ctrl (Cmd on a
+     * Mac) toggles it; Shift selects the range from the anchor, the last item
+     * clicked without Shift, and Ctrl+Shift adds that range to what's
+     * selected. A Shift click with no anchor in the list is a plain click.
+     * The items are anything (a grid's are its cards), in their order on screen.
+     * @template T
+     * @param {T[]} items
+     * @param {Set<T>} current
+     * @param {T} clicked
+     * @param {{ ctrl?: boolean, shift?: boolean }} [modifiers]
+     * @param {T | null} [anchor]
+     * @returns {{ selection: Set<T>, anchor: T | null }}
+     */
+    function resolveSelection(items, current, clicked, { ctrl = false, shift = false } = {}, anchor = null) {
+        if (shift && anchor !== null && items.includes(anchor) && items.includes(clicked)) {
+            const from = items.indexOf(anchor);
+            const to = items.indexOf(clicked);
+            const next = ctrl ? new Set(current) : new Set();
+            for (const item of items.slice(Math.min(from, to), Math.max(from, to) + 1)) next.add(item);
+            return { selection: next, anchor };
+        }
+        if (ctrl) {
+            const next = new Set(current);
+            if (next.has(clicked)) next.delete(clicked);
+            else next.add(clicked);
+            return { selection: next, anchor: clicked };
+        }
+        if (current.size > 1 && current.has(clicked)) return { selection: new Set(current), anchor: clicked };
+        return { selection: new Set([clicked]), anchor: clicked };
+    }
+
+    /** The selection without the items no longer in the list, so a removal can't strand one. */
+    function pruneSelection(selection, items) {
+        const kept = new Set(items);
+        return new Set([...selection].filter((item) => kept.has(item)));
+    }
+
+    /**
+     * Each grid's hooks for its bulk bar, kept out of the grid's own API.
+     * @type {WeakMap<object, { listen(fn: () => void): void, barred: boolean }>}
+     */
+    const gridParts = new WeakMap();
+
+    /**
+     * The cards of a list, side by side (as many columns of at least 272px as
+     * fit), in the order they're added, and which of them are selected. The
+     * grid hears each card's picks and selects by resolveSelection()'s rules;
+     * a card's box toggles just its card, and a click on the grid's empty
+     * space clears it. Ctrl+A selects every card and Escape clears, through
+     * kit.keys.onKey() (never while typing, under a modal, or in another
+     * view). Delete is the app's: only it knows when a card can go.
+     * onSelect is told each time the selection changes, however it changed.
+     * @param {HTMLElement} container - the app's element the cards go in
+     * @param {{ view?: string, onSelect?: (selection: object[]) => void }} [options]
+     * @returns {{ add(card: object): void, remove(card: object): void, readonly cards: object[], readonly selection: object[],
+     *             select(cards: object | object[]): void, selectAll(): void, clear(): void }}
+     */
+    function cardGrid(container, options = {}) {
+        const fail = (message) => {
+            throw new Error(`kit.ui.cardGrid(): ${message}`);
+        };
+        if (!(container instanceof HTMLElement)) fail("the container must be the app's element.");
+        if (container.classList.contains("kit-card-grid")) fail("the container is a grid already.");
+        if (options === null || typeof options !== "object") fail("options must be { view, onSelect }.");
+        const extra = Object.keys(options).find((key) => !["view", "onSelect"].includes(key));
+        if (extra !== undefined) fail(`it has no option "${extra}".`);
+        const { view, onSelect } = options;
+        if (view !== undefined && (typeof view !== "string" || !VIEW_NAME.test(view))) fail("view must be the shell's name for the view, or left out.");
+        if (onSelect !== undefined && typeof onSelect !== "function") fail("onSelect must be a function, or left out.");
+        container.classList.add("kit-card-grid");
+
+        let cards = [];
+        let selected = new Set();
+        let anchor = null;
+        const listeners = [];
+
+        const selection = () => cards.filter((card) => selected.has(card));
+
+        /** Draw the selection on the cards, tell the bar, and tell the app if it changed. */
+        function settle(next, nextAnchor) {
+            const changed = next.size !== selected.size || [...next].some((card) => !selected.has(card));
+            selected = next;
+            anchor = nextAnchor;
+            for (const card of cards) cardParts.get(card).setSelected(selected.has(card));
+            for (const listen of listeners) listen();
+            if (changed) onSelect?.(selection());
+        }
+
+        const pick = (card) => (event, { box }) => {
+            // The box toggles just its card, whatever is held down.
+            const modifiers = box ? { ctrl: true } : { ctrl: event.ctrlKey || event.metaKey, shift: event.shiftKey };
+            const next = resolveSelection(cards, selected, card, modifiers, anchor);
+            settle(next.selection, next.anchor);
+        };
+
+        const ours = (card, where) => {
+            if (!cards.includes(card)) fail(`${where} takes a card in this grid.`);
+        };
+
+        function add(card) {
+            const parts = cardParts.get(card);
+            if (!parts) fail("add() takes a card from kit.ui.card().");
+            if (parts.inGrid) fail("add(): the card is in a grid already.");
+            if (parts.ownPick) fail("add(): the card has its own onPick; in a grid, the grid picks it.");
+            parts.inGrid = true;
+            cards.push(card);
+            container.append(parts.element);
+            parts.setPick(pick(card));
+            settle(selected, anchor);
+        }
+
+        function remove(card) {
+            ours(card, "remove()");
+            const parts = cardParts.get(card);
+            parts.inGrid = false;
+            cards = cards.filter((c) => c !== card);
+            parts.element.remove();
+            parts.setPick(null);
+            parts.setSelected(false);
+            settle(pruneSelection(selected, cards), anchor === card ? null : anchor);
+        }
+
+        function select(given) {
+            const list = Array.isArray(given) ? given : [given];
+            for (const card of list) ours(card, "select()");
+            settle(new Set(list), cards.find((card) => list.includes(card)) ?? null);
+        }
+        const selectAll = () => settle(new Set(cards), cards[0] ?? null);
+        const clear = () => settle(new Set(), null);
+
+        // The grid's empty space, between and after the cards.
+        container.addEventListener("click", (event) => {
+            if (event.target === container) clear();
+        });
+        onKey((event) => {
+            if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "a") {
+                event.preventDefault();
+                selectAll();
+            } else if (event.key === "Escape") {
+                clear();
+            }
+        }, { view });
+
+        const grid = {
+            add,
+            remove,
+            get cards() {
+                return [...cards];
+            },
+            get selection() {
+                return selection();
+            },
+            select,
+            selectAll,
+            clear,
+        };
+        gridParts.set(grid, { listen: (fn) => listeners.push(fn), barred: false });
+        return grid;
+    }
+
+    // The rules themselves, for a list that isn't cards.
+    cardGrid.resolveSelection = resolveSelection;
+    cardGrid.pruneSelection = pruneSelection;
+
+    // -- The bulk bar --------------------------------------------------------------
+
+    /** A number for each bar, for its note's id. */
+    let bulkBars = 0;
+
+    /**
+     * The bar over a grid that acts on its selection, or on every card when
+     * none is selected (the scope): the select-all box (ticked when all are,
+     * a bar across it when some are), "Select all" or "3 selected", then the
+     * target (the app's select, labelled "Convert all to" or "Convert
+     * selected to", with the note from note(scope) beside it), then the app's
+     * actions, each shown always or only with a selection, and Deselect. It
+     * shows while the grid has cards. refresh() draws it again, for a note or
+     * an enabled() that has changed with the app's own state.
+     * @param {object} grid - from kit.ui.cardGrid()
+     * @param {{
+     *   noun: string | { one: string, many?: string },
+     *   target?: { verb: string, control: HTMLSelectElement, note?: (scope: object[], how: { all: boolean }) => string },
+     *   actions?: { label: string, variant?: string, selection?: boolean, enabled?: (scope: object[]) => boolean, onClick: (scope: object[]) => void }[],
+     * }} options
+     * @returns {{ element: HTMLElement, refresh(): void }}
+     */
+    function bulkBar(grid, options = {}) {
+        const fail = (message) => {
+            throw new Error(`kit.ui.bulkBar(): ${message}`);
+        };
+        const text = (value) => typeof value === "string" && value !== "";
+        const unknown = (given, known, where) => {
+            const extra = Object.keys(given).find((key) => !known.includes(key));
+            if (extra !== undefined) fail(`${where} has no option "${extra}".`);
+        };
+        const hooks = gridParts.get(grid);
+        if (!hooks) fail("the grid must be one from kit.ui.cardGrid().");
+        if (hooks.barred) fail("the grid has a bulk bar already.");
+        if (options === null || typeof options !== "object") fail("options must be { noun, target, actions }.");
+        unknown(options, ["noun", "target", "actions"], "it");
+        const { noun, target, actions = [] } = options;
+        const words = typeof noun === "string" ? { one: noun } : noun;
+        if (!words || typeof words !== "object" || !text(words.one) || (words.many !== undefined && !text(words.many))) {
+            fail('noun must be what a card is, such as "file", or { one, many }.');
+        }
+        if (target !== undefined) {
+            if (target === null || typeof target !== "object") fail("target must be { verb, control, note }.");
+            unknown(target, ["verb", "control", "note"], "target");
+            if (!text(target.verb)) fail('target.verb must be text, such as "Convert".');
+            if (!(target.control instanceof HTMLSelectElement)) fail("target.control must be the app's <select>.");
+            if (target.note !== undefined && typeof target.note !== "function") fail("target.note must be a function, or left out.");
+        }
+        if (!Array.isArray(actions)) fail("actions must be a list of { label, variant, selection, onClick }.");
+        const buttons = actions.map((action, i) => {
+            if (action === null || typeof action !== "object") fail(`actions[${i}] must be { label, variant, selection, onClick }.`);
+            unknown(action, ["label", "variant", "selection", "enabled", "onClick"], `actions[${i}]`);
+            const { label, variant = "outline-secondary", selection = false, enabled, onClick } = action;
+            if (!text(label)) fail(`actions[${i}].label must be text.`);
+            if (!BUTTON_VARIANTS.includes(variant)) fail(`actions[${i}].variant must be one of ${BUTTON_VARIANTS.join(", ")}.`);
+            if (typeof selection !== "boolean") fail(`actions[${i}].selection must be true or false: whether it shows only with a selection.`);
+            if (enabled !== undefined && typeof enabled !== "function") fail(`actions[${i}].enabled must be a function, or left out.`);
+            if (typeof onClick !== "function") fail(`actions[${i}].onClick must be a function.`);
+            return { label, variant, selection, enabled, onClick };
+        });
+        hooks.barred = true;
+
+        const scope = () => (grid.selection.length > 0 ? grid.selection : grid.cards);
+        const all = el("input", {
+            className: "form-check-input kit-bulk-select",
+            attrs: { type: "checkbox", title: "Select all", "aria-label": `Select all ${plural(2, words.one, words.many)}` },
+        });
+        // What's selected, said as it changes: Ctrl+A and Escape show nothing else.
+        const count = el("span", { className: "kit-bulk-count", attrs: { role: "status" } });
+        const shown = [
+            ...buttons.map(({ label, variant, selection, enabled, onClick }) => {
+                const button = el("button", { className: `btn btn-sm btn-${variant}`, text: label, attrs: { type: "button" } });
+                button.addEventListener("click", () => onClick(scope()));
+                return { button, selection, enabled };
+            }),
+            { button: el("button", { className: "btn btn-sm btn-outline-secondary", text: "Deselect", attrs: { type: "button" } }), selection: true },
+        ];
+        shown[shown.length - 1].button.addEventListener("click", () => grid.clear());
+        const label = target && el("label", { className: "kit-bulk-label" });
+        const note = target && el("span", { className: "kit-bulk-note", attrs: { id: `kit-bulk-note-${++bulkBars}` } });
+        if (target) {
+            const { control } = target;
+            if (!control.id) control.id = `kit-bulk-target-${bulkBars}`;
+            label.htmlFor = control.id;
+            control.classList.add("kit-bulk-target");
+            control.setAttribute("aria-describedby", note.id);
+        }
+        const element = el("div", { className: "kit-bulk-bar" }, [
+            all,
+            count,
+            target && el("span", { className: "kit-bulk-sep", attrs: { "aria-hidden": "true" } }),
+            label,
+            target?.control,
+            note,
+            el("div", { className: "kit-bulk-actions" }, shown.map(({ button }) => button)),
+        ]);
+
+        function refresh() {
+            const total = grid.cards.length;
+            const n = grid.selection.length;
+            const everything = n === 0;
+            element.hidden = total === 0;
+            count.textContent = everything ? "Select all" : `${groupDigits(n)} selected`;
+            all.checked = n > 0 && n === total;
+            all.indeterminate = n > 0 && n < total;
+            if (target) {
+                label.textContent = `${target.verb} ${everything ? "all" : "selected"} to`;
+                const said = target.note?.(scope(), { all: everything }) ?? "";
+                if (typeof said !== "string") fail("target.note() must return text.");
+                note.textContent = said;
+                note.hidden = said === "";
+            }
+            // A button that goes while it has the focus hands it to the box, not to the page.
+            let lost = false;
+            for (const { button, selection, enabled } of shown) {
+                const hide = selection && everything;
+                if (hide && document.activeElement === button) lost = true;
+                button.hidden = hide;
+                button.disabled = enabled ? !enabled(scope()) : false;
+            }
+            if (lost) all.focus();
+        }
+
+        all.addEventListener("change", () => {
+            if (all.checked) grid.selectAll();
+            else grid.clear();
+        });
+        hooks.listen(refresh);
+        refresh();
+        return { element, refresh };
     }
 
     // -- Keys ----------------------------------------------------------------------
@@ -1532,7 +1869,7 @@
     }, true);
 
     window.kit = {
-        ui: { mountShell, toast, confirm, progress, actionBar, dropZone, busy, card },
+        ui: { mountShell, toast, confirm, progress, actionBar, dropZone, busy, card, cardGrid, bulkBar },
         format: { plural, countOf, groupDigits, formatBytes, formatEta, formatDuration, summarise },
         keys: { isTyping, onKey },
     };

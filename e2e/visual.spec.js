@@ -5,7 +5,7 @@
 // the images are taken on a Windows CI runner, so they show Segoe UI as most
 // people see it, and Linux runs every other test without them.
 //
-// Sixteen states, each a whole window:
+// Seventeen states, each a whole window:
 // - Settings > Update with an update waiting (and the dot), downloading, ready
 //   to install, and after a check that failed;
 // - Settings on its General, Update and Credits tabs;
@@ -16,15 +16,17 @@
 //   with Save as New focused by keyboard; and, last, since it replaces the
 //   Overview, a section of files (the drop zone, a bar whose amount isn't
 //   known, the action bar with Convert focused by keyboard); the Queue, its
-//   cards in two columns on the collapsed rail (a conversion ready, with its
-//   format row and output line; a paused upload, its bar faded, with Resume
-//   focused by keyboard; a conversion running; a finished upload with its
-//   link; and the tops of a failed and a queued one); then the update dot on
-//   the collapsed rail.
-// All sixteen in the demo's accent, in the light and dark themes. The three
-// that show the most accent (the rail, Controls toggled, and the Queue) again
-// in each of the three apps' accents (test/fixtures/accents/), in both themes.
-// 50 images.
+//   bulk bar over its cards in two columns on the collapsed rail (a
+//   conversion ready, with its format row and output line; a paused upload,
+//   its bar faded, with Resume focused by keyboard; a conversion running; a
+//   finished upload with its link; and the top of a failed one); the Queue
+//   with three cards selected (the bar's box half ticked, "3 selected", its
+//   target's note, and the actions a selection shows); then the update dot
+//   on the collapsed rail.
+// All seventeen in the demo's accent, in the light and dark themes. The four
+// that show the most accent (the rail, Controls toggled, and the Queue at
+// rest and selected) again in each of the three apps' accents
+// (test/fixtures/accents/), in both themes. 58 images.
 //
 // So that an image only changes when the look does: the window's page is
 // 760 x 600 at a scale factor of 1, drawn without the GPU; motion is reduced, so every transition ends
@@ -254,8 +256,21 @@ const STATES = {
         await main.keyboard.press("Tab");
         await expect(resume).toBeFocused();
     },
+    "cards-selected": async (main) => {
+        // Three cards selected, by a click and a Shift click: the bar's box half ticked, "3 selected",
+        // the target's note, and Bulk Edit, Remove and Deselect.
+        await main.getByRole("button", { name: "Queue", exact: true }).click();
+        const card = (name) => main.getByRole("group", { name, exact: true });
+        await card("clip.mp4").locator(".kit-card-meta").click();
+        await card("talk.mov").locator(".kit-card-meta").click({ modifiers: ["Shift"] });
+        await expect(main.locator("#queue .kit-card.selected")).toHaveCount(3);
+        await expect(main.locator("#queue-view .kit-bulk-count")).toHaveText("3 selected");
+        await blur(main);
+    },
     "update-dot-collapsed": async (main, demo) => {
         // Last, so no other image has the dot: the collapsed rail's Settings, an update waiting.
+        await main.keyboard.press("Escape");
+        await expect(main.locator("#queue .kit-card.selected")).toHaveCount(0);
         await pushUpdate(demo, { state: "available", version: "0.1.0", dot: true });
         await expect(main.locator(".nav-rail .update-dot:visible")).toHaveCount(1);
         await blur(main);
@@ -265,7 +280,7 @@ const STATES = {
 /** Which states each accent is pictured in. */
 const PLAN = [
     [null, Object.keys(STATES)],
-    ...APP_ACCENTS.map((accent) => [accent, ["controls-toggled", "rail-expanded", "cards"]]),
+    ...APP_ACCENTS.map((accent) => [accent, ["controls-toggled", "rail-expanded", "cards", "cards-selected"]]),
 ];
 
 for (const [accent, states] of PLAN) {

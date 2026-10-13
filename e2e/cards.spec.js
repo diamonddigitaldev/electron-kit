@@ -4,7 +4,7 @@
 // is built on the demo's Overview by the test (the demo's own Queue shows the
 // two apps' shapes, and the accessibility and visual specs hold those): its
 // anatomy and names, what a click picks, its buttons kept across an update,
-// locked, the status line's tones, the paused bar, a busy button and its
+// locked and canRemove, the status line's tones, the paused bar, a busy button and its
 // restore, the options' refusals, and every button on a card one size.
 
 const { default: AxeBuilder } = require("@axe-core/playwright");
@@ -223,7 +223,7 @@ test("the app's rows are put back only when they're other elements, so a field k
     expect(await link.evaluate((input) => [input.selectionStart, input.selectionEnd])).toEqual([0, 28]);
 });
 
-test("locked disables Advanced Options, the route's control and Remove, and unlocked gives them back", async ({ demo }) => {
+test("locked disables Advanced Options, the route's control and Remove, and unlocked gives them back; canRemove sets Remove apart", async ({ demo }) => {
     const main = await demo.mainWindow();
     await buildCard(main);
     const made = main.locator("#made");
@@ -241,6 +241,17 @@ test("locked disables Advanced Options, the route's control and Remove, and unlo
     await draw(main, { ...PAUSED, locked: true });
     await made.getByRole("button", { name: "Remove site-backup.tar" }).click({ force: true });
     expect(await main.evaluate(() => window.seen.remove)).toBe(0);
+
+    // canRemove, which follows locked unless given: a queued card keeps Remove while the rest is locked.
+    await draw(main, { ...PAUSED, locked: true, canRemove: true });
+    expect(await locks()).toEqual([true, true, false]);
+    await made.getByRole("button", { name: "Remove site-backup.tar" }).click();
+    expect(await main.evaluate(() => window.seen.remove)).toBe(1);
+    await draw(main, { ...PAUSED, locked: false, canRemove: false });
+    expect(await locks()).toEqual([false, false, true]);
+    // Whole state each time: left out, it follows locked again.
+    await draw(main, { ...PAUSED, locked: false });
+    expect(await locks()).toEqual([false, false, false]);
 });
 
 // -- The status line -----------------------------------------------------------------
@@ -439,6 +450,7 @@ test("a card's options and its state are checked, and a mistake in the state lea
         "made.update({ actions: {} })",
         'made.update({ rows: ["text"] })',
         'made.update({ locked: "yes" })',
+        'made.update({ canRemove: "yes" })',
         'made.update({ route: "no" })',
         "made.update(null)",
     ])).toEqual([
@@ -466,6 +478,7 @@ test("a card's options and its state are checked, and a mistake in the state lea
         "kit.ui.card(): update(): actions must be a list of { label, variant, onClick }.",
         "kit.ui.card(): update(): rows must be a list of the app's elements.",
         "kit.ui.card(): update(): locked must be true or false.",
+        "kit.ui.card(): update(): canRemove must be true or false.",
         "kit.ui.card(): update(): route must be true or false: whether the route shows.",
         "kit.ui.card(): update() takes the card's state, { status, … }.",
     ]);
