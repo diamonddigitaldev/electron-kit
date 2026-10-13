@@ -5,7 +5,7 @@
 // the images are taken on a Windows CI runner, so they show Segoe UI as most
 // people see it, and Linux runs every other test without them.
 //
-// Fifteen states, each a whole window:
+// Sixteen states, each a whole window:
 // - Settings > Update with an update waiting (and the dot), downloading, ready
 //   to install, and after a check that failed;
 // - Settings on its General, Update and Credits tabs;
@@ -15,11 +15,16 @@
 // - a warning toast with its list shown; the batch prompt (kit.ui.confirm())
 //   with Save as New focused by keyboard; and, last, since it replaces the
 //   Overview, a section of files (the drop zone, a bar whose amount isn't
-//   known, the action bar with Convert focused by keyboard); then the update
-//   dot on the collapsed rail.
-// All fifteen in the demo's accent, in the light and dark themes. The two that
-// show the most accent (the rail, and Controls toggled) again in each of the
-// three apps' accents (test/fixtures/accents/), in both themes. 42 images.
+//   known, the action bar with Convert focused by keyboard); the Queue, its
+//   cards in two columns on the collapsed rail (a conversion ready, with its
+//   format row and output line; a paused upload, its bar faded, with Resume
+//   focused by keyboard; a conversion running; a finished upload with its
+//   link; and the tops of a failed and a queued one); then the update dot on
+//   the collapsed rail.
+// All sixteen in the demo's accent, in the light and dark themes. The three
+// that show the most accent (the rail, Controls toggled, and the Queue) again
+// in each of the three apps' accents (test/fixtures/accents/), in both themes.
+// 50 images.
 //
 // So that an image only changes when the look does: the window's page is
 // 760 x 600 at a scale factor of 1, drawn without the GPU; motion is reduced, so every transition ends
@@ -236,6 +241,19 @@ const STATES = {
         await main.keyboard.press("Tab");
         await expect(main.getByRole("button", { name: "Convert" })).toBeFocused();
     },
+    "cards": async (main) => {
+        // On the collapsed rail, so the cards sit two to a row, as in the demo's own accent's run.
+        await main.getByRole("button", { name: "Queue", exact: true }).click();
+        const collapse = main.getByRole("navigation", { name: "Sections" }).getByRole("button", { name: "Collapse", exact: true });
+        if (await collapse.count()) await collapse.click();
+        await expect.poll(async () => (await main.getByRole("navigation", { name: "Sections" }).boundingBox()).width).toBe(57);
+        // The paused upload's Resume has the keyboard's focus, and its ring.
+        const resume = main.getByRole("group", { name: "site-backup.tar" }).getByRole("button", { name: "Resume" });
+        await resume.focus();
+        await main.keyboard.press("Shift+Tab");
+        await main.keyboard.press("Tab");
+        await expect(resume).toBeFocused();
+    },
     "update-dot-collapsed": async (main, demo) => {
         // Last, so no other image has the dot: the collapsed rail's Settings, an update waiting.
         await pushUpdate(demo, { state: "available", version: "0.1.0", dot: true });
@@ -247,7 +265,7 @@ const STATES = {
 /** Which states each accent is pictured in. */
 const PLAN = [
     [null, Object.keys(STATES)],
-    ...APP_ACCENTS.map((accent) => [accent, ["controls-toggled", "rail-expanded"]]),
+    ...APP_ACCENTS.map((accent) => [accent, ["controls-toggled", "rail-expanded", "cards"]]),
 ];
 
 for (const [accent, states] of PLAN) {

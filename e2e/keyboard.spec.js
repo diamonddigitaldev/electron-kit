@@ -41,8 +41,8 @@ const ringProblems = (stops) => stops.map(ringProblem).filter(Boolean);
 test("Tab goes through the rail, the header's toolbar, then the view, each with a visible ring", async ({ demo }) => {
     const main = await demo.mainWindow();
     await fromTheTop(main);
-    const stops = await walk(main, 7);
-    expect(stops.map((stop) => stop.name)).toEqual(["Overview", "Controls", "Settings", "Collapse", "Open Isolated Window", "a link", "Primary Action"]);
+    const stops = await walk(main, 8);
+    expect(stops.map((stop) => stop.name)).toEqual(["Overview", "Controls", "Queue", "Settings", "Collapse", "Open Isolated Window", "a link", "Primary Action"]);
     expect(ringProblems(stops)).toEqual([]);
 });
 
@@ -50,10 +50,10 @@ test("in Settings, Tab reaches the selected tab only, then its pane, then the pa
     const main = await demo.mainWindow();
     await main.getByRole("button", { name: "Settings", exact: true }).click();
     await fromTheTop(main);
-    let stops = await walk(main, 7);
+    let stops = await walk(main, 8);
     // The header's toolbar (Open Isolated Window) is hidden on Settings, so it isn't a stop.
     expect(stops.map((stop) => `${stop.role} ${stop.name}`)).toEqual([
-        "button Overview", "button Controls", "button Settings", "button Collapse",
+        "button Overview", "button Controls", "button Queue", "button Settings", "button Collapse",
         "tab General", "tabpanel General", "switch Show the accent sample",
     ]);
     expect(ringProblems(stops)).toEqual([]);
@@ -70,8 +70,8 @@ test("Bootstrap's controls show the kit's ring, not Bootstrap's blue glow", asyn
     const main = await demo.mainWindow();
     await main.getByRole("button", { name: "Controls", exact: true }).click();
     await main.getByRole("button", { name: "Controls", exact: true }).focus();
-    const stops = await walk(main, 7);
-    const controls = stops.slice(3);
+    const stops = await walk(main, 8);
+    const controls = stops.slice(4);
     expect(controls.map((stop) => stop.name)).toEqual(["A checked box", "A switch, off", "A select", "A text field"]);
     expect(ringProblems(controls)).toEqual([]);
     const shadows = await main.locator("#controls-view :is(input, select)").evaluateAll((els) => els.map((el) => {
@@ -93,11 +93,12 @@ test("every focus ring holds 3:1 in both themes, the rail expanded and collapsed
             for (const collapsed of [false, true]) {
                 const toggle = main.getByRole("button", { name: collapsed ? "Collapse" : "Expand", exact: true });
                 if (await toggle.count()) await toggle.click();
-                for (const view of ["Overview", "Settings"]) {
+                // The Queue's first two cards: a box, Advanced Options, Remove, a select, a row's button, then a card's own buttons.
+                for (const view of ["Overview", "Queue", "Settings"]) {
                     await main.getByRole("button", { name: view, exact: true }).click();
                     await fromTheTop(main);
                     const where = `${name ?? "the demo"}'s accent, ${theme}, ${collapsed ? "collapsed" : "expanded"}, ${view}`;
-                    problems.push(...ringProblems(await walk(main, 7)).map((line) => `${where}: ${line}`));
+                    problems.push(...ringProblems(await walk(main, view === "Queue" ? 15 : 7)).map((line) => `${where}: ${line}`));
                 }
             }
         }

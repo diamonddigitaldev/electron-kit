@@ -23,6 +23,38 @@
     100% { opacity: 0.75; }
 }
 
+/* The Queue section: its cards side by side, 272px at the least, as File
+   Converter lays its own out. */
+.demo-queue {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(272px, 1fr));
+    gap: 0.75rem;
+    align-content: start;
+}
+
+/* A finished upload's link, under its status: selectable, in the mono face. */
+.demo-link {
+    font-family: var(--bs-font-monospace);
+    font-size: 0.75rem;
+    padding: 0.15rem 0.45rem;
+}
+
+/* File Converter's output line: what a conversion will write, a button that
+   opens its options. */
+.demo-output {
+    align-self: flex-start;
+    padding: 0;
+    border: none;
+    background: none;
+    font-size: 0.78rem;
+    color: var(--bs-warning-text-emphasis);
+    text-align: left;
+}
+
+.demo-output:hover:not(:disabled) {
+    text-decoration: underline;
+}
+
 /* The Controls section: Bootstrap's controls, one under another. */
 .demo-controls {
     display: grid;

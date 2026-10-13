@@ -31,18 +31,18 @@ const appMenu = (demo) => demo.app.evaluate(({ Menu }) => {
 test("the rail has the app's sections, then Settings, then Collapse, each named by its label, and every icon hidden", async ({ demo }) => {
     const main = await demo.mainWindow();
     const rail = main.getByRole("navigation", { name: "Sections" });
-    for (const name of ["Overview", "Controls", "Settings", "Collapse"]) {
+    for (const name of ["Overview", "Controls", "Queue", "Settings", "Collapse"]) {
         await expect(rail.getByRole("button", { name, exact: true })).toBeVisible();
     }
-    expect(await railNames(main)).toEqual(["Overview", "Controls", "Settings", "Collapse"]);
+    expect(await railNames(main)).toEqual(["Overview", "Controls", "Queue", "Settings", "Collapse"]);
     // Every Material Icons glyph on the page is hidden from screen readers, so no name reads "dashboard Overview".
     expect(await main.locator(".material-icons-round:not([aria-hidden=true])").count()).toBe(0);
     const snapshot = await main.locator("body").ariaSnapshot();
-    for (const glyph of ["dashboard", "tune", "chevron_left", "open_in_new"]) expect(snapshot).not.toContain(glyph);
+    for (const glyph of ["dashboard", "tune", "view_module", "chevron_left", "open_in_new"]) expect(snapshot).not.toContain(glyph);
     // Settings sits at the bottom, directly above Collapse.
-    const [settings, collapse, controls] = await Promise.all(["Settings", "Collapse", "Controls"].map((name) => rail.getByRole("button", { name, exact: true }).boundingBox()));
+    const [settings, collapse, queue] = await Promise.all(["Settings", "Collapse", "Queue"].map((name) => rail.getByRole("button", { name, exact: true }).boundingBox()));
     expect(collapse.y - (settings.y + settings.height)).toBeLessThan(8);
-    expect(settings.y - (controls.y + controls.height)).toBeGreaterThan(100);
+    expect(settings.y - (queue.y + queue.height)).toBeGreaterThan(100);
 });
 
 test("the rail shows one view at a time, and marks its item active with aria-current", async ({ demo }) => {
@@ -52,7 +52,7 @@ test("the rail shows one view at a time, and marks its item active with aria-cur
 
     expect(await showing(main)).toEqual(["overview"]);
     expect(await current()).toEqual(["overview"]);
-    for (const [name, view] of [["Controls", "controls"], ["Settings", "settings"], ["Overview", "overview"]]) {
+    for (const [name, view] of [["Controls", "controls"], ["Queue", "queue"], ["Settings", "settings"], ["Overview", "overview"]]) {
         await rail.getByRole("button", { name, exact: true }).click();
         expect(await showing(main), name).toEqual([view]);
         expect(await current(), name).toEqual([view]);
@@ -78,14 +78,14 @@ test("Collapse has aria-expanded; collapsed, the labels are hidden visually but 
     await expect(expand).toHaveAttribute("aria-expanded", "false");
     await expect.poll(async () => (await rail.boundingBox()).width).toBe(57);
     // Still named, and still there to press, by the same names.
-    expect(await railNames(main)).toEqual(["Overview", "Controls", "Settings", "Expand"]);
-    for (const name of ["Overview", "Controls", "Settings", "Expand"]) {
+    expect(await railNames(main)).toEqual(["Overview", "Controls", "Queue", "Settings", "Expand"]);
+    for (const name of ["Overview", "Controls", "Queue", "Settings", "Expand"]) {
         const item = rail.getByRole("button", { name, exact: true });
         await expect(item).toBeVisible();
         await expect(item).toHaveAttribute("title", name);
     }
     // Faded out and clipped by the narrow item, not display: none (which would take the name with it).
-    await expect.poll(() => rail.locator(".nav-label").evaluateAll((spans) => spans.map((s) => getComputedStyle(s).opacity))).toEqual(["0", "0", "0", "0"]);
+    await expect.poll(() => rail.locator(".nav-label").evaluateAll((spans) => spans.map((s) => getComputedStyle(s).opacity))).toEqual(["0", "0", "0", "0", "0"]);
     const labels = await rail.locator(".nav-label").evaluateAll((spans) => spans.map((s) => getComputedStyle(s).display));
     for (const display of labels) expect(display).not.toBe("none");
 
@@ -232,7 +232,7 @@ test("each rail icon is drawn centred: in its item when collapsed, and on the it
         }
         // Clear of every item, so none is drawn hovered.
         await main.mouse.move(400, 300);
-        for (const name of ["Overview", "Controls", "Settings", collapsed ? "Expand" : "Collapse"]) {
+        for (const name of ["Overview", "Controls", "Queue", "Settings", collapsed ? "Expand" : "Collapse"]) {
             const item = rail.getByRole("button", { name, exact: true });
             // The icon's own ink (not the label's), placed within the item.
             const { ink } = await inkBox(main, item.locator(".nav-icon"));
@@ -290,7 +290,7 @@ test("each rail item has as much rail on its right, up to the edge's line, as on
         const edge = await rail.evaluate((r) => getComputedStyle(r).boxShadow);
         if (!/inset -1px 0px 0px/.test(edge) && !/-1px 0px 0px 0px .*inset/.test(edge)) problems.push(`the edge isn't a 1px inset line: ${edge}`);
         const box = await rail.boundingBox();
-        for (const name of ["Overview", "Controls", "Settings", collapsed ? "Expand" : "Collapse"]) {
+        for (const name of ["Overview", "Controls", "Queue", "Settings", collapsed ? "Expand" : "Collapse"]) {
             const item = await rail.getByRole("button", { name, exact: true }).boundingBox();
             const left = item.x - box.x;
             const right = box.x + box.width - 1 - (item.x + item.width);
