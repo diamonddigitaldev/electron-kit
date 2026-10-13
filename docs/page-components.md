@@ -1,6 +1,6 @@
 # Page Components
 
-The page library's parts: toasts, prompts, the parts of a section of files, cards, busy buttons, the key guard and the house's wording for numbers.
+The page library's parts: toasts, prompts, the parts of a section of files, cards, the card grid and its bulk bar, busy buttons, the key guard and the house's wording for numbers.
 
 [All the docs](README.md)
 
@@ -121,7 +121,9 @@ actions.update({ summary: "3 files queued", detail: "Ready to convert", percent:
 - **`kit.ui.actionBar(options)`** is the bar under a list: a status line (a live region; `summary` on the left,
   `detail` on the right), the batch's progress, then `Clear All` and the primary action. The primary action
   and its abort share one place, so only one is ever there: `update({ running: true })` swaps `Convert` for
-  `Cancel`, and the keyboard's focus moves with it. `size: "sm"` makes its buttons small.
+  `Cancel`, and the keyboard's focus moves with it. `size: "sm"` makes its buttons small. The `detail` is
+  the app's text: a count of each state, in bullets and Title Case as the house's copy rules have it
+  ("1 Paused · 2 Ready").
 
 ## Cards
 
@@ -154,6 +156,7 @@ card.update({
     ],
     rows: [linkRow],                    // the app's own elements, under the bar
     locked: true,                       // Advanced Options, the route's control and Remove are disabled
+    canRemove: true,                    // but Remove isn't: it follows locked unless given
 });
 ```
 
@@ -166,7 +169,8 @@ card.update({
   and the card's buttons. Each line is one line, cut off with an ellipsis, its whole text the title.
 - **`update()` takes the whole state each time**: what's left out is drawn empty or hidden (no `meta` hides the
   meta line, no `status` the status line, no `percent` the bar, no `actions` the buttons; `locked` and `paused`
-  are false). The exception is `name`, which, when given, renames the card, its box, its Remove and its bar.
+  are false, and `canRemove` follows `locked`). The exception is `name`, which, when given, renames the card, its
+  box, its Remove and its bar.
   `route: false` hides the route. A mistake in the state throws before anything is drawn.
 - **The status line** has a dot coloured by its `tone`: `ready` (the accent), `running` (the accent, pulsing; still
   under reduced motion, and its text in the accent's text shade), `warning`, `danger`, `success` and `muted`, each
@@ -178,9 +182,14 @@ card.update({
   given, with the button, so it can be made busy. **Every button on a card is one size**, whatever its variant and
   while it's busy: `0.1rem 0.45rem` of padding, `0.72rem` text, a line height of 1.5 and a 1px border, set outright.
   A Bootstrap button in the app's rows is the same size.
+- **`locked` and `canRemove`:** `locked` is for a card whose work is under way: Advanced Options and the route's
+  control are disabled, and so is Remove, unless `canRemove` says otherwise. A card waiting its turn, such as a
+  queued upload, is locked but can still be taken off the list: `{ locked: true, canRemove: true }`.
 - **Picking:** a click on the card, or on its box, calls `onPick(event, { box })`; a click on one of its controls
   (a button, a field, a select, a link) doesn't. With `onPick` the card washes in the accent when hovered. What a
-  pick selects is the app's.
+  pick selects is the app's, or, in a card grid (below), the grid's: a card in a grid is made without `onPick`.
+- **The outline buttons** (`outline-secondary`, `outline-danger`) are filled with the page's colour on a card, as
+  its Remove is, so their text holds AA on a hovered or selected card's wash too.
 
 `kit.ui.busy(button, label)` shows a button doing what it says, as a card's Pause does while it pauses: the button
 is disabled, with Bootstrap's small spinner (`aria-hidden`, sized to the button's text so the button doesn't grow)
@@ -193,6 +202,100 @@ onClick: (button) => {
     pause().catch(() => restore());    // a card's buttons are rebuilt anyway once its state changes
 }
 ```
+
+## The Card Grid
+
+`kit.ui.cardGrid(container, { view, onSelect })` lays out a list's cards and selects them, by the rules File
+Converter's cards have always had:
+
+```js
+const grid = kit.ui.cardGrid($("job-grid"), {
+    view: "convert",                         // the shell's view the grid is in: its keys work only there
+    onSelect: (selection) => render(),       // told each time the selection changes, however it changed
+});
+const card = kit.ui.card({ icon: "movie", name: "clip.mp4", onRemove: () => grid.remove(card) });   // no onPick
+grid.add(card);
+
+grid.selection;                    // the cards selected, in their order on screen
+grid.cards;                        // every card, in the order they were added
+grid.select([card]);               // or one card; selectAll(), clear()
+grid.remove(card);                 // and out of the selection with it
+
+// Delete is the app's: only it knows when a card can go.
+kit.keys.onKey((event) => {
+    if (event.key === "Delete" && grid.selection.length > 0 && !converting) {
+        event.preventDefault();
+        removeJobs(grid.selection);
+    }
+}, { view: "convert" });
+```
+
+- **The layout:** as many columns of at least 272px as fit, `0.75rem` apart, the cards in the order they're added.
+  `container` is the app's element; the grid takes it over (`.kit-card-grid`), and one that's a grid already is refused.
+- **A click:** a plain click selects that card alone, or, when it's one of several selected, keeps them all (so a
+  group can be acted on without collapsing to one first). `Ctrl` (`Cmd` on a Mac) adds or takes away one card.
+  `Shift` selects the range from the anchor (the last card clicked without `Shift`) to this one, replacing the
+  selection; `Ctrl+Shift` adds the range to it. A card's box toggles just its card, whatever is held down, and is
+  ticked while its card is selected. A click on one of a card's controls picks nothing, and a click on the grid's
+  empty space clears the selection. A `Shift` click doesn't select the text between.
+- **The keys,** through `kit.keys.onKey()` (never while someone types, under a modal, or while another view shows):
+  `Ctrl+A` selects every card and `Escape` clears. Give `view` when the grid is in the shell; without it, they work
+  in every view. **`Delete` is the app's**, as above.
+- **The look:** a selected card has the accent's border and active wash (`.kit-card.selected`); hovered, its wash is
+  stronger, so it never looks less selected than a card that's only hovered. In a grid, every card washes when
+  hovered and shows the pointer.
+- **`add(card)`** takes a card from `kit.ui.card()` made without `onPick` (the grid hears its picks) and not in a
+  grid already. **`remove(card)`** takes it out of the page, the grid and the selection (if it was the anchor, the
+  next `Shift` click is a plain one), and it can be added again. `select()` takes cards in the grid; its anchor is
+  the first of them on screen. `onSelect` isn't told when nothing changed.
+- **The rules on their own,** for a list that isn't cards: `kit.ui.cardGrid.resolveSelection(items, current,
+  clicked, { ctrl, shift }, anchor)` returns `{ selection, anchor }` (a new `Set`), and
+  `kit.ui.cardGrid.pruneSelection(selection, items)` drops what's no longer in the list.
+
+## The Bulk Bar
+
+`kit.ui.bulkBar(grid, { noun, target, actions })` is the bar over a grid that acts on its selection, or on every card
+when none is selected (the scope):
+
+```js
+const scope = () => (grid.selection.length > 0 ? grid.selection : grid.cards);
+const target = document.createElement("select");          // the app's own select, which the bar labels
+target.className = "form-select form-select-sm";
+target.addEventListener("change", () => setTarget(scope(), target.value));
+
+const bar = kit.ui.bulkBar(grid, {
+    noun: "file",                                         // or { one, many }: the box is "Select all files"
+    target: {
+        verb: "Convert",                                  // "Convert all to", or "Convert selected to"
+        control: target,
+        note: (scope, { all }) => (formatsFor(scope).length > 0 ? "" : `No format works for every ${all ? "queued" : "selected"} file`),
+    },
+    actions: [
+        { label: "Bulk Edit", variant: "primary", selection: true, enabled: () => !converting, onClick: (scope) => openAdvanced(scope) },
+        { label: "Remove", variant: "outline-danger", selection: true, onClick: (scope) => removeJobs(scope) },
+    ],
+});
+$("convert-view").prepend(bar.element);
+bar.refresh();                                            // when the app's own state changes what note() or enabled() says
+```
+
+- **In order:** the select-all box, "Select all" (or "3 selected": a live region, so `Ctrl+A` and `Escape` are
+  heard), then, with a `target`, a rule, its label, the app's select and its note, then the actions on the right
+  and Deselect. It wraps onto a second line when there isn't room, and shows only while the grid has cards.
+- **The select-all box** is unticked with none selected, has a bar across it with some, and is ticked with all. It
+  selects every card, or clears them when all are, and is named "Select all" and the noun's plural.
+- **The target** is the app's `<select>`: the app fills it and acts on its changes; the bar labels it for the scope
+  and describes it by its note (`aria-describedby`). `note(scope, { all })` returns text (`""` for none), and is
+  asked each time the bar is drawn.
+- **The actions** are `btn-sm` in a `variant` (`outline-secondary` if not given), each called with the scope. With
+  `selection: true` an action shows only while something is selected; without, always. `enabled(scope)` disables it
+  when it returns false. **Deselect** is the bar's own, last, and shows with a selection. When a button with the
+  keyboard's focus goes, the focus moves to the select-all box. The bar's outline buttons are filled with the page's
+  colour, so their text holds AA on its wash.
+- **It's drawn again** whenever the selection or the cards change; `refresh()` draws it again for anything else.
+  One bar per grid. A mistake in the options throws before anything is drawn.
+
+The bar under the list, with the run's progress and its one primary action, is still `kit.ui.actionBar()`.
 
 ## Keys
 

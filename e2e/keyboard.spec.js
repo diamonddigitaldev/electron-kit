@@ -93,12 +93,13 @@ test("every focus ring holds 3:1 in both themes, the rail expanded and collapsed
             for (const collapsed of [false, true]) {
                 const toggle = main.getByRole("button", { name: collapsed ? "Collapse" : "Expand", exact: true });
                 if (await toggle.count()) await toggle.click();
-                // The Queue's first two cards: a box, Advanced Options, Remove, a select, a row's button, then a card's own buttons.
+                // The Queue's bulk bar (its box and its target), then its first two cards: a box, Advanced Options, Remove,
+                // a select, a row's button, then a card's own buttons.
                 for (const view of ["Overview", "Queue", "Settings"]) {
                     await main.getByRole("button", { name: view, exact: true }).click();
                     await fromTheTop(main);
                     const where = `${name ?? "the demo"}'s accent, ${theme}, ${collapsed ? "collapsed" : "expanded"}, ${view}`;
-                    problems.push(...ringProblems(await walk(main, view === "Queue" ? 15 : 7)).map((line) => `${where}: ${line}`));
+                    problems.push(...ringProblems(await walk(main, view === "Queue" ? 17 : 7)).map((line) => `${where}: ${line}`));
                 }
             }
         }

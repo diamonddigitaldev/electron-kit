@@ -54,7 +54,14 @@ function applySettings(settings) {
 // kit.ui.card() as the two apps use it: files to convert, with File Converter's
 // format row and output line, and transfers, with Dropgate's "To" row and the
 // link a finished upload gives. Each is drawn from its state, and its buttons
-// move it on as the app would, a pause or a resume taking a moment.
+// move it on as the app would, a pause or a resume taking a moment. They sit
+// in kit.ui.cardGrid(), which selects them, under kit.ui.bulkBar(): uploads
+// waiting to start can all be sent somewhere else at once, and what's
+// selected can be removed (or with Delete, the app's own key).
+
+/** The Queue's grid, and what each card is: its item, by the card. */
+let queue = null;
+const items = new Map();
 
 /** A select for a card's route, named for what it chooses. */
 function routeSelect(name, options, value) {
@@ -86,7 +93,7 @@ function moveTo(item, state, { button, busyLabel } = {}) {
 
 /** A file to convert, as File Converter draws one. */
 function conversion(spec) {
-    const item = { ...spec };
+    const item = { ...spec, upload: false };
     const select = routeSelect(`Convert ${spec.name} to`, FORMATS, spec.target);
     const output = document.createElement("button");
     output.type = "button";
@@ -97,7 +104,7 @@ function conversion(spec) {
         icon: spec.icon,
         name: spec.name,
         onConfigure: says("Advanced Options open here."),
-        onRemove: () => card.element.remove(),
+        onRemove: () => queue.remove(card),
         route: { from: spec.from, control: select },
     });
     item.draw = () => {
@@ -109,16 +116,18 @@ function conversion(spec) {
             cancelled: { status: { text: "Cancelled", tone: "muted" }, actions: [{ label: "Retry", onClick: () => moveTo(item, "ready") }] },
         };
         output.disabled = item.state === "running";
+        item.removable = !states[item.state].locked;
         card.update({ meta: item.meta, settings: item.settings, rows: item.output ? [output] : [], ...states[item.state] });
     };
     item.draw();
-    return card.element;
+    items.set(card, item);
+    return card;
 }
 
 /** A transfer, as Dropgate draws one: an upload to a server, or a download from a link. */
 function transfer(spec) {
-    const item = { ...spec };
     const upload = spec.icon !== "download";
+    const item = { ...spec, upload };
     const select = upload ? routeSelect("Upload to", SERVERS, spec.server) : routeSelect("Save to", FOLDERS, "downloads");
     const link = document.createElement("input");
     link.className = "form-control form-control-sm demo-link";
@@ -129,16 +138,21 @@ function transfer(spec) {
         icon: spec.icon,
         name: spec.name,
         onConfigure: says("Advanced Options open here."),
-        onRemove: () => card.element.remove(),
+        onRemove: () => queue.remove(card),
         route: { label: upload ? "To" : "Save to", control: select },
     });
+    item.send = (server) => {
+        item.server = server;
+        select.value = server;
+    };
     item.draw = () => {
         const cancel = { label: "Cancel", variant: "outline-danger", onClick: () => moveTo(item, "cancelled") };
         const files = item.files > 1 ? ` · File ${item.fileAt} of ${item.files}` : "";
         const states = {
             reading: { name: "Reading the link…", status: { text: "Reading the file list…", tone: "running" }, route: false, locked: true },
             ready: { status: { text: "Ready", tone: "ready" }, actions: [{ label: "Upload", variant: "primary", onClick: () => moveTo(item, "running") }] },
-            queued: { status: { text: "Queued: Starts when one of the 3 running finishes.", tone: "muted" }, locked: true, actions: [cancel] },
+            // Locked, but it hasn't started, so it can still be taken off the queue.
+            queued: { status: { text: "Queued: Starts when one of the 3 running finishes.", tone: "muted" }, locked: true, canRemove: true, actions: [cancel] },
             running: {
                 status: { text: `Uploading ${item.percent}%${files}`, tone: "running" }, percent: item.percent, locked: true,
                 actions: [{ label: "Pause", onClick: (button) => moveTo(item, "paused", { button, busyLabel: "Pausing…" }) }, cancel],
@@ -157,15 +171,53 @@ function transfer(spec) {
             deleted: { status: { text: "Deleted from the server. Its link no longer works.", tone: "muted" }, locked: true },
             cancelled: { status: { text: "Cancelled", tone: "muted" }, actions: [{ label: "Retry", onClick: () => moveTo(item, "ready") }] },
         };
-        card.update({ name: item.name, meta: item.meta, settings: item.settings, ...states[item.state] });
+        const state = states[item.state];
+        item.removable = state.canRemove ?? !state.locked;
+        card.update({ name: item.name, meta: item.meta, settings: item.settings, ...state });
     };
     item.draw();
-    return card.element;
+    items.set(card, item);
+    return card;
 }
 
-/** The Queue: the two shapes side by side, in every tone between them. */
+/** Remove the cards that can go (not one at work), as Remove in the bar and the Delete key do. */
+function removeAll(cards) {
+    for (const card of cards.filter((c) => items.get(c).removable)) queue.remove(card);
+}
+
+/** The Queue: the two shapes side by side, in every tone between them, and the bar over them. */
 function fillQueue() {
-    $("queue").replaceChildren(
+    queue = window.kit.ui.cardGrid($("queue"), { view: "queue" });
+    const waiting = (cards) => cards.filter((card) => items.get(card).upload && items.get(card).state === "ready");
+    const target = routeSelect("Upload to", SERVERS, "drop");
+    // The bar labels it.
+    target.removeAttribute("aria-label");
+    target.addEventListener("change", () => {
+        const scope = queue.selection.length > 0 ? queue.selection : queue.cards;
+        for (const card of waiting(scope)) items.get(card).send(target.value);
+    });
+    const bar = window.kit.ui.bulkBar(queue, {
+        noun: "item",
+        target: {
+            verb: "Upload",
+            control: target,
+            note: (scope, { all }) => (waiting(scope).length === 0 ? `No ${all ? "" : "selected "}upload is waiting to start` : ""),
+        },
+        actions: [
+            { label: "Bulk Edit", variant: "primary", selection: true, onClick: says("Advanced Options open here.") },
+            { label: "Remove", variant: "outline-danger", selection: true, enabled: (scope) => scope.some((card) => items.get(card).removable), onClick: removeAll },
+        ],
+    });
+    bar.element.classList.add("mb-2");
+    $("queue").before(bar.element);
+    // Delete is the app's key: it knows which cards can go.
+    window.kit.keys.onKey((event) => {
+        if (event.key === "Delete" && queue.selection.length > 0) {
+            event.preventDefault();
+            removeAll(queue.selection);
+        }
+    }, { view: "queue" });
+    for (const card of [
         conversion({ icon: "movie", name: "clip.mp4", from: "MP4", target: "png", meta: "1920×1080 · 2:14 · 48 MB", settings: "Every 2nd Frame", output: "Writes about 2,010 images", state: "ready" }),
         transfer({ icon: "upload_file", name: "site-backup.tar", server: "family", meta: "3.1 GB", state: "paused", percent: 35 }),
         conversion({ icon: "movie", name: "talk.mov", from: "MOV", target: "mp4", meta: "3840×2160 · 41:07 · 6.2 GB", settings: "H.265 · CRF 26", state: "running", percent: 62 }),
@@ -177,7 +229,7 @@ function fillQueue() {
         transfer({ icon: "file_copy", name: "38 files", server: "drop", meta: "1.2 GB · IMG_2041.jpg and 37 More", state: "running", percent: 62, files: 38, fileAt: 24 }),
         conversion({ icon: "audio_file", name: "notes.m4a", from: "M4A", target: "mp3", meta: "44.1 kHz · 3:12 · 4.4 MB", state: "cancelled" }),
         transfer({ icon: "download", name: "Link from drop.example.com", meta: "drop.example.com", state: "reading" }),
-    );
+    ]) queue.add(card);
 }
 
 // The files the demo is opened with, kept for the tests (it shows none).
