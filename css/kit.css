@@ -1279,6 +1279,115 @@ a:hover {
     margin-left: auto;
 }
 
+/* -- The stepped slider ---------------------------------------------------------
+   kit.ui.stepSlider(): Bootstrap's range, its own track hidden, over a 2px
+   line with a node per value, a dot and its number under it. kit.js sets
+   --kit-step to how far along the knob is (0 to 1), and marks the nodes up to
+   it (.on); the line and those dots fill in the accent, 3:1 on the page, as
+   the knob moves. The knob is 1rem across, so its centre runs from 0.5rem in
+   from each end: the line and the nodes are laid out between those, so each
+   node sits under the knob at its value. The knob is the accent's fill, with
+   the house's ring around the range rather than Bootstrap's glow. */
+.kit-step-slider {
+    --kit-step: 0;
+    position: relative;
+    max-width: 22rem;
+    padding-bottom: 1.1rem;
+}
+
+.kit-step-slider::before,
+.kit-step-fill {
+    position: absolute;
+    left: 0.5rem;
+    top: calc(0.75rem - 1px);
+    height: 2px;
+}
+
+.kit-step-slider::before {
+    content: "";
+    right: 0.5rem;
+    background-color: var(--bs-border-color);
+}
+
+.kit-step-fill {
+    width: calc((100% - 1rem) * var(--kit-step));
+    background-color: var(--accent);
+    transition: width var(--dur-micro) var(--ease-micro);
+}
+
+.kit-step-slider .form-range {
+    position: relative;
+    z-index: 1;
+    display: block;
+}
+
+.kit-step-slider .form-range::-webkit-slider-runnable-track {
+    background-color: transparent;
+}
+
+.kit-step-slider .form-range::-webkit-slider-thumb {
+    background-color: var(--accent);
+    transition: background-color var(--dur-micro) var(--ease-micro);
+}
+
+.kit-step-slider .form-range::-webkit-slider-thumb:active {
+    background-color: var(--accent-hover);
+}
+
+.kit-step-slider .form-range:focus::-webkit-slider-thumb {
+    box-shadow: none;
+}
+
+.kit-step-nodes {
+    position: absolute;
+    left: 0.5rem;
+    right: 0.5rem;
+    top: 0;
+    display: flex;
+    justify-content: space-between;
+    pointer-events: none;
+}
+
+.kit-step-node {
+    position: relative;
+    width: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+}
+
+.kit-step-dot {
+    flex: none;
+    width: 8px;
+    height: 8px;
+    margin-top: calc(0.75rem - 4px);
+    border-radius: 50%;
+    background-color: var(--bs-border-color);
+    transition: background-color var(--dur-micro) var(--ease-micro);
+}
+
+.kit-step-node.on .kit-step-dot {
+    background-color: var(--accent);
+}
+
+.kit-step-number {
+    position: absolute;
+    top: 1.55rem;
+    font-size: 0.72rem;
+    color: var(--bs-secondary-color);
+    font-variant-numeric: tabular-nums;
+}
+
+/* Disabled: faded, and grey where it was the accent. */
+.kit-step-slider:has(.form-range:disabled) {
+    opacity: var(--opacity-disabled);
+}
+
+.kit-step-slider:has(.form-range:disabled) :is(.kit-step-fill, .kit-step-node.on .kit-step-dot),
+.kit-step-slider .form-range:disabled::-webkit-slider-thumb {
+    background-color: var(--bs-secondary-color);
+}
+
 /* -- The action bar -------------------------------------------------------------
    kit.ui.actionBar(): the status line over the batch's bar on the left, then
    Clear and the one primary action (or its abort) on the right. */

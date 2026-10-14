@@ -9,8 +9,9 @@
 // - Settings > Update with an update waiting (and the dot), downloading, ready
 //   to install, and after a check that failed;
 // - Settings on its General, Update and Credits tabs;
-// - Controls at rest (the box ticked, the switch off), and toggled by keyboard
-//   (the box unticked, the switch on and focused);
+// - Controls at rest (the box ticked, the switch off, the stepped slider at
+//   3), and toggled by keyboard (the box unticked, the switch on, the slider
+//   moved to 5 and focused);
 // - the rail expanded, and collapsed, on Overview with Controls focused by keyboard;
 // - a warning toast with its list shown; the batch prompt (kit.ui.confirm())
 //   with Save as New focused by keyboard; and, last, since it replaces the
@@ -159,18 +160,24 @@ const STATES = {
         await main.getByRole("button", { name: "Controls", exact: true }).click();
         await expect(main.getByLabel("A checked box")).toBeChecked();
         await expect(main.getByLabel("A switch, off")).not.toBeChecked();
+        await expect(main.getByRole("slider", { name: "Files at once" })).toHaveValue("3");
         await blur(main);
     },
     "controls-toggled": async (main) => {
         await main.getByRole("button", { name: "Controls", exact: true }).click();
-        // By keyboard, so the switch shows its focus ring.
+        // By keyboard: the box and the switch toggled, then the slider moved on two, showing its focus ring.
         await main.getByLabel("A checked box").focus();
         await main.keyboard.press("Space");
         await main.keyboard.press("Tab");
         await main.keyboard.press("Space");
+        await main.keyboard.press("Tab");
+        await main.keyboard.press("ArrowRight");
+        await main.keyboard.press("ArrowRight");
         await expect(main.getByLabel("A checked box")).not.toBeChecked();
         await expect(main.getByLabel("A switch, off")).toBeChecked();
-        await expect(main.getByLabel("A switch, off")).toBeFocused();
+        const slider = main.getByRole("slider", { name: "Files at once" });
+        await expect(slider).toHaveValue("5");
+        await expect(slider).toBeFocused();
     },
     "rail-expanded": async (main) => {
         await main.getByRole("button", { name: "Overview", exact: true }).click();

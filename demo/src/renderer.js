@@ -232,12 +232,28 @@ function fillQueue() {
     ]) queue.add(card);
 }
 
+/** The Controls' stepped slider: how many files are worked on at once. */
+function fillControls() {
+    const { countOf } = window.kit.format;
+    const slider = window.kit.ui.stepSlider({
+        id: "files-at-once",
+        label: "Files at once",
+        min: 1,
+        max: 6,
+        value: 3,
+        valueText: (n) => countOf(n, "file"),
+        help: (n) => (n === 1 ? "One file at a time. The rest wait their turn." : `Up to ${n} files at once. The rest wait their turn.`),
+    });
+    $("sample-steps").replaceWith(slider.element);
+}
+
 // The files the demo is opened with, kept for the tests (it shows none).
 window.filesOpened = [];
 window.kitAPI?.onFilesOpened((paths) => window.filesOpened.push(paths));
 
 async function init() {
     showTheme();
+    fillControls();
     fillQueue();
     const shell = window.kit.ui.mountShell({
         title: "electron-kit Demo",

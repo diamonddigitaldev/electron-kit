@@ -1,6 +1,6 @@
 # Page Components
 
-The page library's parts: toasts, prompts, the parts of a section of files, cards, the card grid and its bulk bar, busy buttons, the key guard and the house's wording for numbers.
+The page library's parts: toasts, prompts, the parts of a section of files, cards, the card grid and its bulk bar, busy buttons, the stepped slider, the key guard and the house's wording for numbers.
 
 [All the docs](README.md)
 
@@ -296,6 +296,43 @@ bar.refresh();                                            // when the app's own 
   One bar per grid. A mistake in the options throws before anything is drawn.
 
 The bar under the list, with the run's progress and its one primary action, is still `kit.ui.actionBar()`.
+
+## The Stepped Slider
+
+`kit.ui.stepSlider(options)` is a choice of a few whole numbers, such as how many transfers run at once: a line
+with a node per value that the knob snaps to, filled in the accent up to the knob as it moves.
+
+```js
+const atOnce = kit.ui.stepSlider({
+    id: "transfers-at-once",
+    label: "Transfers at once",
+    min: 1,
+    max: 6,
+    value: settings.transfersAtOnce,
+    valueText: (n) => kit.format.countOf(n, "transfer"),          // "3 transfers", what a screen reader says
+    help: (n) => `Up to ${kit.format.countOf(n, "transfer")} at once. The rest wait as Queued.`,
+    onChange: (n) => window.kitAPI.setSettings({ transfersAtOnce: n }),
+});
+$("transfers-pane").append(atOnce.element);
+atOnce.set(4);                           // when the setting changes elsewhere: moves it without calling onChange
+atOnce.input.disabled = true;            // the range itself, for anything else
+```
+
+- **It's a native range** (`<input type="range">`, step 1), named by `label`, so the arrows, Home and End, a click
+  (snapped to the nearest value) and a drag work as they always do, and a screen reader hears a slider. `id` is the
+  range's; its label and help line are tied to it.
+- **The nodes:** a dot for each whole value from `min` to `max`, with its number under it; they're `aria-hidden`,
+  since the range says its own value. The line and the dots up to the knob are the accent's fill (3:1 on the
+  page in every app's accent and both themes); past it, the theme's border colour.
+- **Its words:** `valueText(n)` gives the range's `aria-valuetext` ("3 transfers" rather than "3"), and `help(n)`
+  the line under it, which describes the range (`aria-describedby`). Both follow the knob as it moves, so the help
+  says what the value it's at means. Either can be left out: the range then says its number, with no help line.
+- **`onChange(n)`** is called once a value is chosen: at each key press, at a click, or when a drag lets go, never
+  at every step of a drag. `set(n)` moves it, its words and its fill without calling it.
+- **Whole numbers, at most 10 values:** `min` and `max` are whole numbers, `max` more than `min`, and a range of
+  more than 10 values is refused (a number field suits it better). `value` is a whole number between them.
+- **Disabled** through `input.disabled`: faded, grey where it was the accent. The focus ring is the house's, around
+  the range. A mistake in the options throws before anything is drawn.
 
 ## Keys
 

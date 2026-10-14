@@ -40,7 +40,8 @@
 // files dropped from the desktop. kit.ui.card() is one piece of work in a list
 // (its name, lines, status dot, bar and buttons), kit.ui.cardGrid() lays a
 // list's cards out and selects them, kit.ui.bulkBar() acts on what's selected,
-// and kit.ui.busy() shows a button doing what it says. kit.keys.onKey()
+// kit.ui.busy() shows a button doing what it says, and kit.ui.stepSlider() is
+// a choice of a few whole numbers, its knob snapping to each. kit.keys.onKey()
 // listens for a section's own shortcuts, never while someone types or a modal
 // is open; kit.format is the house's wording for counts, sizes and times.
 // The shared markup is built with createElement and textContent, never HTML
@@ -1722,6 +1723,105 @@
         return { element, refresh };
     }
 
+    // -- The stepped slider ----------------------------------------------------------
+
+    /** The most values a stepped slider takes: a wider range is a number field. */
+    const STEP_MOST = 10;
+
+    /**
+     * A choice of a few whole numbers (Transfers at once, 1 to 6): a native
+     * range, so the arrows, Home, End and a screen reader work as they always
+     * do, over a line with a node per value (a dot and its number) that the
+     * knob snaps to. The line and the nodes up to the knob fill in the accent
+     * as it moves. The range is named by the label, says its value in words
+     * from valueText(n), and is described by the help line, from help(n);
+     * both follow the knob as it moves. onChange(n) is called once a value is
+     * chosen (on change: at each key press, or as a drag lets go), not at
+     * every step of a drag. set(n) moves it without calling onChange. The
+     * app disables it through input.disabled.
+     * @param {{
+     *   id: string,
+     *   label: string,
+     *   min: number,
+     *   max: number,
+     *   value: number,
+     *   valueText?: (n: number) => string,
+     *   help?: (n: number) => string,
+     *   onChange?: (n: number) => void,
+     * }} options
+     * @returns {{ element: HTMLElement, input: HTMLInputElement, set(n: number): void }}
+     */
+    function stepSlider(options = {}) {
+        const fail = (message) => {
+            throw new Error(`kit.ui.stepSlider(): ${message}`);
+        };
+        const text = (value) => typeof value === "string" && value !== "";
+        if (options === null || typeof options !== "object") fail("options must be { id, label, min, max, value, … }.");
+        const known = ["id", "label", "min", "max", "value", "valueText", "help", "onChange"];
+        const extra = Object.keys(options).find((key) => !known.includes(key));
+        if (extra !== undefined) fail(`it has no option "${extra}".`);
+        const { id, label, min, max, value, valueText, help, onChange } = options;
+        if (!text(id) || /\s/.test(id)) fail("id must be the range's id, with no spaces.");
+        if (!text(label)) fail("label must be text.");
+        if (!Number.isInteger(min) || !Number.isInteger(max)) fail("min and max must be whole numbers.");
+        if (max <= min) fail("max must be more than min.");
+        if (max - min + 1 > STEP_MOST) fail(`it takes at most ${STEP_MOST} values, and ${min} to ${max} is ${max - min + 1}: a wider range is a number field.`);
+        for (const [key, fn] of Object.entries({ valueText, help, onChange })) {
+            if (fn !== undefined && typeof fn !== "function") fail(`${key} must be a function, or left out.`);
+        }
+        const whole = (n, where) => {
+            if (!Number.isInteger(n) || n < min || n > max) fail(`${where} must be a whole number from ${min} to ${max}.`);
+        };
+        whole(value, "value");
+        const said = (fn, n, key) => {
+            const words = fn(n);
+            if (!text(words)) fail(`${key}(${n}) must return text.`);
+            return words;
+        };
+
+        const input = el("input", { className: "form-range", attrs: { type: "range", id, min: String(min), max: String(max), step: "1" } });
+        const helpLine = help && el("div", { className: "form-text kit-step-help", attrs: { id: `${id}-help` } });
+        if (helpLine) input.setAttribute("aria-describedby", helpLine.id);
+        const fill = el("div", { className: "kit-step-fill" });
+        const nodes = [];
+        for (let n = min; n <= max; n++) {
+            nodes.push(el("span", { className: "kit-step-node" }, [
+                el("span", { className: "kit-step-dot" }),
+                el("span", { className: "kit-step-number", text: String(n) }),
+            ]));
+        }
+        const slider = el("div", { className: "kit-step-slider" }, [
+            fill,
+            input,
+            // The numbers are what the range says itself.
+            el("div", { className: "kit-step-nodes", attrs: { "aria-hidden": "true" } }, nodes),
+        ]);
+        const element = el("div", { className: "kit-step-field" }, [
+            el("label", { className: "form-label", text: label, attrs: { for: id } }),
+            slider,
+            helpLine,
+        ]);
+
+        /** Draw n: the fill to the knob, the nodes up to it, its words and its help. */
+        function draw(n) {
+            slider.style.setProperty("--kit-step", String((n - min) / (max - min)));
+            nodes.forEach((node, i) => node.classList.toggle("on", i <= n - min));
+            if (valueText) input.setAttribute("aria-valuetext", said(valueText, n, "valueText"));
+            if (helpLine) helpLine.textContent = said(help, n, "help");
+        }
+
+        input.addEventListener("input", () => draw(Number(input.value)));
+        input.addEventListener("change", () => onChange?.(Number(input.value)));
+
+        function set(n) {
+            whole(n, "set()");
+            input.value = String(n);
+            draw(n);
+        }
+        set(value);
+        return { element, input, set };
+    }
+
     // -- Keys ----------------------------------------------------------------------
 
     /** The input types a person doesn't type into: a key pressed there is still the page's. */
@@ -1869,7 +1969,7 @@
     }, true);
 
     window.kit = {
-        ui: { mountShell, toast, confirm, progress, actionBar, dropZone, busy, card, cardGrid, bulkBar },
+        ui: { mountShell, toast, confirm, progress, actionBar, dropZone, busy, card, cardGrid, bulkBar, stepSlider },
         format: { plural, countOf, groupDigits, formatBytes, formatEta, formatDuration, summarise },
         keys: { isTyping, onKey },
     };
