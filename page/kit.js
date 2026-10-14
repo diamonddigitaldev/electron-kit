@@ -147,27 +147,29 @@
         view.append(el("h2", { className: "settings-title", text: "Settings", attrs: { id: "settings-title" } }), tablist, panes);
 
         const buttons = tabs.map(({ id, label }) => {
+            // The label in a span of its own: the bar is its width, whatever else the tab holds (the update dot).
             const button = el("button", {
                 className: "settings-tab",
-                text: label,
                 attrs: { type: "button", role: "tab", id: `settings-tab-${id}`, "aria-controls": `settings-pane-${id}`, "data-tab": id },
-            });
+            }, [el("span", { className: "settings-tab-label", text: label })]);
             tablist.append(button);
             return button;
         });
         tablist.append(indicator);
 
         /**
-         * Put the bar under the selected tab, at its text's width. Animated
-         * when the selection moves; at once when the tabs are first laid out,
-         * or change size (the view shown, the fonts loaded).
+         * Put the bar under the selected tab, at its text's width: the update
+         * dot beside the text, when it shows, moves nothing. Animated when the
+         * selection moves; at once when the tabs are first laid out, or change
+         * size (the view shown, the fonts loaded).
          */
         function placeIndicator({ animate }) {
-            const button = buttons.find((b) => b.getAttribute("aria-selected") === "true");
-            if (!button || !button.offsetWidth) return;
+            const label = buttons.find((b) => b.getAttribute("aria-selected") === "true")?.querySelector(".settings-tab-label");
+            if (!label || !label.offsetWidth) return;
             tablist.classList.toggle("settings-tabs-instant", !animate);
-            indicator.style.setProperty("--indicator-x", `${button.offsetLeft}px`);
-            indicator.style.setProperty("--indicator-width", `${button.offsetWidth}px`);
+            // The tab list is the label's offset parent, so its offset is from the list's edge.
+            indicator.style.setProperty("--indicator-x", `${label.offsetLeft}px`);
+            indicator.style.setProperty("--indicator-width", `${label.offsetWidth}px`);
             if (!animate) {
                 // Let the jump land, then allow the next move to animate.
                 indicator.getBoundingClientRect();
