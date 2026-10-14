@@ -52,18 +52,20 @@ which puts focus on the selected tab.
 
 **Update** is two cards in a readable column (36rem at most). The first is headed with the version running
 (`Version 2.0.0`), then a status line (`role="status"`, its height kept), then `Check for Updates` (disabled
-while a check or download runs, or with no updater) and, when there's an update to download, `Download
+while a check or download runs, or with no updater; busy, "Checking…" with a spinner, while a check runs, however
+it was started, through `kit.ui.busy()`) and, when there's an update to download, `Download
 Update` beside it. While an update downloads, a bar in the accent (`kit.ui.progress()`) shows under the
 status line; it goes the moment the download finishes or fails, never fading or left at 100%. Once an update
 has downloaded, **`Restart Now`** takes `Check for Updates`' place (and the focus, if it had it): it installs
-the update at once, silently, and starts the new version. If the app passes `busy`, a function returning
+the update at once, silently, and starts the new version, "Restarting…" while it does (its label comes back if the
+app is still open). If the app passes `busy`, a function returning
 what it's busy with (`"A conversion is running."`, or `null`), and it returns a reason, the kit asks first, in
 its own warning prompt: "Restart Now?", the reason, "<App> will close to install the update, and open
 again.", with the focus on Cancel. Without `busy`, or with nothing running, it restarts at once. In "Version x is available.", "Version x" is a link to that release's page on GitHub,
 opened in the browser. "Checking for updates…" shows for a second at least, so a check that fails at once still
 looks pressed. A failed check says why, in Bootstrap's warning shade (it passes): "You seem to be offline.",
 "The newest release has no update files yet." or "Try again later."; a failed download is in the danger
-shade. The second card, **Preferences**, holds the `Download updates automatically` switch, on by default,
+shade. The second card, **Preferences**, holds the `Download updates automatically` switch (`kit.ui.switchField()`), on by default,
 whose help says what it does on and what it does off, and the `Update channel`, `Stable`, `Beta` or
 `Alpha`, each with its help line. Each change is kept as it's made, and a new channel checks again. The menu's `Check for Updates` opens this tab and runs a check.
 While an update waits (`dot` in the updater's state), a **yellow dot** shows on the rail's Settings item (6px,

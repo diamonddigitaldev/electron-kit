@@ -155,6 +155,23 @@ a:hover {
     --bs-btn-disabled-border-color: var(--accent);
 }
 
+/* Bootstrap draws a range's knob in a literal #0d6efd (#b6d4fe pressed), with
+   a blue glow when focused, so the knob takes the accent directly: its fill,
+   and its hover shade while pressed. The house's ring (Focus rings, below)
+   goes round the range instead of the glow. Disabled, it's Bootstrap's grey. */
+.form-range::-webkit-slider-thumb {
+    background-color: var(--accent);
+    transition: background-color var(--dur-micro) var(--ease-micro);
+}
+
+.form-range::-webkit-slider-thumb:active {
+    background-color: var(--accent-hover);
+}
+
+.form-range:focus::-webkit-slider-thumb {
+    box-shadow: none;
+}
+
 /* -- Checkboxes and switches ------------------------------------------------
    Bootstrap draws the tick and the switch's knob as background images, in
    literals of its own (#0d6efd, #86b7fe), which can't move. The kit draws
@@ -1286,8 +1303,8 @@ a:hover {
    it (.on); the line and those dots fill in the accent, 3:1 on the page, as
    the knob moves. The knob is 1rem across, so its centre runs from 0.5rem in
    from each end: the line and the nodes are laid out between those, so each
-   node sits under the knob at its value. The knob is the accent's fill, with
-   the house's ring around the range rather than Bootstrap's glow. */
+   node sits under the knob at its value. The knob is the accent's fill, as
+   every range's is (the Bootstrap bridge). */
 .kit-step-slider {
     --kit-step: 0;
     position: relative;
@@ -1323,19 +1340,6 @@ a:hover {
 
 .kit-step-slider .form-range::-webkit-slider-runnable-track {
     background-color: transparent;
-}
-
-.kit-step-slider .form-range::-webkit-slider-thumb {
-    background-color: var(--accent);
-    transition: background-color var(--dur-micro) var(--ease-micro);
-}
-
-.kit-step-slider .form-range::-webkit-slider-thumb:active {
-    background-color: var(--accent-hover);
-}
-
-.kit-step-slider .form-range:focus::-webkit-slider-thumb {
-    box-shadow: none;
 }
 
 .kit-step-nodes {

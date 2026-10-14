@@ -24,7 +24,7 @@ test("@diamonddigitaldev/electron-kit/format is the page's kit.format under Node
     const node = require("../format");
     assert.deepEqual(Object.keys(node).sort(), Object.keys(format).sort());
     assert.equal(node.countOf(18000, "frame"), "18,000 frames");
-    assert.equal(node.summarise({ done: 1 }, { one: "file", done: "converted" }), "1 file converted");
+    assert.equal(node.summarise({ done: 1 }, { one: "file", done: "converted" }), "1 File Converted");
     assert.ok(Object.isFrozen(node));
     // The package exports it.
     assert.equal(require("../package.json").exports["./format"], "./format/index.js");
@@ -89,17 +89,32 @@ test("formatDuration() is a clock, and null when unknown", () => {
     for (const unknown of [null, undefined, -1, NaN]) assert.equal(format.formatDuration(unknown), null);
 });
 
-test("summarise() says how a batch went, in the app's words", () => {
+test("summarise() says how a batch went, in the app's words, its clauses between bullets in Title Case", () => {
     const words = { one: "file", done: "converted" };
-    assert.equal(format.summarise({ done: 3, failed: 1, cancelled: 2 }, words), "3 files converted, 1 failed, 2 cancelled");
-    assert.equal(format.summarise({ done: 1 }, words), "1 file converted");
+    assert.equal(format.summarise({ done: 3, failed: 1, skipped: 1 }, words), "3 Files Converted · 1 Failed · 1 Skipped");
+    assert.equal(format.summarise({ done: 3, failed: 1, cancelled: 2 }, words), "3 Files Converted · 1 Failed · 2 Cancelled");
+    // A single clause still says what it counts, with the noun.
+    assert.equal(format.summarise({ done: 1 }, words), "1 File Converted");
     // The first count names the item, whichever it is.
-    assert.equal(format.summarise({ failed: 1200 }, words), "1,200 files failed");
-    assert.equal(format.summarise({ skipped: 5 }, words), "5 files skipped");
-    assert.equal(format.summarise({ done: 2, skipped: 3 }, words), "2 files converted, 3 skipped");
-    assert.equal(format.summarise({ done: 1, failed: 1, skipped: 1, cancelled: 2 }, words), "1 file converted, 1 failed, 1 skipped, 2 cancelled");
-    assert.equal(format.summarise({ cancelled: 1 }, words), "1 file cancelled");
+    assert.equal(format.summarise({ failed: 1200 }, words), "1,200 Files Failed");
+    assert.equal(format.summarise({ skipped: 5 }, words), "5 Files Skipped");
+    assert.equal(format.summarise({ done: 2, skipped: 3 }, words), "2 Files Converted · 3 Skipped");
+    assert.equal(format.summarise({ done: 1, failed: 1, skipped: 1, cancelled: 2 }, words), "1 File Converted · 1 Failed · 1 Skipped · 2 Cancelled");
+    assert.equal(format.summarise({ cancelled: 1 }, words), "1 File Cancelled");
+    assert.equal(format.summarise({ done: 2 }, { one: "clip", done: "joined" }), "2 Clips Joined");
+    assert.equal(format.summarise({ done: 4, failed: 1 }, { one: "child", many: "children", done: "found" }), "4 Children Found · 1 Failed");
+    // Nothing done is a sentence, so it stays one.
     assert.equal(format.summarise({}, words), "Nothing converted");
-    assert.equal(format.summarise({ done: 2 }, { one: "clip", done: "joined" }), "2 clips joined");
+    assert.equal(format.summarise({ done: 0, failed: 0 }, { one: "clip", done: "joined" }), "Nothing joined");
     assert.throws(() => format.summarise({ done: 1 }), /words must name the item/);
+});
+
+test("summarise() title-cases the app's words as Title Case has it: short words after the first stay small, and the rest of each word as given", () => {
+    assert.equal(format.summarise({ done: 2, failed: 1 }, { one: "upload", done: "sent to the server" }), "2 Uploads Sent to the Server · 1 Failed");
+    assert.equal(format.summarise({ done: 1 }, { one: "transfer", done: "end-to-end encrypted" }), "1 Transfer End-to-End Encrypted");
+    // An acronym or a mixed-case word keeps its capitals.
+    assert.equal(format.summarise({ done: 3 }, { one: "MP4 file", done: "remuxed" }), "3 MP4 Files Remuxed");
+    assert.equal(format.summarise({ done: 2 }, { one: "WebP image", done: "saved" }), "2 WebP Images Saved");
+    // The count is the clause's first word, so a short word after it stays small.
+    assert.equal(format.summarise({ done: 1, skipped: 2 }, { one: "file", done: "on hold" }), "1 File on Hold · 2 Skipped");
 });

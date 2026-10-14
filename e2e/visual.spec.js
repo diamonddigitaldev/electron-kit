@@ -5,9 +5,10 @@
 // the images are taken on a Windows CI runner, so they show Segoe UI as most
 // people see it, and Linux runs every other test without them.
 //
-// Seventeen states, each a whole window:
+// Nineteen states, each a whole window:
 // - Settings > Update with an update waiting (and the dot), downloading, ready
-//   to install, and after a check that failed;
+//   to install, restarting (Restart Now busy), checking (Check for Updates
+//   busy), and after a check that failed;
 // - Settings on its General, Update and Credits tabs;
 // - Controls at rest (the box ticked, the switch off, the stepped slider at
 //   3), and toggled by keyboard (the box unticked, the switch on, the slider
@@ -24,16 +25,17 @@
 //   with three cards selected (the bar's box half ticked, "3 selected", its
 //   target's note, and the actions a selection shows); then the update dot
 //   on the collapsed rail.
-// All seventeen in the demo's accent, in the light and dark themes. The four
+// All nineteen in the demo's accent, in the light and dark themes. The four
 // that show the most accent (the rail, Controls toggled, and the Queue at
 // rest and selected) again in each of the three apps' accents
-// (test/fixtures/accents/), in both themes. 58 images.
+// (test/fixtures/accents/), in both themes. 62 images.
 //
 // So that an image only changes when the look does: the window's page is
 // 760 x 600 at a scale factor of 1, drawn without the GPU; motion is reduced, so every transition ends
 // at once, and Playwright stops any animation left; the caret is hidden and the
-// mouse parked where nothing hovers; the pulse dot and the Electron version
-// (which a dependency update changes) are masked, and so are the Update tab's
+// mouse parked where nothing hovers; the pulse dot, a busy button's spinner
+// (which turns forever) and the Electron version (which a dependency update
+// changes) are masked, and so are the Update tab's
 // Check for Updates and status line at rest, which differ when the demo is packaged. The demo's own version is
 // 0.0.0 in demo/package.json, so the Update and Credits tabs show it as it is.
 //
@@ -93,11 +95,29 @@ const pushUpdate = (demo, status) => demo.app.evaluate(({ BrowserWindow }, statu
     for (const win of BrowserWindow.getAllWindows()) win.webContents.send("update:status", status);
 }, { ...IDLE, ...status });
 
-/** The Update tab's states pictured, each pushed as the updater would push it. */
+/**
+ * Restart Now pressed: update:install held, as while the app closes to
+ * install, so the button stays busy. The next state lets it answer.
+ */
+async function pressRestartNow(main, demo) {
+    await demo.app.evaluate(({ ipcMain }) => {
+        ipcMain.removeHandler("update:install");
+        ipcMain.handle("update:install", () => new Promise((resolve) => {
+            globalThis.letInstallAnswer = resolve;
+        }));
+    });
+    await main.locator("#update-restart").click();
+    await expect(main.locator("#update-restart")).toHaveText("Restarting…");
+}
+
+/** The Update tab's states pictured, each pushed as the updater would push it, then anything done on it. */
 const UPDATE_STATES = {
     "update-available": [{ state: "available", version: "0.1.0", dot: true }, "Version 0.1.0 is available."],
     "update-downloading": [{ state: "downloading", version: "0.1.0", percent: 45, dot: true }, "Downloading version 0.1.0… 45%"],
     "update-ready": [{ state: "downloaded", version: "0.1.0", percent: 100, dot: true }, /has downloaded/],
+    "update-restarting": [{ state: "downloaded", version: "0.1.0", percent: 100, dot: true }, /has downloaded/, pressRestartNow],
+    // Check for Updates busy, "Checking…", beside the status line saying so.
+    "update-checking": [{ state: "checking" }, "Checking for updates…"],
     "update-check-failed": [{ state: "error", error: "check", reason: "no-files" }, /no update files/],
 };
 
@@ -127,7 +147,7 @@ async function looksLike(main, name, { pushed = false } = {}) {
         // The Update tab's Check for Updates and its status line differ between a run from source (disabled, "Updates
         // are checked in the installed app.") and a packaged one (ready to check); update-tab.spec.js checks both.
         // A state pushed to the page looks the same either way, so it isn't masked.
-        mask: [main.locator(".pulse-dot"), main.locator("#electron-api"), ...(pushed ? [] : [main.locator("#update-check"), main.locator("#update-status")])],
+        mask: [main.locator(".pulse-dot"), main.locator(".spinner-border"), main.locator("#electron-api"), ...(pushed ? [] : [main.locator("#update-check"), main.locator("#update-status")])],
     });
 }
 
@@ -139,11 +159,14 @@ async function looksLike(main, name, { pushed = false } = {}) {
  */
 const STATES = {
     // First, the Update tab's states, each with the dot where there is one; the at-rest Update tab then clears it.
-    ...Object.fromEntries(Object.entries(UPDATE_STATES).map(([state, [status, says]]) => [state, async (main, demo) => {
+    ...Object.fromEntries(Object.entries(UPDATE_STATES).map(([state, [status, says, then]]) => [state, async (main, demo) => {
         await main.locator(".nav-rail .nav-settings").click();
         await main.getByRole("tab", { name: /^Update/ }).click();
+        // A Restart Now pressed in the state before has its answer.
+        await demo.app.evaluate(() => globalThis.letInstallAnswer?.(null));
         await pushUpdate(demo, status);
         await expect(main.locator("#update-status")).toHaveText(says);
+        await then?.(main, demo);
         await blur(main);
     }])),
     ...Object.fromEntries(["General", "Update", "Credits"].map((name) => [`settings-${name.toLowerCase()}`, async (main, demo) => {
