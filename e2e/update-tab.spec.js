@@ -413,6 +413,34 @@ test("the dot shows on the rail's Settings and the Update tab while an update wa
     await expect(main.getByRole("button", { name: "Settings", exact: true })).toHaveAccessibleName("Settings");
 });
 
+test("the tab bar stays under \"Update\" as the dot comes and goes, the dot beside it", async ({ demo }) => {
+    const main = await demo.mainWindow();
+    await main.emulateMedia({ reducedMotion: "reduce" });
+    await openUpdate(main);
+    const tab = main.getByRole("tab", { name: /^Update/ });
+    /** The bar and the tab's word, and where the dot starts, once the bar has finished moving. */
+    const drawn = () => tab.evaluate(async (tab) => {
+        const bar = tab.parentElement.querySelector(".settings-tab-indicator");
+        await Promise.all(bar.getAnimations().map((a) => a.finished.catch(() => {})));
+        const box = (el) => {
+            const { left, right } = el.getBoundingClientRect();
+            return [Math.round(left), Math.round(right)];
+        };
+        const dot = tab.querySelector(".update-dot");
+        return { bar: box(bar), word: box(tab.querySelector(".settings-tab-label")), dot: dot.hidden ? null : box(dot)[0] };
+    });
+    const without = await drawn();
+    expect(without.bar).toEqual(without.word);
+    expect(without.dot).toBeNull();
+    for (const [status, dot] of [[{ state: "available", version: "1.1.0", dot: true }, true], [{ state: "none" }, false], [{ state: "downloaded", version: "1.1.0", percent: 100, dot: true }, true], [{ state: "idle" }, false]]) {
+        await push(demo, status);
+        await expect(tab.locator(".update-dot")).toBeVisible({ visible: dot });
+        const seen = await drawn();
+        expect(seen.bar, `${status.state}: the bar is the word's width`).toEqual(without.word);
+        if (dot) expect(seen.dot, `${status.state}: the dot is past the bar's end`).toBeGreaterThan(seen.bar[1]);
+    }
+});
+
 test("the dot breathes, slowly, wherever it shows, and is still under reduced motion", async ({ demo }) => {
     const main = await demo.mainWindow();
     await openUpdate(main);

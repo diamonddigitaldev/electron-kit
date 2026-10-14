@@ -46,7 +46,8 @@ shell.showView("convert");                             // or shell.showSettings(
 The Settings view has tabs across the top (`role="tablist"`; the arrow keys, Home and End move between
 them, and only the selected tab is in the Tab order): the app's own tabs, then **Update**, then
 **Credits**, always last. They're plain text on a thin line, the selected one darker, with a thicker bar in
-the accent's fill under it that slides to the next tab chosen and takes its text's width. There's no save button anywhere: a tab keeps each change through
+the accent's fill under it that slides to the next tab chosen and takes its text's width (the update dot, beside
+Update's text, moves nothing). There's no save button anywhere: a tab keeps each change through
 `setSettings()` as it's made. It's reached from the rail, and from the menu's `Settings` (`CmdOrCtrl+,`),
 which puts focus on the selected tab.
 
