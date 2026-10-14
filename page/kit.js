@@ -40,10 +40,12 @@
 // files dropped from the desktop. kit.ui.card() is one piece of work in a list
 // (its name, lines, status dot, bar and buttons), kit.ui.cardGrid() lays a
 // list's cards out and selects them, kit.ui.bulkBar() acts on what's selected,
-// kit.ui.busy() shows a button doing what it says, and kit.ui.stepSlider() is
-// a choice of a few whole numbers, its knob snapping to each. kit.keys.onKey()
-// listens for a section's own shortcuts, never while someone types or a modal
-// is open; kit.format is the house's wording for counts, sizes and times.
+// kit.ui.busy() shows a button doing what it says, kit.ui.switchField() is a
+// switch whose help line says what the state it's in does, and
+// kit.ui.stepSlider() is a choice of a few whole numbers, its knob snapping to
+// each. kit.keys.onKey() listens for a section's own shortcuts, never while
+// someone types or a modal is open; kit.format is the house's wording for
+// counts, sizes and times.
 // The shared markup is built with createElement and textContent, never HTML
 // strings, and every icon is aria-hidden: an item's name is its label, which a
 // collapsed rail hides visually but keeps for screen readers.
@@ -288,18 +290,19 @@
      * The Update tab: two cards. The first, under the version running, says
      * where the updates stand (a live region, its height kept, so nothing
      * jumps), with the download's bar under it while one runs, then Check for
-     * Updates and, when there's one to download, Download Update. Once an
-     * update has downloaded, Restart Now takes Check for Updates' place: it
-     * installs the update now, after asking when the app says it's busy
-     * (mountShell's busy). The second holds the preferences: the automatic
-     * downloads switch, whose help says what each way does, and the update
+     * Updates ("Checking…" while a check runs) and, when there's one to
+     * download, Download Update. Once an update has downloaded, Restart Now
+     * takes Check for Updates' place: it installs the update now
+     * ("Restarting…"), after asking when the app says it's busy (mountShell's
+     * busy). The second holds the preferences: the automatic downloads switch
+     * (switchField()), whose help says what each way does, and the update
      * channel. Each change is kept as it's made, and the kit's main process
      * acts on it (a new channel checks again).
      * @param {HTMLElement} pane
-     * @param {() => (string | null | Promise<string | null>)} [busy] - what the app is busy with, or null
+     * @param {() => (string | null | Promise<string | null>)} [appBusy] - what the app is busy with, or null
      * @returns {{ showInfo(info: object): void, showSettings(settings: object): void, showStatus(status: object, appName: string): boolean }}
      */
-    function buildUpdate(pane, busy) {
+    function buildUpdate(pane, appBusy) {
         const version = el("h3", { className: "update-version", attrs: { id: "update-version" } });
         const check = el("button", { className: "btn btn-secondary", text: "Check for Updates", attrs: { type: "button", id: "update-check" } });
         const statusText = el("span");
@@ -313,15 +316,22 @@
         bar.element.classList.add("update-progress");
         bar.element.hidden = true;
 
-        const auto = el("input", { className: "form-check-input", attrs: { type: "checkbox", role: "switch", id: "update-auto", "aria-describedby": "update-auto-help" } });
-        const autoHelp = el("div", { className: "form-text", attrs: { id: "update-auto-help" } });
         let appName = "";
         let repository = null;
-        const showAutoHelp = () => {
-            autoHelp.textContent = auto.checked
-                ? `Updates download by themselves and are installed when you close ${appName}.`
-                : "Updates are checked but not downloaded automatically. You'll be notified when one is available.";
-        };
+        const autoSwitch = switchField({
+            id: "update-auto",
+            label: "Download updates automatically",
+            help: {
+                // Read each time the help is drawn: the app's name arrives with its info (showInfo).
+                get on() {
+                    return `Updates download by themselves and are installed when you close ${appName}.`;
+                },
+                off: "Updates are checked but not downloaded automatically. You'll be notified when one is available.",
+            },
+            onChange: (checked) => api?.setSettings({ autoDownloadUpdates: checked }).catch(() => {}),
+        });
+        autoSwitch.element.classList.add("update-row");
+        const auto = autoSwitch.input;
         const channel = el("select", { className: "form-select update-channel", attrs: { id: "update-channel", "aria-describedby": "update-channel-help" } },
             UPDATE_CHANNELS.map(({ value, label }) => el("option", { text: label, attrs: { value } })));
         const channelHelp = el("div", { className: "form-text", attrs: { id: "update-channel-help" } });
@@ -340,10 +350,7 @@
             ]),
             card("update-preferences", [
                 el("h3", { className: "update-card-title", text: "Preferences", attrs: { id: "update-preferences" } }),
-                el("div", { className: "update-row" }, [
-                    el("div", { className: "form-check form-switch mb-0" }, [auto, el("label", { className: "form-check-label", text: "Download updates automatically", attrs: { for: "update-auto" } })]),
-                    autoHelp,
-                ]),
+                autoSwitch.element,
                 el("div", { className: "update-row" }, [
                     el("label", { className: "form-label", text: "Update channel", attrs: { for: "update-channel" } }),
                     channel,
@@ -353,12 +360,29 @@
         ]));
 
         const api = bridge();
-        check.addEventListener("click", () => api?.checkForUpdates().catch(() => {}));
+        // Check for Updates is busy while a check runs, however it was started: from here, the menu or the launch.
+        let shown = null;
+        let checkRestore = null;
+        const checkBusy = (on) => {
+            if (on && !checkRestore) checkRestore = busy(check, "Checking…");
+            else if (!on && checkRestore) {
+                checkRestore();
+                checkRestore = null;
+            }
+        };
+        check.addEventListener("click", () => {
+            checkBusy(true);
+            // The check's state comes back on update:status first; with none (it couldn't start), the label comes back now.
+            Promise.resolve(api?.checkForUpdates()).catch(() => {}).finally(() => {
+                if (shown !== "checking") checkBusy(false);
+            });
+        });
         download.addEventListener("click", () => api?.downloadUpdate().catch(() => {}));
         restart.addEventListener("click", async () => {
             restart.disabled = true;
+            let restore = null;
             try {
-                const reason = busy ? await busy() : null;
+                const reason = appBusy ? await appBusy() : null;
                 const go = typeof reason !== "string" || reason === "" || await confirm({
                     title: "Restart Now?",
                     body: reason,
@@ -367,16 +391,18 @@
                     variant: "warning",
                     icon: "restart_alt",
                 });
-                if (go) await api?.installUpdate();
+                if (go) {
+                    // Enabled first, so restore() gives it back enabled.
+                    restart.disabled = false;
+                    restore = busy(restart, "Restarting…");
+                    await api?.installUpdate();
+                }
             } catch {
                 // The update still installs when the app closes.
             } finally {
+                restore?.();
                 restart.disabled = false;
             }
-        });
-        auto.addEventListener("change", () => {
-            showAutoHelp();
-            api?.setSettings({ autoDownloadUpdates: auto.checked }).catch(() => {});
         });
         channel.addEventListener("change", () => {
             showChannelHelp();
@@ -388,11 +414,10 @@
                 appName = info.name;
                 repository = info.repository ?? null;
                 version.textContent = `Version ${info.version}`;
-                showAutoHelp();
+                autoSwitch.set(auto.checked);
             },
             showSettings(settings) {
-                auto.checked = settings.autoDownloadUpdates === true;
-                showAutoHelp();
+                autoSwitch.set(settings.autoDownloadUpdates === true);
                 if (UPDATE_CHANNELS.some((c) => c.value === settings.updateChannel)) channel.value = settings.updateChannel;
                 showChannelHelp();
             },
@@ -406,6 +431,8 @@
                 // Bootstrap's emphasis shades, which hold AA on the page in both themes (its plain ones don't on dark).
                 status.classList.toggle("text-warning-emphasis", message.tone === "warning");
                 status.classList.toggle("text-danger-emphasis", message.tone === "danger");
+                shown = next.state;
+                checkBusy(next.state === "checking");
                 // A check can run unless there's no updater, one is running, or an update is downloading.
                 check.disabled = ["unavailable", "checking", "downloading"].includes(next.state);
                 // Once it has downloaded, Restart Now takes Check for Updates' place, and the focus with it.
@@ -1723,6 +1750,74 @@
         return { element, refresh };
     }
 
+    // -- The switch ------------------------------------------------------------------
+
+    /** How a help line mustn't start: it says what the state it's in does, not which state that is. */
+    const STATE_PREFIX = /^\s*(on|off)\s*:/i;
+
+    /**
+     * A setting that's on or off (Download updates automatically): Bootstrap's
+     * switch, named by its label, with one help line under it that says what
+     * the state it's in does, from help.on or help.off, changing as it's
+     * flipped. The help line describes the switch (aria-describedby).
+     * onChange(checked) is called when a person flips it (on change); set()
+     * flips it, and its help, without calling it. The app disables it through
+     * input.disabled.
+     * @param {{
+     *   id: string,
+     *   label: string,
+     *   checked?: boolean,
+     *   help: { on: string, off: string },
+     *   onChange?: (checked: boolean) => void,
+     * }} options
+     * @returns {{ element: HTMLElement, input: HTMLInputElement, set(checked: boolean): void }}
+     */
+    function switchField(options = {}) {
+        const fail = (message) => {
+            throw new Error(`kit.ui.switchField(): ${message}`);
+        };
+        const text = (value) => typeof value === "string" && value !== "";
+        if (options === null || typeof options !== "object") fail("options must be { id, label, checked, help: { on, off }, onChange }.");
+        const known = ["id", "label", "checked", "help", "onChange"];
+        const extra = Object.keys(options).find((key) => !known.includes(key));
+        if (extra !== undefined) fail(`it has no option "${extra}".`);
+        const { id, label, checked = false, help, onChange } = options;
+        if (!text(id) || /\s/.test(id)) fail("id must be the switch's id, with no spaces.");
+        if (!text(label)) fail("label must be text.");
+        if (typeof checked !== "boolean") fail("checked must be true or false.");
+        if (help === null || typeof help !== "object" || Object.keys(help).some((key) => key !== "on" && key !== "off")) {
+            fail("help must be { on, off }: what the switch does in each state.");
+        }
+        for (const key of ["on", "off"]) {
+            if (!text(help[key])) fail(`help.${key} must be text: what the switch does when it's ${key}.`);
+            if (STATE_PREFIX.test(help[key])) fail(`help.${key} says what it does, without "On:" or "Off:".`);
+        }
+        if (onChange !== undefined && typeof onChange !== "function") fail("onChange must be a function, or left out.");
+
+        const input = el("input", { className: "form-check-input", attrs: { type: "checkbox", role: "switch", id, "aria-describedby": `${id}-help` } });
+        const helpLine = el("div", { className: "form-text", attrs: { id: `${id}-help` } });
+        const element = el("div", { className: "kit-switch-field" }, [
+            el("div", { className: "form-check form-switch mb-0" }, [input, el("label", { className: "form-check-label", text: label, attrs: { for: id } })]),
+            helpLine,
+        ]);
+        const showHelp = () => {
+            helpLine.textContent = input.checked ? help.on : help.off;
+        };
+
+        input.addEventListener("change", () => {
+            showHelp();
+            onChange?.(input.checked);
+        });
+
+        function set(value) {
+            if (typeof value !== "boolean") fail("set() takes true or false.");
+            input.checked = value;
+            showHelp();
+        }
+        set(checked);
+        return { element, input, set };
+    }
+
     // -- The stepped slider ----------------------------------------------------------
 
     /** The most values a stepped slider takes: a wider range is a number field. */
@@ -1929,11 +2024,31 @@
         return h > 0 ? `${h}:${pad(m)}:${pad(total % 60)}` : `${m}:${pad(total % 60)}`;
     }
 
+    /** The short words Title Case leaves in lower case, unless one starts the item. */
+    const MINOR_WORDS = new Set(["a", "an", "and", "as", "at", "but", "by", "for", "from", "in", "into", "nor", "of", "on", "or", "per", "the", "to", "via", "with"]);
+
     /**
-     * The line after a batch has run: "3 files converted, 1 failed, 1 skipped,
-     * 2 cancelled", or "Nothing converted". Skipped (the person chose to leave
-     * it out) and cancelled (the run was stopped) are told apart. The first
-     * count names the item.
+     * Words in Title Case, as an item between bullets is: each word's first
+     * letter capitalised, and the rest left as given ("MP4 file" is "MP4
+     * File"), bar the short words after the first ("end-to-end" is
+     * "End-to-End").
+     */
+    function titleCase(words) {
+        let first = true;
+        return words.replace(/[^\s-]+/g, (word) => {
+            const minor = !first && MINOR_WORDS.has(word.toLowerCase());
+            first = false;
+            return minor ? word : word[0].toUpperCase() + word.slice(1);
+        });
+    }
+
+    /**
+     * The line after a batch has run, its clauses between bullets in Title
+     * Case: "3 Files Converted · 1 Failed · 1 Skipped · 2 Cancelled", or the
+     * sentence "Nothing converted". Skipped (the person chose to leave it out)
+     * and cancelled (the run was stopped) are told apart. The first count
+     * names the item. The app's words are given in lower case, as in a
+     * sentence; the kit title-cases them.
      * @param {{ done?: number, failed?: number, skipped?: number, cancelled?: number }} counts
      * @param {{ one: string, many?: string, done: string }} words - the item ("file") and what done means ("converted").
      */
@@ -1945,7 +2060,7 @@
         if (failed > 0) parts.push(`${count(failed)} failed`);
         if (skipped > 0) parts.push(`${count(skipped)} skipped`);
         if (cancelled > 0) parts.push(`${count(cancelled)} cancelled`);
-        return parts.length > 0 ? parts.join(", ") : `Nothing ${doneWord}`;
+        return parts.length > 0 ? parts.map(titleCase).join(" · ") : `Nothing ${doneWord}`;
     }
 
     // -- Checkboxes ------------------------------------------------------------
@@ -1969,7 +2084,7 @@
     }, true);
 
     window.kit = {
-        ui: { mountShell, toast, confirm, progress, actionBar, dropZone, busy, card, cardGrid, bulkBar, stepSlider },
+        ui: { mountShell, toast, confirm, progress, actionBar, dropZone, busy, card, cardGrid, bulkBar, switchField, stepSlider },
         format: { plural, countOf, groupDigits, formatBytes, formatEta, formatDuration, summarise },
         keys: { isTyping, onKey },
     };

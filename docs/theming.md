@@ -62,7 +62,8 @@ shade 20% lighter again. White on the fill needs 4.5:1, so the hover goes darker
 `rgba(var(--accent-rgb), …)`), radii (`--radius-*`), opacity (`--opacity-disabled`, `--opacity-muted`), the
 timings the JS side shares (`--timing-*`), the focus ring (`--focus-ring-width`, `--focus-ring-offset`) and
 the scrollbar. It binds the accent into Bootstrap's primary (`--bs-primary`, `.btn-primary`, links and
-`.progress`) and its form controls: a checked box or switch is the fill.
+`.progress`) and its form controls: a checked box or switch is the fill, and so is every range's knob
+(Bootstrap's is a literal blue), darker while pressed, with the house's focus ring rather than Bootstrap's glow.
 
 ## Focus Rings and Controls
 

@@ -274,6 +274,17 @@ test("every focus ring the kit draws is a solid ring in the accent's text shade,
     assert.deepEqual(KIT_RULES.filter((r) => r.declarations.outline === "none" || r.declarations.outline === "0").map((r) => r.selector), []);
 });
 
+test("every range's knob is the accent's fill, its hover shade while pressed, with no glow; Bootstrap's grey when disabled", () => {
+    assert.equal(rule(".form-range::-webkit-slider-thumb")["background-color"], "var(--accent)");
+    assert.deepEqual(rule(".form-range::-webkit-slider-thumb:active"), { "background-color": "var(--accent-hover)" });
+    assert.deepEqual(rule(".form-range:focus::-webkit-slider-thumb"), { "box-shadow": "none" });
+    // Bootstrap's disabled knob outranks the bridge's, and the stepped slider sets no knob colour of its own but that.
+    const knobs = KIT_RULES.filter((r) => r.selector.includes("slider-thumb") && Object.hasOwn(r.declarations, "background-color"));
+    assert.deepEqual(knobs.map((r) => r.selector).filter((s) => s.includes("kit-step")), [
+        ".kit-step-slider:has(.form-range:disabled) :is(.kit-step-fill, .kit-step-node.on .kit-step-dot), .kit-step-slider .form-range:disabled::-webkit-slider-thumb",
+    ]);
+});
+
 test("checked boxes and switches fill with the accent, and unchecked ones are outlined in the secondary text colour", () => {
     assert.deepEqual(rule('.form-check-input:checked, .form-check-input[type="checkbox"]:indeterminate'), {
         "background-color": "var(--accent)",

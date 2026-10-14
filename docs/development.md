@@ -40,11 +40,11 @@ package that's already on npm.
 ## Visual Tests
 
 `e2e/visual.spec.js` compares the demo's window with committed images, in
-`e2e/visual.spec.js-snapshots/`, using Playwright's `toHaveScreenshot()`. It takes 58 images:
+`e2e/visual.spec.js-snapshots/`, using Playwright's `toHaveScreenshot()`. It takes 62 images:
 
 | State | Accents | Themes |
 |---|---|---|
-| Settings > Update with an update waiting (and the dot), downloading, ready to install, and after a failed check | the demo's | light and dark |
+| Settings > Update with an update waiting (and the dot), downloading, ready to install, restarting (`Restart Now` busy), checking (`Check for Updates` busy), and after a failed check | the demo's | light and dark |
 | Settings on its General, Update and Credits tabs | the demo's | light and dark |
 | Controls at rest (the box ticked, the switch off, the stepped slider at 3) | the demo's | light and dark |
 | Controls toggled by keyboard (the box unticked, the switch on, the slider moved to 5 and focused) | the demo's and each app's | light and dark |
@@ -59,7 +59,7 @@ package that's already on npm.
 
 The app accents are the ones in `test/fixtures/accents/`. The page is 760 × 600 at a scale factor of 1, drawn without the GPU, as on the runner, which has none.
 Motion is reduced, so every transition ends at once. The caret is hidden and the mouse is parked. The
-pulse dot and the Electron version are masked. A pixel counts as changed past a colour difference of
+pulse dot, a busy button's spinner (it turns even under reduced motion) and the Electron version are masked. A pixel counts as changed past a colour difference of
 0.02, not Playwright's 0.2, which would let a shade of the accent pass for another.
 
 The images are Windows' (Segoe UI, as most people see the apps), so the spec runs on Windows only and

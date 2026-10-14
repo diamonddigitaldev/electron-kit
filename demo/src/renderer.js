@@ -26,26 +26,29 @@ function showTheme() {
     new MutationObserver(update).observe(document.documentElement, { attributeFilter: ["data-bs-theme"] });
 }
 
+/** The General tab's switch. */
+let accentSwitch = null;
+
 /**
- * The demo's own Settings tab: one setting of its own, kept through the kit's
- * settings:set as it's changed, with no save button.
+ * The demo's own Settings tab: one setting of its own, a switch kept through
+ * the kit's settings:set as it's changed, with no save button.
  */
 function renderGeneral(pane) {
-    pane.innerHTML = `
-        <div class="form-check form-switch">
-            <input id="show-accent-sample" class="form-check-input" type="checkbox" role="switch">
-            <label class="form-check-label" for="show-accent-sample">Show the accent sample</label>
-        </div>
-        <div class="form-text">On the Overview section.</div>`;
-    const toggle = $("show-accent-sample");
-    toggle.addEventListener("change", async () => {
-        applySettings(await window.kitAPI.setSettings({ showAccentSample: toggle.checked }));
+    accentSwitch = window.kit.ui.switchField({
+        id: "show-accent-sample",
+        label: "Show the accent sample",
+        help: {
+            on: "The Overview shows the accent's text, a link and a bar.",
+            off: "The Overview leaves the accent sample out.",
+        },
+        onChange: async (checked) => applySettings(await window.kitAPI.setSettings({ showAccentSample: checked })),
     });
+    pane.replaceChildren(accentSwitch.element);
 }
 
 /** Put the demo's settings in place. */
 function applySettings(settings) {
-    $("show-accent-sample").checked = settings.showAccentSample;
+    accentSwitch.set(settings.showAccentSample);
     $("accent-sample").classList.toggle("d-none", !settings.showAccentSample);
 }
 

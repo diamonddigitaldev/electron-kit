@@ -1,6 +1,6 @@
 # Page Components
 
-The page library's parts: toasts, prompts, the parts of a section of files, cards, the card grid and its bulk bar, busy buttons, the stepped slider, the key guard and the house's wording for numbers.
+The page library's parts: toasts, prompts, the parts of a section of files, cards, the card grid and its bulk bar, busy buttons, the switch, the stepped slider, the key guard, the house's wording for numbers, and its copy rules.
 
 [All the docs](README.md)
 
@@ -194,7 +194,8 @@ card.update({
 `kit.ui.busy(button, label)` shows a button doing what it says, as a card's Pause does while it pauses: the button
 is disabled, with Bootstrap's small spinner (`aria-hidden`, sized to the button's text so the button doesn't grow)
 before a "[Doing it]…" label. It returns `restore()`, which puts the button's own label back, and the enabled state
-it had; calling it twice does nothing more. A button already busy is refused.
+it had; calling it twice does nothing more. A button already busy is refused. The kit's own buttons use it too:
+Settings > Update's `Check for Updates` is "Checking…" while a check runs, and `Restart Now` "Restarting…".
 
 ```js
 onClick: (button) => {
@@ -297,6 +298,37 @@ bar.refresh();                                            // when the app's own 
 
 The bar under the list, with the run's progress and its one primary action, is still `kit.ui.actionBar()`.
 
+## The Switch
+
+`kit.ui.switchField(options)` is a setting that's on or off, with a help line under it that says what the state
+it's in does, changing as it's flipped. Settings > Update's `Download updates automatically` is one.
+
+```js
+const keepLog = kit.ui.switchField({
+    id: "keep-log",
+    label: "Keep a log on disk",
+    checked: settings.keepLogOnDisk,
+    help: {
+        on: "Each run's log is written to debug.log in the app's data folder, for a bug report.",
+        off: "The log is kept in memory only, and is gone when the app closes.",
+    },
+    onChange: (checked) => window.kitAPI.setSettings({ keepLogOnDisk: checked }),
+});
+$("general-pane").append(keepLog.element);
+keepLog.set(false);                      // when the setting changes elsewhere: flips it without calling onChange
+keepLog.input.disabled = true;           // the switch itself, for anything else
+```
+
+- **It's Bootstrap's switch** (`form-check form-switch`, a checkbox with `role="switch"`), named by `label`, drawn
+  as the kit draws every switch. `id` is the switch's; its label and help line are tied to it.
+- **Its help line** describes the switch (`aria-describedby`): `help.on` while it's on, `help.off` while it's off.
+  Each says what happens in that state, as a sentence, never "On:" or "Off:" (a help line starting with either is
+  refused): "Updates download by themselves and are installed when you close …" / "Updates are checked but not
+  downloaded automatically. You'll be notified when one is available."
+- **`onChange(checked)`** is called when a person flips it (on `change`). `set(checked)` flips it, and its help,
+  without calling it. `checked` is `false` if not given.
+- A mistake in the options throws before anything is drawn.
+
 ## The Stepped Slider
 
 `kit.ui.stepSlider(options)` is a choice of a few whole numbers, such as how many transfers run at once: a line
@@ -356,8 +388,22 @@ can't happen:
 | `formatBytes(bytes)` | `"512 B"`, `"1.5 KB"`, `"12 MB"`: binary units, one decimal below 10; `null` if unknown |
 | `formatEta(seconds)` | `"45s"`, `"2m 05s"`, `"1h 02m"`; `null` if unknown |
 | `formatDuration(seconds)` | `"9:05"`, `"1:02:03"`; `null` if unknown |
-| `summarise({ done, failed, skipped, cancelled }, { one, done })` | `"3 files converted, 1 failed, 1 skipped, 2 cancelled"` (the first count names the item: `"5 files skipped"`), or `"Nothing converted"` |
+| `summarise({ done, failed, skipped, cancelled }, { one, done })` | `"3 Files Converted · 1 Failed · 1 Skipped · 2 Cancelled"`: its clauses between bullets in Title Case, the first count naming the item (`"1 File Converted"`, `"5 Files Skipped"`); or the sentence `"Nothing converted"`. The app gives its words in lower case (`{ one: "file", done: "converted" }`), and the kit title-cases them, leaving the rest of each word as given (`"MP4 file"` is `"MP4 File"`) |
 
 A file loaded both in the page and under Node (a module of helpers its tests require) takes the same helpers
 under Node from `require("@diamonddigitaldev/electron-kit/format")`, which runs `kit.js`'s own code, so the
 house's wording has one implementation.
+
+## Copy Rules
+
+Two rules for the words every app shows, the kit's own included, beside the Title Case of buttons, headlines and
+titles:
+
+- **After a colon, the next word is capitalised:** "Queued: Starts when one of the 3 running finishes.",
+  "Failed: The server closed the connection."
+- **Items between bullets (` · `) are Title Case, unless an item is a sentence:** "3 Files Converted · 1 Failed"
+  (`summarise()`), "1 Paused · 2 Ready", "Uploaded · End-to-End Encrypted", "Uploading 81% · File 32 of 38". Short
+  words after an item's first stay small ("to", "of", "the"). Two things a status line would join with a comma
+  are bullet-separated items instead.
+- **A name or an address is never recased**, wherever it stands: a file's name (`IMG_2041.jpg and 37 More`), a
+  server's address, an app's name.

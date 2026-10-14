@@ -247,6 +247,129 @@ test("Check for Updates and Download Update ask the main process", async ({ demo
     await expect.poll(() => demo.app.evaluate(() => globalThis.updateCalls)).toEqual(["update:check", "update:download"]);
 });
 
+/** A button as kit.ui.busy() draws it: disabled, its spinner (hidden from a screen reader) before the label. */
+async function expectBusy(button, label) {
+    await expect(button).toBeDisabled();
+    await expect(button).toHaveText(label);
+    await expect(button).toHaveAccessibleName(label);
+    await expect(button.locator(".spinner-border.spinner-border-sm")).toHaveAttribute("aria-hidden", "true");
+}
+
+/** A button with its own label back, and no spinner. */
+async function expectNotBusy(button, label, { enabled = true } = {}) {
+    await expect(button).toHaveText(label);
+    await expect(button.locator(".spinner-border")).toHaveCount(0);
+    await expect(button).toBeEnabled({ enabled });
+}
+
+test("Check for Updates is busy, \"Checking…\" with a spinner, while the check it starts runs, and has its label back once it's done", async ({ demo }) => {
+    const main = await demo.mainWindow();
+    const pane = await openUpdate(main);
+    // Stand in for update:check as the updater answers it: "checking" pushed at once, the result 300ms later.
+    await demo.app.evaluate(({ ipcMain, BrowserWindow }, idle) => {
+        const send = (status) => BrowserWindow.getAllWindows().forEach((win) => win.webContents.send("update:status", { ...idle, ...status }));
+        ipcMain.removeHandler("update:check");
+        ipcMain.handle("update:check", async () => {
+            send({ state: "checking" });
+            await new Promise((resolve) => setTimeout(resolve, 300));
+            send({ state: "none" });
+            return null;
+        });
+    }, IDLE);
+    await push(demo, { state: "idle" });
+    const check = pane.locator("#update-check");
+    await expectNotBusy(check, "Check for Updates");
+    await check.click();
+    await expectBusy(check, "Checking…");
+    // The status line says it too, as it always has.
+    await expect(pane.locator("#update-status")).toHaveText("Checking for updates…");
+    const since = Date.now();
+    // Busy as long as "Checking for updates…" shows: a second at least.
+    await expectNotBusy(check, "Check for Updates");
+    expect(Date.now() - since).toBeGreaterThanOrEqual(600);
+    await expect(pane.locator("#update-status")).toHaveText("You're up to date.");
+    await expect(check).toHaveClass("btn btn-secondary");
+});
+
+test("Check for Updates is busy while a check started elsewhere runs (the menu, the launch), and gets its label back if no check comes", async ({ demo }) => {
+    const main = await demo.mainWindow();
+    const pane = await openUpdate(main);
+    const check = pane.locator("#update-check");
+    await push(demo, { state: "checking" });
+    await expectBusy(check, "Checking…");
+    await push(demo, { state: "error", error: "check", reason: "offline" });
+    await expectNotBusy(check, "Check for Updates");
+
+    // A check that never starts (it's answered with no state of its own) gives the label back at once.
+    await spyOnUpdates(demo);
+    await push(demo, { state: "none" });
+    await check.click();
+    await expect.poll(() => demo.app.evaluate(() => globalThis.updateCalls)).toEqual(["update:check"]);
+    await expectNotBusy(check, "Check for Updates");
+    // Nor is it busy twice: a "checking" pushed while it's busy from a click leaves it busy once.
+    await push(demo, { state: "checking" });
+    await expectBusy(check, "Checking…");
+    await push(demo, { state: "checking" });
+    await expect(check.locator(".spinner-border")).toHaveCount(1);
+    await push(demo, { state: "none" });
+    await expectNotBusy(check, "Check for Updates");
+});
+
+test("Restart Now is busy, \"Restarting…\", while it installs, not while it asks, and has its label back if the app is still open", async ({ demo }) => {
+    const main = await demo.mainWindow();
+    const pane = await openUpdate(main);
+    // Stand in for update:install, held until the test lets it answer.
+    await demo.app.evaluate(({ ipcMain }) => {
+        globalThis.installs = 0;
+        ipcMain.removeHandler("update:install");
+        ipcMain.handle("update:install", () => new Promise((resolve) => {
+            globalThis.installs++;
+            globalThis.letInstallAnswer = resolve;
+        }));
+    });
+    await push(demo, { state: "downloaded", version: "1.1.0", percent: 100, dot: true });
+    const restart = pane.locator("#update-restart");
+    await expectNotBusy(restart, "Restart Now");
+    await restart.click();
+    await expectBusy(restart, "Restarting…");
+    await expect(restart).toHaveClass(/btn-primary/);
+    expect(await demo.app.evaluate(() => globalThis.installs)).toBe(1);
+    // The installer couldn't start, so the app is still open: the button is as it was.
+    await demo.app.evaluate(() => globalThis.letInstallAnswer(null));
+    await expectNotBusy(restart, "Restart Now");
+
+    // While the app's prompt asks, the button waits, disabled, with its own label.
+    await main.evaluate(() => {
+        window.demoBusy = "A conversion is running.";
+    });
+    await restart.click();
+    const prompt = main.getByRole("alertdialog", { name: "Restart Now?" });
+    await expect(prompt).toBeVisible();
+    await expectNotBusy(restart, "Restart Now", { enabled: false });
+    await prompt.getByRole("button", { name: "Cancel" }).click();
+    await expectNotBusy(restart, "Restart Now");
+    expect(await demo.app.evaluate(() => globalThis.installs)).toBe(1);
+    await restart.click();
+    await main.getByRole("alertdialog", { name: "Restart Now?" }).getByRole("button", { name: "Restart Now" }).click();
+    await expectBusy(restart, "Restarting…");
+    await demo.app.evaluate(() => globalThis.letInstallAnswer(null));
+    await expectNotBusy(restart, "Restart Now");
+    expect(await demo.app.evaluate(() => globalThis.installs)).toBe(2);
+});
+
+test("Download Update stays as it is: never busy, gone once the bar shows", async ({ demo }) => {
+    const main = await demo.mainWindow();
+    const pane = await openUpdate(main);
+    await spyOnUpdates(demo);
+    await push(demo, { state: "available", version: "1.1.0", dot: true });
+    const download = pane.locator("#update-download");
+    await download.click();
+    await expect.poll(() => demo.app.evaluate(() => globalThis.updateCalls)).toEqual(["update:download"]);
+    await expectNotBusy(download, "Download Update");
+    await push(demo, { state: "downloading", version: "1.1.0", percent: 1, dot: true });
+    await expect(download).toBeHidden();
+});
+
 test("the dot shows on the rail's Settings and the Update tab while an update waits, and is named", async ({ demo }) => {
     const main = await demo.mainWindow();
     const settings = main.locator(".nav-rail .nav-settings");
@@ -561,6 +684,36 @@ test("axe finds nothing on the Update tab downloading or ready to restart, in bo
             const { violations } = await new AxeBuilder({ page: main }).setLegacyMode(true).withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"]).analyze();
             found.push(...violations.flatMap((v) => v.nodes.map((n) => `${theme}, ${pushed.state}: ${v.id}: ${n.target.join(" ")}`)));
         }
+    }
+    expect(found).toEqual([]);
+});
+
+test("axe finds nothing on the Update tab with Check for Updates or Restart Now busy, in both themes", async ({ demo }) => {
+    const main = await demo.mainWindow();
+    await openUpdate(main);
+    await demo.app.evaluate(({ ipcMain }) => {
+        ipcMain.removeHandler("update:install");
+        ipcMain.handle("update:install", () => new Promise((resolve) => {
+            globalThis.letInstallAnswer = resolve;
+        }));
+    });
+    const found = [];
+    for (const theme of ["light", "dark"]) {
+        await demo.useTheme(main, theme);
+        await push(demo, { state: "checking" });
+        await expect(main.locator("#update-check")).toHaveText("Checking…");
+        const checking = await new AxeBuilder({ page: main }).setLegacyMode(true).withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"]).analyze();
+        found.push(...checking.violations.flatMap((v) => v.nodes.map((n) => `${theme}, checking: ${v.id}: ${n.target.join(" ")}`)));
+        await push(demo, { state: "downloaded", version: "1.1.0", percent: 100, dot: true });
+        await main.locator("#update-restart").click();
+        await expect(main.locator("#update-restart")).toHaveText("Restarting…");
+        const restarting = await new AxeBuilder({ page: main }).setLegacyMode(true).withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"]).analyze();
+        found.push(...restarting.violations.flatMap((v) => v.nodes.map((n) => `${theme}, restarting: ${v.id}: ${n.target.join(" ")}`)));
+        // Back to rest for the next theme.
+        await demo.app.evaluate(() => globalThis.letInstallAnswer(null));
+        await expect(main.locator("#update-restart")).toHaveText("Restart Now");
+        await push(demo, { state: "idle" });
+        await expect(main.locator("#update-check")).toHaveText("Check for Updates");
     }
     expect(found).toEqual([]);
 });
