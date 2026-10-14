@@ -70,15 +70,15 @@ test("Bootstrap's controls show the kit's ring, not Bootstrap's blue glow", asyn
     const main = await demo.mainWindow();
     await main.getByRole("button", { name: "Controls", exact: true }).click();
     await main.getByRole("button", { name: "Controls", exact: true }).focus();
-    const stops = await walk(main, 8);
+    const stops = await walk(main, 9);
     const controls = stops.slice(4);
-    expect(controls.map((stop) => stop.name)).toEqual(["A checked box", "A switch, off", "A select", "A text field"]);
+    expect(controls.map((stop) => stop.name)).toEqual(["A checked box", "A switch, off", "Files at once", "A select", "A text field"]);
     expect(ringProblems(controls)).toEqual([]);
     const shadows = await main.locator("#controls-view :is(input, select)").evaluateAll((els) => els.map((el) => {
         el.focus();
         return getComputedStyle(el).boxShadow;
     }));
-    expect(shadows).toEqual(["none", "none", "none", "none"]);
+    expect(shadows).toEqual(["none", "none", "none", "none", "none"]);
 });
 
 test("every focus ring holds 3:1 in both themes, the rail expanded and collapsed, in the demo's accent and each app's", async ({ demo }) => {

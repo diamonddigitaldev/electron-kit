@@ -46,8 +46,8 @@ package that's already on npm.
 |---|---|---|
 | Settings > Update with an update waiting (and the dot), downloading, ready to install, and after a failed check | the demo's | light and dark |
 | Settings on its General, Update and Credits tabs | the demo's | light and dark |
-| Controls at rest (the box ticked, the switch off) | the demo's | light and dark |
-| Controls toggled by keyboard (the box unticked, the switch on and focused) | the demo's and each app's | light and dark |
+| Controls at rest (the box ticked, the switch off, the stepped slider at 3) | the demo's | light and dark |
+| Controls toggled by keyboard (the box unticked, the switch on, the slider moved to 5 and focused) | the demo's and each app's | light and dark |
 | The rail expanded, Overview active and Controls focused by keyboard | the demo's and each app's | light and dark |
 | The rail collapsed, the same | the demo's | light and dark |
 | A warning toast with its list shown | the demo's | light and dark |
