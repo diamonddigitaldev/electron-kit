@@ -1,6 +1,6 @@
 # Updates
 
-The updater behind Settings > Update: when it checks, the channels, automatic downloads, and its state.
+The updater behind Settings > Update: when it checks, the channels, automatic downloads, a proxy, and its state.
 
 [All the docs](README.md)
 
@@ -63,3 +63,27 @@ The state, from `getUpdateStatus()` and `onUpdateStatus()`:
 
 The version rules are `require("@diamonddigitaldev/electron-kit/main").version` (`parse`, `compare`,
 `channelOf`, `isOfferableUpdate` and the rest), for an app's own use.
+
+## Through a Proxy
+
+`kit.updater.setProxy(config)`, from the app's main process, sends every update check and download through a
+proxy: an app whose own requests go through one (Dropgate's chosen network adapter) sends its updates the same way.
+
+```js
+await kit.updater.setProxy({ proxyRules: "socks5://127.0.0.1:1080", proxyBypassRules: "<-loopback>" });
+await kit.updater.setProxy(null);   // back to how the app was launched
+```
+
+- **`proxyRules` and `proxyBypassRules`** are Electron's own (`session.setProxy()`), strings; nothing else is taken,
+  and anything else throws. `null` goes back to how the app was launched: the system's proxy settings, or none
+  when it was launched with `--no-proxy-server`, as its tests are (`netLogSwitches()`, [Testing](testing.md)),
+  since the system's settings can search the network for a proxy.
+- **It's electron-updater's own session** (its `netSession`), which the kit never makes itself. A proxy set
+  before electron-updater loads (before `kit.ready`) is kept, and applied as it loads, before any check.
+- **It resolves once applied**, and at once when there's no updater to apply it to (run from source, or without
+  `updates`). Calls apply in order, and a check or download waits for the one being applied.
+- **A change cuts what's under way:** the session's connections are closed, and a download under way is
+  cancelled, so it fails and the Update tab says so ("Version x couldn't be downloaded."), as any network failure.
+  Nothing starts again by itself: Check for Updates or Download Update tries again, through the new proxy.
+- **Chromium never sends loopback through a proxy** unless `proxyBypassRules` says `<-loopback>`: a proxy that
+  must carry everything, an update server on this machine included, needs it.

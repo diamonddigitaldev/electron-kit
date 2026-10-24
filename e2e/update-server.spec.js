@@ -6,7 +6,8 @@
 // loads electron-updater from app.asar, and every request goes through
 // Electron's own network stack. test/updater.test.js covers the rules in
 // detail against the same library under Node; this checks they hold in a
-// packaged app, from the Update tab.
+// packaged app, from the Update tab, and that kit.updater.setProxy() sends
+// them through a proxy (a local one, test/helpers/proxy.js).
 //
 // Run from source, the updater never checks, so these run against a packaged
 // build only (KIT_DEMO_EXECUTABLE). The server's port is fixed by the build,
@@ -21,6 +22,7 @@ const os = require("os");
 const path = require("path");
 const { test, expect } = require("./helpers/demo");
 const { startUpdateServer } = require("../test/helpers/update-server");
+const { startProxy, THROUGH } = require("../test/helpers/proxy");
 const { STAGING_ID } = require("../main/updater");
 const demoBuild = require("../demo/electron-builder.cjs");
 
@@ -137,4 +139,118 @@ test("with no update server, the check says it couldn't, and nothing else is ask
     const printed = demo.output();
     expect(printed).toContain("Update check failed");
     expect(printed).not.toMatch(/Checking for update|^\s+at /m);
+});
+
+// -- Through a proxy ---------------------------------------------------------
+//
+// kit.updater.setProxy(), from the demo's KIT_DEMO_PROXY (set before the
+// updater loads) and from its main process (globalThis.demoKit), with a local
+// test proxy that marks what it forwards. The demo adds <-loopback>, so the
+// update server on this machine goes through the proxy too. The proxies'
+// ports are fixed, as the launch names them.
+
+const PROXY_PORT = PORT + 1;
+const SECOND_PROXY_PORT = PORT + 2;
+/** A port nothing listens on. */
+const CLOSED_PORT = PORT + 3;
+
+/** Give the demo's updater a proxy from its main process, or null for the launch's settings. */
+const setProxy = (demo, proxyRules) => demo.app.evaluate((_electron, proxyRules) => globalThis.demoKit.updater.setProxy(proxyRules === null ? null : { proxyRules, proxyBypassRules: "<-loopback>" }), proxyRules);
+
+/** The requests the server had that came through the test proxy, and those that didn't. */
+const throughProxy = (server) => server.requests.filter((r) => r.headers[THROUGH] === "1").map((r) => r.file);
+const straight = (server) => server.requests.filter((r) => r.headers[THROUGH] === undefined).map((r) => r.file);
+
+test.describe("through a proxy", () => {
+    test.use({ demoEnv: { KIT_DEMO_PROXY: `http://127.0.0.1:${PROXY_PORT}` } });
+
+    test("every request of a check and a download goes through the proxy the app set before the updater loaded", async ({ demo }) => {
+        const proxy = await startProxy({ port: PROXY_PORT });
+        const server = await serve({ latest: "0.0.1" });
+        try {
+            const main = await demo.mainWindow();
+            const pane = await openUpdate(main);
+            await pane.getByRole("button", { name: "Check for Updates" }).click();
+            await expect(pane.getByRole("status")).toHaveText("Version 0.0.1 has downloaded and will be installed when you close electron-kit Demo.", { timeout: 30_000 });
+            expect(server.channelFiles()).toEqual(["latest.yml"]);
+            expect(server.installers()).toEqual([`Kit-Test-Setup-0.0.1.${EXT}`]);
+            expect(straight(server), "requests that went straight to the server").toEqual([]);
+            expect(proxy.requests.map((r) => decodeURIComponent(new URL(r.url).pathname.slice(1)))).toEqual(throughProxy(server));
+            await keepFromInstalling(demo);
+        } finally {
+            await server.close();
+            await proxy.close();
+        }
+    });
+
+    test("null goes back to the launch's settings (the tests' --no-proxy-server, so no search for one): the check goes straight to the server", async ({ demo }) => {
+        const proxy = await startProxy({ port: PROXY_PORT });
+        const server = await serve({ latest: "0.0.0" });
+        try {
+            const main = await demo.mainWindow();
+            await setProxy(demo, null);
+            const pane = await openUpdate(main);
+            await pane.getByRole("button", { name: "Check for Updates" }).click();
+            await expect(pane.getByRole("status")).toHaveText("You're up to date.");
+            expect(server.channelFiles()).toEqual(["latest.yml"]);
+            expect(throughProxy(server), "requests that went through the proxy").toEqual([]);
+            expect(proxy.requests).toEqual([]);
+        } finally {
+            await server.close();
+            await proxy.close();
+        }
+    });
+
+    test("a change mid-download fails it, saying so, and Download Update tries again through the new proxy", async ({ demo }) => {
+        const proxy = await startProxy({ port: PROXY_PORT });
+        const second = await startProxy({ port: SECOND_PROXY_PORT });
+        const server = await serve({ latest: "0.0.1" });
+        try {
+            const main = await demo.mainWindow();
+            const pane = await openUpdate(main);
+            await pane.getByRole("switch", { name: "Download updates automatically" }).click();
+            await expect.poll(() => main.evaluate(() => window.kitAPI.getSettings().then((s) => s.autoDownloadUpdates))).toBe(false);
+            await pane.getByRole("button", { name: "Check for Updates" }).click();
+            await expect(pane.getByRole("status")).toHaveText("Version 0.0.1 is available.");
+
+            // Half the installer, then the proxy changes under it.
+            server.hold(true);
+            await pane.getByRole("button", { name: "Download Update" }).click();
+            await expect.poll(() => server.installers()).toEqual([`Kit-Test-Setup-0.0.1.${EXT}`]);
+            await setProxy(demo, second.rules);
+            await expect(pane.getByRole("status")).toHaveText("Version 0.0.1 couldn't be downloaded.", { timeout: 30_000 });
+            await expect(main.locator(".update-dot:visible")).toHaveCount(2);
+            expect(second.requests, "nothing starts again by itself").toEqual([]);
+
+            server.hold(false);
+            await pane.getByRole("button", { name: "Download Update" }).click();
+            await expect(pane.getByRole("status")).toHaveText("Version 0.0.1 has downloaded and will be installed when you close electron-kit Demo.", { timeout: 30_000 });
+            // Through the new proxy (with the blockmap, beside the part already downloaded), and nothing straight.
+            expect(second.requests.map((r) => new URL(r.url).pathname)).toContain(`/Kit-Test-Setup-0.0.1.${EXT}`);
+            expect(straight(server)).toEqual([]);
+            await keepFromInstalling(demo);
+        } finally {
+            await server.close();
+            await second.close();
+            await proxy.close();
+        }
+    });
+});
+
+test.describe("through a proxy that isn't there", () => {
+    test.use({ demoEnv: { KIT_DEMO_PROXY: `http://127.0.0.1:${CLOSED_PORT}` } });
+
+    test("the check fails and says so, and nothing reaches the server", async ({ demo }) => {
+        const server = await serve({ latest: "0.0.1" });
+        try {
+            const main = await demo.mainWindow();
+            const pane = await openUpdate(main);
+            await pane.getByRole("button", { name: "Check for Updates" }).click();
+            await expect(pane.getByRole("status")).toHaveText("Couldn't check for updates. Try again later.", { timeout: 30_000 });
+            await expect(pane.getByRole("button", { name: "Check for Updates" })).toBeEnabled();
+            expect(server.requests, "Chromium went around the proxy").toEqual([]);
+        } finally {
+            await server.close();
+        }
+    });
 });

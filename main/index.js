@@ -103,6 +103,7 @@ function registerPreload(ses) {
  *   log: { error(...args: unknown[]): void, warn(...args: unknown[]): void, info(...args: unknown[]): void, debug(...args: unknown[]): void, lines(): string[] },
  *   windows: { createMain(options: object): Electron.BrowserWindow, main(): Electron.BrowserWindow | null },
  *   files: { open(paths: string[]): void },
+ *   updater: { setProxy(config: { proxyRules: string, proxyBypassRules?: string } | null): Promise<void> },
  *   primary: boolean,
  * }}
  *   ready resolves once the app is ready, the shared preload is registered and
@@ -113,7 +114,9 @@ function registerPreload(ses) {
  *   kit's bridge (sessions.js). log is the app's log, redacted, and its
  *   lines() the banner and the run's last lines (log.js).
  *   windows.createMain() makes the main window (windows.js).
- *   files.open() hands the page files from the app's own menu. primary is
+ *   files.open() hands the page files from the app's own menu.
+ *   updater.setProxy() sends every update request through a proxy, or as
+ *   the app was launched again with null (updater.js). primary is
  *   false in a second launch, which is quitting.
  */
 function start(config = {}) {
@@ -214,6 +217,7 @@ function start(config = {}) {
         log: { error: log.error, warn: log.warn, info: log.info, debug: log.debug, lines: log.lines },
         windows: { createMain: windows.createMain, main: windows.main },
         files: { open: files.open },
+        updater: { setProxy: updates.setProxy },
         primary,
     };
 }

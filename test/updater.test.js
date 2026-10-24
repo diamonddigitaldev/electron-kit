@@ -4,15 +4,16 @@
 // update server (helpers/update-server.js): each channel, the saved channel
 // winning, never a downgrade, the channel set before allowDowngrade, a
 // mis-tagged release refused, both download modes and the dot, no ID of the
-// install (the fixed x-user-staging-id, no .updaterId), and no request the app
-// didn't ask for. Then how kit.start() wires it: the updates option,
-// app.isPackaged, the channels.
+// install (the fixed x-user-staging-id, no .updaterId), no request the app
+// didn't ask for, and the proxy the app sets (kept until electron-updater
+// loads, applied in order, a check waiting for it). Then how kit.start()
+// wires it: the updates option, app.isPackaged, the channels, setProxy().
 
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const fs = require("fs");
 const path = require("path");
-const { createUpdater, checkUpdates, applyChannel, withoutInstallId, checkFailureOf, updaterLogger, STAGING_ID, LAUNCH_CHECK_DELAY } = require("../main/updater");
+const { createUpdater, checkUpdates, checkProxy, applyChannel, withoutInstallId, checkFailureOf, updaterLogger, STAGING_ID, LAUNCH_CHECK_DELAY } = require("../main/updater");
 const { createLog } = require("../main/log");
 const { createSettings } = require("../main/store");
 const { startUpdateServer, realAutoUpdater } = require("./helpers/update-server");
@@ -34,15 +35,48 @@ function memorySettings(stored = {}) {
 }
 
 /**
+ * A stand-in for electron-updater's session (its netSession, which under
+ * plain Node has no Electron to make): records each setProxy() and
+ * closeAllConnections() in `calls`, with how many requests the server had
+ * seen by then (`seen()`). hold() makes the next setProxy() wait until the
+ * function it returns is called.
+ */
+function fakeNetSession(seen = () => 0) {
+    const calls = [];
+    let held = null;
+    return {
+        calls,
+        hold() {
+            let release;
+            held = new Promise((resolve) => (release = resolve));
+            return release;
+        },
+        async setProxy(config) {
+            calls.push({ call: "setProxy", config, seen: seen() });
+            const wait = held;
+            held = null;
+            await wait;
+        },
+        async closeAllConnections() {
+            calls.push({ call: "closeAllConnections", seen: seen() });
+        },
+    };
+}
+
+/**
  * The kit's updater for an app at `version`, packaged, driving the real
  * electron-updater at an update server holding `channels`. Started, with its
- * launch check scheduled but not run.
+ * launch check scheduled but not run. proxy: what the app gives
+ * kit.updater.setProxy() before the updater starts; netSession is the
+ * stand-in session it's applied to.
  */
-async function updaterFor({ version, channels, stored = {}, isPackaged = true, options = { checkOnLaunch: true }, online = true, before = () => {} }, t) {
+async function updaterFor({ version, channels, stored = {}, isPackaged = true, options = { checkOnLaunch: true }, online = true, before = () => {}, proxy }, t) {
     const server = await startUpdateServer(channels);
     t.after(() => server.close());
     const { autoUpdater, dir } = realAutoUpdater({ version, url: server.url });
     t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+    const netSession = fakeNetSession(() => server.requests.length);
+    Object.defineProperty(autoUpdater, "netSession", { get: () => netSession });
     const { settings, data } = memorySettings(stored);
     const sent = [];
     const scheduled = [];
@@ -63,8 +97,9 @@ async function updaterFor({ version, channels, stored = {}, isPackaged = true, o
         log: { warn: (...args) => logged.push(args.join(" ")), info: (...args) => logged.push(args.join(" ")) },
         isOnline: () => online,
     });
+    const proxied = proxy === undefined ? null : updater.setProxy(proxy);
     updater.start();
-    return { updater, server, autoUpdater, settings, data, sent, scheduled, logged, dir, loads: () => loads };
+    return { updater, server, autoUpdater, netSession, proxied, settings, data, sent, scheduled, logged, dir, loads: () => loads };
 }
 
 /** Wait for the updater to reach a state, from its pushes. */
@@ -533,6 +568,184 @@ test("without the updates option there's no updater: nothing is loaded, saved or
     assert.equal(data.settings.updateChannel, undefined);
 });
 
+// -- Through a proxy --------------------------------------------------------
+
+const PROXY = { proxyRules: "socks5://127.0.0.1:1080", proxyBypassRules: "<-loopback>" };
+
+/** The configs setProxy() was given on a stand-in session, each followed by closeAllConnections(). */
+const appliedOn = (netSession) => netSession.calls.map((c) => (c.call === "setProxy" ? c.config : c.call));
+
+test("setProxy() refuses anything but { proxyRules, proxyBypassRules? } as strings, or null, and applies nothing", async (t) => {
+    assert.deepEqual(checkProxy(null), { mode: "system" });
+    assert.deepEqual(checkProxy({ proxyRules: "http=127.0.0.1:8080" }), { mode: "fixed_servers", proxyRules: "http=127.0.0.1:8080" });
+    assert.deepEqual(checkProxy(PROXY), { mode: "fixed_servers", ...PROXY });
+    const refused = [
+        [undefined, /takes \{ proxyRules, proxyBypassRules \}, or null/],
+        ["socks5://127.0.0.1:1080", /takes \{ proxyRules/],
+        [[PROXY], /takes \{ proxyRules/],
+        [{}, /proxyRules must be a string/],
+        [{ proxyRules: "" }, /proxyRules must be a string/],
+        [{ proxyRules: 1080 }, /proxyRules must be a string/],
+        [{ proxyRules: "socks5://127.0.0.1:1080", proxyBypassRules: ["<-loopback>"] }, /proxyBypassRules must be a string/],
+        [{ proxyRules: "socks5://127.0.0.1:1080", mode: "direct" }, /mode isn't an option/],
+        [{ proxyRules: "socks5://127.0.0.1:1080", pacScript: "http://wpad/wpad.dat" }, /pacScript isn't an option/],
+    ];
+    for (const [bad, error] of refused) assert.throws(() => checkProxy(bad), (err) => error.test(err.message) && err.message.startsWith("kit.updater.setProxy(): "), String(bad));
+
+    const { updater, netSession } = await updaterFor({ version: "2.0.0", channels: {}, options: { checkOnLaunch: false } }, t);
+    for (const [bad, error] of refused) assert.throws(() => updater.setProxy(bad), error);
+    await updater.check();
+    assert.deepEqual(netSession.calls, [], "the session is never touched");
+});
+
+test("a proxy set before electron-updater loads is kept, and applied as it loads, before the first check, then the connections closed", async (t) => {
+    const { updater, server, netSession, proxied } = await updaterFor({ version: "2.0.0", channels: { latest: "2.0.0" }, proxy: PROXY }, t);
+    // Kept, with nothing loaded yet to apply it to: it resolved at once.
+    await proxied;
+    assert.equal((await updater.check()).state, "none");
+    assert.deepEqual(netSession.calls, [
+        { call: "setProxy", config: { mode: "fixed_servers", ...PROXY }, seen: 0 },
+        { call: "closeAllConnections", seen: 0 },
+    ]);
+    assert.deepEqual(server.channelFiles(), ["latest.yml"]);
+});
+
+test("only the last proxy set before electron-updater loads is applied", async (t) => {
+    const server = await startUpdateServer({ latest: "2.0.0" });
+    t.after(() => server.close());
+    const { autoUpdater, dir } = realAutoUpdater({ version: "2.0.0", url: server.url });
+    t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+    const netSession = fakeNetSession();
+    Object.defineProperty(autoUpdater, "netSession", { get: () => netSession });
+    const updater = createUpdater({ options: { checkOnLaunch: false }, app: { isPackaged: true, getVersion: () => "2.0.0" }, settings: memorySettings().settings, send: () => {}, load: () => autoUpdater });
+    await updater.setProxy(PROXY);
+    await updater.setProxy(null);
+    assert.deepEqual(netSession.calls, []);
+    updater.start();
+    await updater.check();
+    assert.deepEqual(appliedOn(netSession), [{ mode: "system" }, "closeAllConnections"]);
+});
+
+test("null puts the system's proxy settings back, and setProxy() resolves once they're applied and the connections closed", async (t) => {
+    const { updater, netSession } = await updaterFor({ version: "2.0.0", channels: {}, proxy: PROXY }, t);
+    const release = netSession.hold();
+    let done = false;
+    const applied = updater.setProxy(null).then(() => (done = true));
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    assert.equal(done, false, "resolved before the session had it");
+    release();
+    await applied;
+    assert.deepEqual(appliedOn(netSession), [{ mode: "fixed_servers", ...PROXY }, "closeAllConnections", { mode: "system" }, "closeAllConnections"]);
+});
+
+test("null goes back to no proxy at all when the app was launched with --no-proxy-server, as its tests launch it, so nothing searches the network for one", async () => {
+    for (const [switches, expected] of [[["no-proxy-server"], { mode: "direct" }], [[], { mode: "system" }], [["proxy-server"], { mode: "system" }]]) {
+        const netSession = fakeNetSession();
+        const autoUpdater = fakeAutoUpdater({ netSession });
+        const app = { isPackaged: true, getVersion: () => "2.0.0", commandLine: { hasSwitch: (name) => switches.includes(name) } };
+        const updater = createUpdater({ options: { checkOnLaunch: false }, app, settings: memorySettings().settings, send: () => {}, load: () => autoUpdater });
+        updater.start();
+        await updater.setProxy(PROXY);
+        await updater.setProxy(null);
+        assert.deepEqual(appliedOn(netSession).filter((c) => c !== "closeAllConnections"), [{ mode: "fixed_servers", ...PROXY }, expected], switches.join() || "no switch");
+    }
+});
+
+test("calls apply in order, each one's connections closed before the next is set", async (t) => {
+    const { updater, netSession } = await updaterFor({ version: "2.0.0", channels: {} }, t);
+    const release = netSession.hold();
+    const first = { proxyRules: "http=127.0.0.1:8001" };
+    const last = { proxyRules: "http=127.0.0.1:8003" };
+    const all = Promise.all([updater.setProxy(first), updater.setProxy(null), updater.setProxy(last)]);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    assert.equal(netSession.calls.length, 1, "the next waits for the one being applied");
+    release();
+    await all;
+    assert.deepEqual(appliedOn(netSession), [
+        { mode: "fixed_servers", ...first }, "closeAllConnections",
+        { mode: "system" }, "closeAllConnections",
+        { mode: "fixed_servers", ...last }, "closeAllConnections",
+    ]);
+});
+
+test("a check waits for a proxy being applied: nothing reaches the server until it's in place", async (t) => {
+    const { updater, server, netSession } = await updaterFor({ version: "2.0.0", channels: { latest: "2.0.0" } }, t);
+    const release = netSession.hold();
+    const applied = updater.setProxy(PROXY);
+    const checked = updater.check();
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    assert.equal(updater.status().state, "checking", "the page is told it's checking");
+    assert.deepEqual(server.requests, []);
+    release();
+    await applied;
+    assert.equal((await checked).state, "none");
+    assert.deepEqual(netSession.calls.map((c) => [c.call, c.seen]), [["setProxy", 0], ["closeAllConnections", 0]]);
+    assert.deepEqual(server.channelFiles(), ["latest.yml"]);
+});
+
+test("Download Update waits for a proxy being applied too", async (t) => {
+    const { updater, server, netSession } = await updaterFor({ version: "2.0.0", channels: { latest: "2.1.0" }, stored: { autoDownloadUpdates: false } }, t);
+    assert.equal((await updater.check()).state, "available");
+    const release = netSession.hold();
+    updater.setProxy(PROXY);
+    const downloaded = updater.download();
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    assert.deepEqual(server.installers(), []);
+    release();
+    assert.equal((await downloaded).state, "downloaded");
+    assert.deepEqual(server.installers(), ["Kit-Test-Setup-2.1.0.exe"]);
+});
+
+test("a change of proxy mid-download cancels it: it fails and says so, nothing starts again, and Download Update tries again", async (t) => {
+    const { updater, server, sent, logged, netSession } = await updaterFor({ version: "2.0.0", channels: { latest: "2.1.0" }, stored: { autoDownloadUpdates: false } }, t);
+    await updater.check();
+    server.hold(true);
+    const downloading = updater.download();
+    for (let i = 0; i < 200 && server.installers().length === 0; i++) await new Promise((resolve) => setTimeout(resolve, 10));
+    assert.equal(updater.status().state, "downloading");
+    await updater.setProxy(PROXY);
+    const failed = await downloading;
+    assert.deepEqual([failed.state, failed.error, failed.dot, failed.version], ["error", "download", true, "2.1.0"]);
+    assert.deepEqual(appliedOn(netSession), [{ mode: "fixed_servers", ...PROXY }, "closeAllConnections"]);
+    assert.deepEqual(logged, ["Update download failed (version 2.1.0): the proxy changed under it"]);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    assert.deepEqual(server.installers(), ["Kit-Test-Setup-2.1.0.exe"], "nothing starts again by itself");
+    assert.equal(sent.at(-1).state, "error");
+
+    server.hold(false);
+    assert.equal((await updater.download()).state, "downloaded");
+    assert.equal(server.installers().length, 2);
+    // Settled, a later change cancels nothing.
+    await updater.setProxy(null);
+    assert.equal(updater.status().state, "downloaded");
+});
+
+test("a proxy the session refuses rejects setProxy(), is one warning in the log, and the next check still runs", async (t) => {
+    const { updater, netSession, logged } = await updaterFor({ version: "2.0.0", channels: { latest: "2.0.0" } }, t);
+    netSession.setProxy = async () => {
+        throw new Error("Invalid proxy rules");
+    };
+    await assert.rejects(updater.setProxy(PROXY), /Invalid proxy rules/);
+    assert.equal((await updater.check()).state, "none");
+    assert.deepEqual(logged, ["Couldn't set the proxy for update checks: Invalid proxy rules"]);
+});
+
+test("with no updater loaded, setProxy() resolves at once and touches no session: run from source, or with no updates option", async (t) => {
+    for (const how of [{ isPackaged: false }, { options: null }]) {
+        const { updater, netSession, loads } = await updaterFor({ version: "2.0.0", channels: {}, ...how }, t);
+        assert.equal(await updater.setProxy(PROXY), undefined);
+        assert.equal(await updater.setProxy(null), undefined);
+        assert.equal(loads(), 0, "electron-updater isn't loaded for it");
+        assert.deepEqual(netSession.calls, []);
+    }
+});
+
+test("with no proxy ever set, electron-updater's session is left as it is", async (t) => {
+    const { updater, netSession } = await updaterFor({ version: "2.0.0", channels: { latest: "2.1.0" } }, t);
+    await updater.check();
+    assert.deepEqual(netSession.calls, []);
+});
+
 // -- kit.start() ------------------------------------------------------------
 
 test("the updates option is checked when kit.start() is called", () => {
@@ -604,4 +817,30 @@ test("a change of channel from the app's main, not only the page, checks again",
     await new Promise((resolve) => setTimeout(resolve, 20));
     assert.equal(checks, 1);
     assert.equal(autoUpdater.channel, "beta");
+});
+
+test("kit.start() gives the app updater.setProxy(): checked, and resolved at once from source", async () => {
+    const { main } = loadMain({ version: "2.0.0" });
+    const kit = main.start({ updates: {} });
+    await kit.ready;
+    assert.equal(await kit.updater.setProxy(PROXY), undefined);
+    assert.equal(await kit.updater.setProxy(null), undefined);
+    assert.throws(() => kit.updater.setProxy({ proxyRules: 1 }), /^Error: kit\.updater\.setProxy\(\): proxyRules must be a string/);
+});
+
+test("kit.updater.setProxy() before the app is ready is applied to electron-updater's session as it loads", async () => {
+    const netSession = fakeNetSession();
+    const checked = [];
+    const autoUpdater = fakeAutoUpdater({
+        netSession,
+        checkForUpdates: async () => (checked.push(netSession.calls.length), { isUpdateAvailable: false, updateInfo: { version: "2.0.0" } }),
+    });
+    const { main, handlers, eventFrom } = loadMain({ version: "2.0.0", isPackaged: true, autoUpdater });
+    const kit = main.start({ updates: { checkOnLaunch: false } });
+    await kit.updater.setProxy(PROXY);
+    assert.deepEqual(netSession.calls, []);
+    await kit.ready;
+    assert.equal((await handlers.get(INVOKE.UPDATE_CHECK)(eventFrom(appPage()))).state, "none");
+    assert.deepEqual(appliedOn(netSession), [{ mode: "fixed_servers", ...PROXY }, "closeAllConnections"]);
+    assert.deepEqual(checked, [2], "the check came after both");
 });
