@@ -101,6 +101,13 @@ kit.ipc.handle(IPC.OPEN_ISOLATED_WINDOW, () => {
 });
 kit.ipc.handle(IPC.GET_ELECTRON_VERSION, () => process.versions.electron);
 
+// For the update tests: every update request through the proxy KIT_DEMO_PROXY
+// names (Electron's proxyRules). The demo's update server is on this machine,
+// which Chromium never sends through a proxy unless told: <-loopback>.
+if (process.env.KIT_DEMO_PROXY) kit.updater.setProxy({ proxyRules: process.env.KIT_DEMO_PROXY, proxyBypassRules: "<-loopback>" });
+// For the tests, which change it from the main process (Playwright's app.evaluate()).
+globalThis.demoKit = kit;
+
 kit.ready.then(() => {
     kit.ipc.handle(IPC.GET_ISOLATED_VERSION, () => process.versions.electron, { session: kit.sessions.isolated(ISOLATED_PARTITION) });
     kit.log.info("Opened with", JSON.stringify(process.argv));

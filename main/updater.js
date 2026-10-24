@@ -38,11 +38,22 @@
 //   in every rollout. A .updaterId an earlier version wrote (an app before it
 //   took the kit) is deleted as the updater starts: it's an ID of the install,
 //   kept for nothing.
+// - The app can send every request through a proxy (kit.updater.setProxy()),
+//   on electron-updater's own session, which the kit reaches through its
+//   netSession and never makes itself: a partition's options apply only where
+//   it's first made, and electron-updater makes it without a cache. A proxy
+//   set before electron-updater loads is kept, and applied before any check;
+//   null goes back to the launch's (the system's settings, or none with
+//   --no-proxy-server). A change closes the session's connections and
+//   cancels a download under way (Chromium lets a request already answering
+//   finish on its old route), so a download it cuts fails and says so, as
+//   any network failure; nothing starts again by itself.
 //
 // Every change of state is pushed to the app's own windows as update:status.
 
 const fs = require("fs");
 const path = require("path");
+const { createRequire } = require("module");
 const version = require("./version");
 
 /** electron-updater's settings for each channel. */
@@ -108,6 +119,28 @@ function checkUpdates(updates) {
 }
 
 /**
+ * Check what kit.updater.setProxy() is given. Throws on a mistake.
+ * @param {unknown} config - { proxyRules, proxyBypassRules? }, Electron's own
+ *   strings, or null for the system's proxy settings
+ * @returns {{ mode: "fixed_servers", proxyRules: string, proxyBypassRules?: string } | { mode: "system" }}
+ *   what electron-updater's session is given (session.setProxy())
+ */
+function checkProxy(config) {
+    if (config === null) return { mode: "system" };
+    const fail = (message) => {
+        throw new Error(`kit.updater.setProxy(): ${message}`);
+    };
+    if (typeof config !== "object" || Array.isArray(config)) fail("takes { proxyRules, proxyBypassRules }, or null for the system's proxy settings.");
+    for (const key of Object.keys(config)) {
+        if (key !== "proxyRules" && key !== "proxyBypassRules") fail(`${key} isn't an option.`);
+    }
+    const { proxyRules, proxyBypassRules } = config;
+    if (typeof proxyRules !== "string" || proxyRules.trim() === "") fail("proxyRules must be a string, such as \"socks5://127.0.0.1:1080\".");
+    if (proxyBypassRules !== undefined && typeof proxyBypassRules !== "string") fail("proxyBypassRules must be a string, such as \"<-loopback>\".");
+    return { mode: "fixed_servers", proxyRules, ...(proxyBypassRules === undefined ? {} : { proxyBypassRules }) };
+}
+
+/**
  * Set electron-updater up for a channel, before a check. The order matters:
  * setting channel turns allowDowngrade back on inside electron-updater.
  * @param {import("electron-updater").AppUpdater} autoUpdater
@@ -166,7 +199,7 @@ function deleteOldInstallId(autoUpdater, log) {
  * The app's updater.
  * @param {{
  *   options: { checkOnLaunch: boolean } | null,
- *   app: { isPackaged: boolean, getVersion(): string },
+ *   app: { isPackaged: boolean, getVersion(): string, commandLine?: { hasSwitch(name: string): boolean } },
  *   settings: { get(): Record<string, any>, set(changes: object): object },
  *   send: (status: object) => void,
  *   load?: () => import("electron-updater").AppUpdater,
@@ -198,6 +231,13 @@ function createUpdater({ options, app, settings, send, load = loadAutoUpdater, s
 
     let autoUpdater = null;
     let checking = null;
+
+    /** The proxy the app last asked for, kept until electron-updater loads (undefined: never asked). */
+    let proxy;
+    /** The proxies being applied, in order: a check or download waits for them. Never rejects. */
+    let applying = Promise.resolve();
+    /** The download under way's cancellation token, which a change of proxy cancels. */
+    let downloading = null;
 
     /**
      * The updater's state, as update:status pushes it and update:get-status
@@ -247,6 +287,7 @@ function createUpdater({ options, app, settings, send, load = loadAutoUpdater, s
         autoUpdater.autoInstallOnAppQuit = true;
         // No app on the kit ships a web installer.
         autoUpdater.disableWebInstaller = true;
+        if (proxy !== undefined) queueProxy(proxy).catch(() => {});
         autoUpdater.on("download-progress", (progress) => {
             const next = Math.floor(progress.percent);
             if (state === "downloading" && next !== percent) {
@@ -284,6 +325,7 @@ function createUpdater({ options, app, settings, send, load = loadAutoUpdater, s
         reason = null;
         report();
         try {
+            await applying;
             applyChannel(autoUpdater, chosen);
             const result = await autoUpdater.checkForUpdates();
             const candidate = result?.isUpdateAvailable ? result.updateInfo?.version : null;
@@ -330,7 +372,13 @@ function createUpdater({ options, app, settings, send, load = loadAutoUpdater, s
         error = null;
         auto = automatic;
         report();
-        return autoUpdater.downloadUpdate().then(
+        let token = null;
+        return applying.then(() => {
+            token = downloading = newCancellationToken();
+            return autoUpdater.downloadUpdate(token);
+        }).finally(() => {
+            if (downloading === token) downloading = null;
+        }).then(
             () => {
                 state = "downloaded";
                 percent = 100;
@@ -338,7 +386,7 @@ function createUpdater({ options, app, settings, send, load = loadAutoUpdater, s
                 return status();
             },
             (err) => {
-                log?.warn(`Update download failed (version ${found}): ${messageOf(err)}`);
+                log?.warn(`Update download failed (version ${found}): ${token?.cancelled ? "the proxy changed under it" : messageOf(err)}`);
                 state = "error";
                 error = "download";
                 percent = null;
@@ -396,7 +444,42 @@ function createUpdater({ options, app, settings, send, load = loadAutoUpdater, s
         }
     }
 
-    return { start, check, download, install, status, settingsChanged };
+    /**
+     * Send every update request through a proxy, or back the way the app
+     * was launched with null (kit.updater.setProxy()): the system's proxy
+     * settings, or none when it was launched with --no-proxy-server, as an
+     * app's tests launch it (testing's netLogSwitches()), since the
+     * system's can look for a proxy on the network (WPAD). Resolves
+     * once electron-updater's session has it and its connections are closed,
+     * or at once while electron-updater isn't loaded: run from source, with
+     * no updates option, or before the app is ready, when it's kept and
+     * applied as the updater starts. Calls apply in order.
+     * @param {{ proxyRules: string, proxyBypassRules?: string } | null} config
+     * @returns {Promise<void>}
+     */
+    function setProxy(config) {
+        proxy = checkProxy(config);
+        if (proxy.mode === "system" && app.commandLine?.hasSwitch("no-proxy-server")) proxy = { mode: "direct" };
+        if (!autoUpdater) return Promise.resolve();
+        return queueProxy(proxy);
+    }
+
+    /** Apply a proxy to electron-updater's session after any before it, then close its connections. */
+    function queueProxy(settings) {
+        const run = applying.then(async () => {
+            const session = autoUpdater.netSession;
+            await session.setProxy(settings);
+            await session.closeAllConnections();
+            // A request already being answered keeps its connection and its old route, so a download is cancelled.
+            downloading?.cancel();
+        });
+        applying = run.catch((err) => {
+            log?.warn(`Couldn't set the proxy for update checks: ${messageOf(err)}`);
+        });
+        return run;
+    }
+
+    return { start, check, download, install, status, settingsChanged, setProxy };
 }
 
 /**
@@ -432,6 +515,15 @@ function updaterLogger(log) {
     return { info: detail, debug: detail, error: detail, warn: (...args) => log.warn("electron-updater:", ...args) };
 }
 
+/**
+ * A cancellation token for a download, from the builder-util-runtime
+ * electron-updater itself uses (it doesn't hand its CancellationToken on).
+ */
+function newCancellationToken() {
+    const { CancellationToken } = createRequire(require.resolve("electron-updater"))("builder-util-runtime");
+    return new CancellationToken();
+}
+
 /** electron-updater's autoUpdater, for this platform. */
 function loadAutoUpdater() {
     return require("electron-updater").autoUpdater;
@@ -442,4 +534,4 @@ function unrefTimeout(run, ms) {
     setTimeout(run, ms).unref?.();
 }
 
-module.exports = { createUpdater, checkUpdates, applyChannel, withoutInstallId, checkFailureOf, updaterLogger, CHANNEL_SETTINGS, STAGING_ID, LAUNCH_CHECK_DELAY };
+module.exports = { createUpdater, checkUpdates, checkProxy, applyChannel, withoutInstallId, checkFailureOf, updaterLogger, CHANNEL_SETTINGS, STAGING_ID, LAUNCH_CHECK_DELAY };

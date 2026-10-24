@@ -78,7 +78,7 @@ function channelFile(version, { sha512, ext, stagingPercentage } = {}) {
  * @param {{ port?: number, ext?: string }} [options]
  *   port: a fixed one (a packaged app's app-update.yml names it), else any
  *   free one. ext: the installer's, "exe" or "AppImage".
- * @returns {Promise<{ url: string, requests: { file: string, headers: http.IncomingHttpHeaders }[], installers: () => string[], close(): Promise<void> }>}
+ * @returns {Promise<{ url: string, requests: { file: string, headers: http.IncomingHttpHeaders }[], installers: () => string[], hold(on: boolean): void, close(): Promise<void> }>}
  */
 async function startUpdateServer(channels, { port = 0, ext = "exe" } = {}) {
     const requests = [];
@@ -88,6 +88,8 @@ async function startUpdateServer(channels, { port = 0, ext = "exe" } = {}) {
         byFile.set(`${channel}.yml`, channelFile(version, { sha512, ext, stagingPercentage }));
         byFile.set(installerName(version, ext), installerBytes(version));
     }
+    let holding = false;
+    const held = new Set();
     const server = http.createServer((req, res) => {
         const file = decodeURIComponent(new URL(req.url, "http://localhost").pathname.slice(1));
         requests.push({ file, headers: req.headers });
@@ -96,6 +98,14 @@ async function startUpdateServer(channels, { port = 0, ext = "exe" } = {}) {
         if (body === undefined) {
             res.statusCode = 404;
             res.end();
+            return;
+        }
+        if (holding && file.endsWith(`.${ext}`)) {
+            // Half the installer, then nothing: a download under way, until the client goes.
+            res.writeHead(200, { "content-length": body.length });
+            res.write(body.subarray(0, Math.floor(body.length / 2)));
+            held.add(res);
+            res.on("close", () => held.delete(res));
             return;
         }
         res.end(body);
@@ -108,7 +118,14 @@ async function startUpdateServer(channels, { port = 0, ext = "exe" } = {}) {
         channelFiles: () => requests.filter((r) => r.file.endsWith(".yml")).map((r) => r.file.replace(/-linux\.yml$/, ".yml")),
         /** The installers downloaded. */
         installers: () => requests.filter((r) => r.file.endsWith(`.${ext}`)).map((r) => r.file),
-        close: () => new Promise((resolve) => server.close(resolve)),
+        /** Whether an installer is sent only half way, and held there: a download that's under way. */
+        hold: (on) => {
+            holding = on;
+        },
+        close: () => new Promise((resolve) => {
+            for (const res of held) res.destroy();
+            server.close(resolve);
+        }),
     };
 }
 
