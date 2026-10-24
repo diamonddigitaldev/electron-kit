@@ -270,8 +270,9 @@ test("every focus ring the kit draws is a solid ring in the accent's text shade,
     assert.equal(rule(".btn")["--bs-btn-focus-box-shadow"], "none");
     assert.equal(rule(".btn-close")["--bs-btn-close-focus-shadow"], "none");
     assert.equal(rule(".form-control:focus, .form-select:focus")["box-shadow"], "none");
-    // Nothing that can take focus goes without a ring.
-    assert.deepEqual(KIT_RULES.filter((r) => r.declarations.outline === "none" || r.declarations.outline === "0").map((r) => r.selector), []);
+    // Nothing that can take focus goes without a ring, but a bar item's panel itself: it takes the focus as it opens,
+    // so a screen reader reads its name, and Tab goes on to its controls, which have theirs.
+    assert.deepEqual(KIT_RULES.filter((r) => r.declarations.outline === "none" || r.declarations.outline === "0").map((r) => r.selector), [".kit-statusbar-panel:focus"]);
 });
 
 test("every range's knob is the accent's fill, its hover shade while pressed, with no glow; Bootstrap's grey when disabled", () => {

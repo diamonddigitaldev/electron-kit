@@ -1,6 +1,6 @@
 # The Shell, Settings and Credits
 
-`kit.ui.mountShell()`: the nav rail, the header, and the Settings view with its Update and Credits tabs.
+`kit.ui.mountShell()`: the nav rail, the header, the bottom bar, and the Settings view with its Update and Credits tabs.
 
 [All the docs](README.md)
 
@@ -40,6 +40,55 @@ shell.showView("convert");                             // or shell.showSettings(
 - The toolbar is for the app's sections, so it's hidden on Settings (still taking its room, so the header
   doesn't move), and out of the Tab order there.
 - The shared markup is built with `createElement` and `textContent`, never HTML strings.
+
+## The Bottom Bar
+
+With `statusBar`, the shell adds a slim bar along the window's bottom, under the rail and the sections, for what
+the app shows at all times, such as its connection. The kit builds the bar, each item's button and its panel, and
+wires them; the app fills each item and its panel with its own elements:
+
+```js
+const shell = kit.ui.mountShell({
+    // …the shell's other options, as above
+    statusBar: {
+        items: [{ id: "connection", label: "Connection", live: true, panel: { label: "Connection Details", width: 440 } }],
+    },
+});
+const connection = shell.statusBar.item("connection");    // { button, panel, open(), close(), opened }
+const line = kit.ui.statusLine({ text: "Connected", tone: "success", title: "Connected, through whichever adapter Windows chooses." });
+connection.button.append(line.element);                  // the item: a status line, then anything else
+connection.panel.append(details);                         // the panel: the app's own elements
+shell.statusBar.show(settings.showConnection);            // hidden until shown
+```
+
+```
+.app-frame.kit-with-statusbar             the window less the bar
+footer.kit-statusbar                      26px, a line along its top
+├── button.kit-statusbar-item             an item, filled by the app
+└── .kit-statusbar-panel[role=dialog]     its panel, Close at its top right, then .panel
+```
+
+- **Hidden until `show(true)`**; `show(false)` hides it again, closing any open panel. While it shows, the frame takes
+  the rest of the window, so nothing scrolls; without `statusBar`, nothing about the frame changes and
+  `shell.statusBar` is `null`.
+- **The bar** is 26px, in Bootstrap's tertiary background with a line along its top, its text 0.75rem.
+- **Each item** is a borderless button, washed in the accent when hovered and while its panel is open, with
+  `aria-haspopup="dialog"`, `aria-expanded` and `aria-controls`. It's named by its `label`, which isn't drawn, then
+  what the app put in it ("Connection Connected"), so the label says what the item is and the content its state.
+  A status line's `title` is its tooltip: say what the colour means there.
+- **`live: true`** makes the item a polite live region, its new content read out as it changes. Without it nothing in
+  the bar is announced: ask for it only where a change is news to someone who can't see the bar.
+- **The panel** is a non-modal `role="dialog"` named by `panel.label`, `panel.width` px wide (capped to the window,
+  8px from its sides), 6px above its item, with the kit's Close at its top right (the app's first element leaves
+  room for it). It opens on a click, Enter or Space and takes the focus, so a screen reader reads its name and Tab
+  reaches its controls. **Escape, Close, or Tab past its last control (Shift+Tab before its first) close it, and the
+  focus goes back to its item;** a click outside closes it and leaves the focus where the click put it. It's never
+  left open behind the focus. One panel is open at a time.
+- **`open()`** opens it as a click does (refused while the bar is hidden); **`close()`** closes it, the focus going
+  back to the item if it was in the panel, so a panel's own button (Network Settings) can close it and move on;
+  **`opened`** says whether it's open.
+- A mistake in the options, an `id` that isn't an item, or `show()` given anything but `true` or `false` throws, as
+  every `kit.ui` helper does. Each `id` is a lowercase name; the button's `id` is `kit-statusbar-<id>`.
 
 ## Settings and Credits
 

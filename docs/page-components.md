@@ -1,6 +1,6 @@
 # Page Components
 
-The page library's parts: toasts, prompts, the parts of a section of files, cards, the card grid and its bulk bar, busy buttons, the switch, the stepped slider, the key guard, the house's wording for numbers, and its copy rules.
+The page library's parts: toasts, prompts, the parts of a section of files, cards and the status line, the card grid and its bulk bar, busy buttons, the switch, the stepped slider, the key guard, the house's wording for numbers, and its copy rules.
 
 [All the docs](README.md)
 
@@ -203,6 +203,24 @@ onClick: (button) => {
     pause().catch(() => restore());    // a card's buttons are rebuilt anyway once its state changes
 }
 ```
+
+## The Status Line
+
+`kit.ui.statusLine({ text, tone, title })` is a card's status line on its own, for a state shown outside a card: a
+Settings tab's, a bottom bar item's. A card builds its own line through it, so the two never drift.
+
+```js
+const line = kit.ui.statusLine({ text: "Connected", tone: "success", title: "Connected, through whichever adapter Windows chooses." });
+pane.append(line.element);
+line.set({ text: "Checking…", tone: "running" });       // the whole of it each time; the title is the text again
+```
+
+- `element` is a `span.kit-card-status.kit-tone-<tone>` holding `.kit-status-dot` and `.kit-status-text`, so it can
+  sit in a button. The text is one line, cut off with an ellipsis; `title` is its tooltip, the text unless given.
+- **The tones** are a card's: `ready`, `running` (pulsing; still under reduced motion), `warning`, `danger`,
+  `success` and `muted`, as under Cards above. The words follow the copy rules below.
+- A tone that isn't one of them, text that isn't text, or an option it doesn't take throws, from `set()` too,
+  which leaves the line as it was.
 
 ## The Card Grid
 

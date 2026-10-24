@@ -4,7 +4,8 @@
 // 2.2 A and AA: every view and every Settings tab, with the rail expanded and
 // collapsed, in the light and dark themes, with the demo's own accent and
 // with each of the three apps' accents (test/fixtures/accents/), laid over the
-// demo's in turn. Each theme is switched as the OS switches it (nativeTheme,
+// demo's in turn; and the bottom bar, shown, and with its panel open. Each
+// theme is switched as the OS switches it (nativeTheme,
 // from main), and the kit's theme.js draws the page in it.
 //
 // axe normally finishes its run in a blank page it opens beside the one it
@@ -76,6 +77,30 @@ for (const name of APP_ACCENTS) {
         expect(found).toEqual([]);
     });
 }
+
+test("axe finds nothing in the bottom bar, or with its panel open, in both themes, in the demo's accent and each app's", async ({ demo }) => {
+    const main = await demo.mainWindow();
+    await main.evaluate(() => window.demoShell.statusBar.show(true));
+    const item = main.locator("#kit-statusbar-checks");
+    const found = [];
+    for (const name of [null, ...APP_ACCENTS]) {
+        const style = name && await main.addStyleTag({ content: fs.readFileSync(path.join(__dirname, "..", "test", "fixtures", "accents", `${name}.css`), "utf8") });
+        for (const theme of ["light", "dark"]) {
+            await demo.useTheme(main, theme);
+            for (const open of [false, true]) {
+                if (open) await item.click();
+                await main.mouse.move(0, 0);
+                await main.evaluate(() => Promise.all(document.getAnimations().filter((a) => a instanceof CSSTransition).map((a) => a.finished)));
+                const place = `${name ?? "the demo"}'s accent, the ${theme} theme, the bar${open ? " with its panel open" : ""}`;
+                found.push(...(await violations(main)).map((line) => `${place}: ${line}`));
+            }
+            await main.keyboard.press("Escape");
+            await expect(main.getByRole("dialog", { name: "Check Details" })).toBeHidden();
+        }
+        await style?.evaluate((element) => element.remove());
+    }
+    expect(found).toEqual([]);
+});
 
 test("axe catches an accent that fails AA, so a clean run means something", async ({ demo }) => {
     const main = await demo.mainWindow();
