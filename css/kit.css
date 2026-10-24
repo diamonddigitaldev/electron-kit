@@ -407,6 +407,113 @@ a:hover {
     display: none !important;
 }
 
+/* -- Bottom bar -----------------------------------------------------------------
+   kit.ui.mountShell({ statusBar }) adds it after the frame, under the rail and
+   the sections, hidden until shown; while it shows, the frame takes the rest
+   of the window:
+
+       .app-frame.kit-with-statusbar         the window less the bar
+       footer.kit-statusbar                  26px, a line along its top
+       ├── button.kit-statusbar-item         an item, filled by the app
+       └── .kit-statusbar-panel[role=dialog] its panel, over the page above it,
+           ├── button.kit-statusbar-close    Close, at its top right
+           └── .kit-statusbar-panel-body     filled by the app */
+.app-frame.kit-with-statusbar {
+    height: calc(100vh - 26px);
+}
+
+.kit-statusbar {
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+    height: 26px;
+    padding: 0 0.4rem;
+    border-top: 1px solid var(--bs-border-color);
+    background-color: var(--bs-tertiary-bg);
+    font-size: 0.75rem;
+}
+
+/* Borderless, washed in the accent when hovered and while its panel is open.
+   Its ring sits close, inside the bar's height. */
+.kit-statusbar-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.55rem;
+    height: 22px;
+    padding: 0 0.5rem;
+    border: 0;
+    border-radius: var(--radius-control);
+    background: none;
+    color: var(--bs-body-color);
+    font: inherit;
+    white-space: nowrap;
+    cursor: pointer;
+    transition: background-color var(--dur-micro) var(--ease-micro);
+}
+
+.kit-statusbar-item:hover,
+.kit-statusbar-item[aria-expanded="true"] {
+    background-color: rgba(var(--accent-rgb), var(--wash-hover-fill));
+}
+
+.kit-statusbar-item:focus-visible {
+    outline-offset: 0;
+}
+
+.kit-statusbar-item .kit-card-status {
+    min-height: 0;
+}
+
+/* The panel: placed by the kit over its item, its width the app's (capped to
+   the window). It takes the focus as it opens, so the panel itself draws no
+   ring; its controls do. */
+.kit-statusbar-panel {
+    position: fixed;
+    z-index: 1070;
+    padding: 0.8rem 0.9rem;
+    border: 1px solid var(--bs-border-color);
+    border-radius: var(--radius-card);
+    background-color: var(--bs-body-bg);
+    color: var(--bs-body-color);
+    box-shadow: 0 12px 30px rgba(0, 0, 0, 0.2);
+}
+
+.kit-statusbar-panel:focus {
+    outline: none;
+}
+
+.kit-statusbar-panel-body {
+    display: flex;
+    flex-direction: column;
+    gap: 0.65rem;
+}
+
+/* The app's first line leaves room for Close beside it. */
+.kit-statusbar-panel-body > :first-child {
+    margin-inline-end: calc(18px + 0.5rem);
+}
+
+.kit-statusbar-close {
+    position: absolute;
+    top: 0.8rem;
+    right: 0.9rem;
+    display: inline-flex;
+    padding: 0;
+    border: 0;
+    border-radius: var(--radius-control);
+    background: none;
+    color: var(--bs-secondary-color);
+    cursor: pointer;
+}
+
+.kit-statusbar-close:hover {
+    color: var(--bs-body-color);
+}
+
+.kit-statusbar-close .material-icons-round {
+    font-size: 18px;
+}
+
 /* -- Nav rail --------------------------------------------------------------- */
 
 .nav-rail {

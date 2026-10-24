@@ -250,6 +250,94 @@ function fillControls() {
     $("sample-steps").replaceWith(slider.element);
 }
 
+// -- The bottom bar ---------------------------------------------------------------
+//
+// One item, hidden until a test shows the bar (shell.statusBar.show(true)): how
+// the Overview's checks went, with a panel listing each and Check Again.
+
+/** The Overview's checks: each row's name, and the cell its result is in (the theme isn't one). */
+const CHECKS = [
+    ["Shared Bridge", "kit-api"],
+    ["App Bridge", "electron-api"],
+    ["Sandboxed", "sandboxed"],
+    ["Page Library", "kit-js"],
+    ["Kit Styles", "kit-css"],
+];
+
+/** A check that failed says so: "Missing", "No", or "Failed: …". */
+const FAILED = /^(Missing|No|Failed)\b/;
+
+/** Run the Overview's checks, each into its row. */
+function runChecks() {
+    return Promise.all([
+        show("kit-api", async () => (window.kitAPI ? `App version ${await window.kitAPI.getVersion()}` : "Missing")),
+        show("electron-api", async () => (window.electronAPI ? `Electron ${await window.electronAPI.getElectronVersion()}` : "Missing")),
+        show("sandboxed", () => (window.electronAPI?.sandboxed ? "Yes" : "No")),
+        show("kit-js", () => (window.kit ? "Loaded" : "Missing")),
+        // A token only kit.css sets.
+        show("kit-css", () => (getComputedStyle(document.documentElement).getPropertyValue("--radius-card").trim() === "8px" ? "Loaded" : "Missing")),
+    ]);
+}
+
+/** The bar's item and its panel, filled with the demo's own elements. */
+function fillStatusBar(shell) {
+    const item = shell.statusBar.item("checks");
+    const barLine = window.kit.ui.statusLine({ text: "Checking…", tone: "running" });
+    const headLine = window.kit.ui.statusLine({ text: "Checking…", tone: "running" });
+    headLine.element.classList.add("demo-panel-head");
+    item.button.append(barLine.element);
+
+    const facts = document.createElement("dl");
+    facts.className = "demo-facts";
+    const again = document.createElement("button");
+    again.type = "button";
+    again.className = "btn btn-sm btn-outline-secondary";
+    again.textContent = "Check Again";
+    const overview = document.createElement("button");
+    overview.type = "button";
+    overview.className = "btn btn-sm btn-outline-secondary";
+    overview.textContent = "Show Overview";
+    const actions = document.createElement("div");
+    actions.className = "demo-panel-actions";
+    actions.append(again, overview);
+    item.panel.append(headLine.element, facts, actions);
+
+    /** Draw the item and its panel from the Overview's rows. */
+    function draw() {
+        const failed = CHECKS.filter(([, id]) => FAILED.test($(id).textContent)).length;
+        const state = failed === 0
+            ? { text: "All Checks Passed", tone: "success", title: "Every check on the Overview passed." }
+            : { text: failed === 1 ? "1 Check Failed" : `${failed} Checks Failed`, tone: "danger", title: "The Overview says which." };
+        barLine.set(state);
+        headLine.set(state);
+        facts.replaceChildren(...CHECKS.flatMap(([name, id]) => {
+            const term = document.createElement("dt");
+            term.textContent = name;
+            const value = document.createElement("dd");
+            // A bridge that's there is "Present": its version changes with each update of the demo's Electron.
+            const result = $(id).textContent;
+            value.textContent = !FAILED.test(result) && id.endsWith("-api") ? "Present" : result;
+            return [term, value];
+        }));
+    }
+
+    again.addEventListener("click", () => {
+        const restore = window.kit.ui.busy(again, "Checking…");
+        barLine.set({ text: "Checking…", tone: "running" });
+        headLine.set({ text: "Checking…", tone: "running" });
+        // A moment, as a real check would take.
+        setTimeout(() => runChecks().then(() => {
+            restore();
+            draw();
+        }), 700);
+    });
+    overview.addEventListener("click", () => {
+        item.close();
+        shell.showView("overview");
+    });
+    return draw;
+}
+
 // The files the demo is opened with, kept for the tests (it shows none).
 window.filesOpened = [];
 window.kitAPI?.onFilesOpened((paths) => window.filesOpened.push(paths));
@@ -270,18 +358,18 @@ async function init() {
         credits: { logo: "assets/logo.svg" },
         // What the demo is busy with, asked before Restart Now: never anything, unless a test says so.
         busy: () => window.demoBusy ?? null,
+        statusBar: { items: [{ id: "checks", label: "Checks", live: true, panel: { label: "Check Details", width: 360 } }] },
     });
+    // For the tests, which show the bar.
+    window.demoShell = shell;
+    const drawChecks = fillStatusBar(shell);
 
     await Promise.all([
         shell.ready,
         window.kitAPI.getSettings().then(applySettings),
-        show("kit-api", async () => (window.kitAPI ? `App version ${await window.kitAPI.getVersion()}` : "Missing")),
-        show("electron-api", async () => (window.electronAPI ? `Electron ${await window.electronAPI.getElectronVersion()}` : "Missing")),
-        show("sandboxed", () => (window.electronAPI?.sandboxed ? "Yes" : "No")),
-        show("kit-js", () => (window.kit ? "Loaded" : "Missing")),
-        // A token only kit.css sets.
-        show("kit-css", () => (getComputedStyle(document.documentElement).getPropertyValue("--radius-card").trim() === "8px" ? "Loaded" : "Missing")),
+        runChecks(),
     ]);
+    drawChecks();
 
     $("open-isolated").addEventListener("click", () => window.electronAPI.openIsolatedWindow());
     document.body.dataset.ready = "true";

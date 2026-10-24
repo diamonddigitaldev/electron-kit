@@ -5,7 +5,7 @@
 // the images are taken on a Windows CI runner, so they show Segoe UI as most
 // people see it, and Linux runs every other test without them.
 //
-// Nineteen states, each a whole window:
+// Twenty-one states, each a whole window:
 // - Settings > Update with an update waiting (and the dot), downloading, ready
 //   to install, restarting (Restart Now busy), checking (Check for Updates
 //   busy), and after a check that failed;
@@ -24,11 +24,13 @@
 //   finished upload with its link; and the top of a failed one); the Queue
 //   with three cards selected (the bar's box half ticked, "3 selected", its
 //   target's note, and the actions a selection shows); then the update dot
-//   on the collapsed rail.
-// All nineteen in the demo's accent, in the light and dark themes. The four
-// that show the most accent (the rail, Controls toggled, and the Queue at
-// rest and selected) again in each of the three apps' accents
-// (test/fixtures/accents/), in both themes. 62 images.
+//   on the collapsed rail;
+// - the bottom bar (kit.ui.mountShell({ statusBar })), shown under Controls
+//   with its item focused by keyboard, and with its panel open.
+// All twenty-one in the demo's accent, in the light and dark themes. The six
+// that show the most accent (the rail, Controls toggled, the Queue at rest
+// and selected, the bar and its panel) again in each of the three apps'
+// accents (test/fixtures/accents/), in both themes. 78 images.
 //
 // So that an image only changes when the look does: the window's page is
 // 760 x 600 at a scale factor of 1, drawn without the GPU; motion is reduced, so every transition ends
@@ -305,12 +307,29 @@ const STATES = {
         await expect(main.locator(".nav-rail .update-dot:visible")).toHaveCount(1);
         await blur(main);
     },
+    "status-bar": async (main, demo) => {
+        // The bottom bar shown, under Controls and the expanded rail, its item focused by keyboard. The dot is gone.
+        await pushUpdate(demo, { state: "idle" });
+        await expect(main.locator(".update-dot:visible")).toHaveCount(0);
+        const expand = main.getByRole("navigation", { name: "Sections" }).getByRole("button", { name: "Expand", exact: true });
+        if (await expand.count()) await expand.click();
+        await main.getByRole("button", { name: "Controls", exact: true }).click();
+        await main.evaluate(() => window.demoShell.statusBar.show(true));
+        await main.getByLabel("A text field").focus();
+        await main.keyboard.press("Tab");
+        await expect(main.locator("#kit-statusbar-checks")).toBeFocused();
+    },
+    "status-bar-panel": async (main) => {
+        // Its panel open, by a click: the item washed, the focus in the panel.
+        await main.locator("#kit-statusbar-checks").click();
+        await expect(main.getByRole("dialog", { name: "Check Details" })).toBeFocused();
+    },
 };
 
 /** Which states each accent is pictured in. */
 const PLAN = [
     [null, Object.keys(STATES)],
-    ...APP_ACCENTS.map((accent) => [accent, ["controls-toggled", "rail-expanded", "cards", "cards-selected"]]),
+    ...APP_ACCENTS.map((accent) => [accent, ["controls-toggled", "rail-expanded", "cards", "cards-selected", "status-bar", "status-bar-panel"]]),
 ];
 
 for (const [accent, states] of PLAN) {

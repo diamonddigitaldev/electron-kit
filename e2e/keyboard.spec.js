@@ -4,8 +4,10 @@
 // control in a sensible order, and each one shows a focus ring that's solid,
 // 2px, and 3:1 or more against what's behind it (01 §4), in both themes,
 // with the rail expanded and collapsed, in the demo's accent and each app's.
-// Nothing here opens a modal or popover: a prompt's keyboard (the focus kept
-// inside, Escape, the focus going back) is in prompts.spec.js.
+// Nothing here opens a modal: a prompt's keyboard (the focus kept inside,
+// Escape, the focus going back) is in prompts.spec.js. The bottom bar's panel
+// is opened only to walk its controls' rings; its keyboard is in
+// status-bar.spec.js.
 
 const fs = require("fs");
 const path = require("path");
@@ -102,6 +104,30 @@ test("every focus ring holds 3:1 in both themes, the rail expanded and collapsed
                     problems.push(...ringProblems(await walk(main, view === "Queue" ? 17 : 7)).map((line) => `${where}: ${line}`));
                 }
             }
+        }
+        await style?.evaluate((element) => element.remove());
+    }
+    expect(problems).toEqual([]);
+});
+
+test("the bottom bar's item comes after the view, and it and its panel's controls hold 3:1 in both themes, in every accent", async ({ demo }) => {
+    const main = await demo.mainWindow();
+    await main.evaluate(() => window.demoShell.statusBar.show(true));
+    const problems = [];
+    for (const name of [null, ...APP_ACCENTS]) {
+        const style = name && await main.addStyleTag({ content: fs.readFileSync(path.join(__dirname, "..", "test", "fixtures", "accents", `${name}.css`), "utf8") });
+        for (const theme of ["light", "dark"]) {
+            await demo.useTheme(main, theme);
+            await main.getByRole("button", { name: "Primary Action" }).focus();
+            const [item] = await walk(main, 1);
+            expect(item.name).toBe("Checks All Checks Passed");
+            await main.keyboard.press("Enter");
+            await expect(main.getByRole("dialog", { name: "Check Details" })).toBeFocused();
+            const inPanel = await walk(main, 3);
+            expect(inPanel.map((stop) => stop.name)).toEqual(["Close", "Check Again", "Show Overview"]);
+            const where = `${name ?? "the demo"}'s accent, ${theme}`;
+            problems.push(...ringProblems([item, ...inPanel]).map((line) => `${where}: ${line}`));
+            await main.keyboard.press("Escape");
         }
         await style?.evaluate((element) => element.remove());
     }

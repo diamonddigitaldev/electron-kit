@@ -28,6 +28,11 @@
 // The Update tab and the update dot follow the kit's updater (update:status).
 // Restart Now installs a downloaded update at once; when busy() gives a
 // reason, the kit asks first, with that reason, in its own prompt.
+// With statusBar: { items: [{ id, label, live, panel: { label, width } }] },
+// it adds a bar along the window's bottom, under the rail and the sections,
+// hidden until shell.statusBar.show(true): each item a button the app fills
+// (shell.statusBar.item(id).button), opening a panel above it that the app
+// fills too (.panel). kit.ui.statusLine() is a card's status line on its own.
 //
 // kit.ui.toast(message, { type, timeout, action }) shows a toast under the
 // header; its action shows a list under the message (what was skipped).
@@ -98,7 +103,7 @@
     const VIEW_NAME = /^[a-z][a-z0-9-]*$/;
     const KIT_TABS = ["update", "credits"];
 
-    function checkOptions({ title, sections = [], toolbar, settingsTabs = [], onViewChange, busy }) {
+    function checkOptions({ title, sections = [], toolbar, settingsTabs = [], onViewChange, busy, statusBar }) {
         const fail = (message) => {
             throw new Error(`kit.ui.mountShell(): ${message}`);
         };
@@ -127,6 +132,38 @@
         }
         if (onViewChange !== undefined && typeof onViewChange !== "function") fail("onViewChange must be a function.");
         if (busy !== undefined && typeof busy !== "function") fail("busy must be a function.");
+        if (statusBar !== undefined) checkStatusBar(statusBar, fail);
+    }
+
+    /** What a bar item, and its panel, take. */
+    const STATUS_ITEM = ["id", "label", "live", "panel"];
+    const STATUS_PANEL = ["label", "width"];
+
+    function checkStatusBar(statusBar, fail) {
+        const extra = (given, known, where) => {
+            const key = Object.keys(given).find((name) => !known.includes(name));
+            if (key !== undefined) fail(`${where} has no option "${key}".`);
+        };
+        if (statusBar === null || typeof statusBar !== "object" || Array.isArray(statusBar)) fail("statusBar must be { items }.");
+        extra(statusBar, ["items"], "statusBar");
+        const { items } = statusBar;
+        if (!Array.isArray(items) || items.length === 0) fail("statusBar.items must be a list of one or more.");
+        const ids = new Set();
+        for (const [i, item] of items.entries()) {
+            const where = `statusBar.items[${i}]`;
+            if (item === null || typeof item !== "object") fail(`${where} must be { id, label, live, panel }.`);
+            extra(item, STATUS_ITEM, where);
+            const { id, label, live = false, panel } = item;
+            if (typeof id !== "string" || !VIEW_NAME.test(id)) fail(`${where}.id must be a lowercase name.`);
+            if (ids.has(id)) fail(`${where}.id "${id}" is taken.`);
+            ids.add(id);
+            if (typeof label !== "string" || label === "") fail(`${where}.label must be its name.`);
+            if (typeof live !== "boolean") fail(`${where}.live must be true or false.`);
+            if (panel === null || typeof panel !== "object") fail(`${where}.panel must be { label, width }.`);
+            extra(panel, STATUS_PANEL, `${where}.panel`);
+            if (typeof panel.label !== "string" || panel.label === "") fail(`${where}.panel.label must be its name.`);
+            if (!Number.isInteger(panel.width) || panel.width <= 0) fail(`${where}.panel.width must be its width in pixels, a whole number.`);
+        }
     }
 
     // -- The Settings view -----------------------------------------------------
@@ -813,16 +850,154 @@
         ]));
     }
 
+    // -- The bottom bar --------------------------------------------------------
+
+    /** The gap between the bar and a panel over it, and the least between a panel and the window's sides. */
+    const PANEL_GAP = 6;
+    const PANEL_EDGE = 8;
+
+    /** What can take the focus in a panel, for Tab past its last control (or before its first). */
+    const FOCUSABLE = "button, a[href], input, select, textarea, summary, [contenteditable], [tabindex]:not([tabindex='-1'])";
+
+    /**
+     * The bar along the window's bottom, under the whole frame, and its items:
+     * each a borderless button the app fills, named by its label and its
+     * content, opening a non-modal panel above it, which the app fills too.
+     * Hidden until shown.
+     * @param {{ items: { id: string, label: string, live?: boolean, panel: { label: string, width: number } }[] }} options
+     * @param {HTMLElement} frame - the app's frame, which takes the rest of the window while the bar shows
+     * @param {(message: string) => never} fail
+     */
+    function buildStatusBar({ items }, frame, fail) {
+        const bar = el("footer", { className: "kit-statusbar", attrs: { hidden: "" } });
+        const entries = new Map();
+        /** The item whose panel is open: one at a time. */
+        let open = null;
+
+        function place(entry) {
+            const width = Math.min(entry.width, innerWidth - 2 * PANEL_EDGE);
+            const left = Math.max(PANEL_EDGE, Math.min(entry.button.getBoundingClientRect().left, innerWidth - PANEL_EDGE - width));
+            entry.dialog.style.width = `${width}px`;
+            entry.dialog.style.left = `${left}px`;
+            entry.dialog.style.bottom = `${bar.offsetHeight + PANEL_GAP}px`;
+        }
+
+        function openPanel(entry) {
+            if (open === entry) return;
+            if (open) closePanel(open);
+            open = entry;
+            entry.button.setAttribute("aria-expanded", "true");
+            entry.dialog.hidden = false;
+            place(entry);
+            entry.dialog.focus();
+        }
+
+        /** Close a panel; with focusBack, the focus goes back to its item (Escape, Close, Tab), and otherwise stays where it went. */
+        function closePanel(entry, { focusBack = false } = {}) {
+            if (open !== entry) return;
+            open = null;
+            entry.dialog.hidden = true;
+            entry.button.setAttribute("aria-expanded", "false");
+            if (focusBack) entry.button.focus();
+        }
+
+        for (const { id, label, live = false, panel } of items) {
+            const base = `kit-statusbar-${id}`;
+            // Named by its label, then what the app shows in it: "Connection wg-amsterdam 198.51.100.23".
+            const name = el("span", { text: label, attrs: { id: `${base}-label`, hidden: "" } });
+            const button = el("button", {
+                className: "kit-statusbar-item",
+                attrs: { type: "button", id: base, "aria-haspopup": "dialog", "aria-expanded": "false", "aria-controls": `${base}-panel`, "aria-labelledby": `${base}-label ${base}` },
+            });
+            // Read out as it changes only where the app asks: the bar itself isn't a live region.
+            if (live) {
+                button.setAttribute("aria-live", "polite");
+                button.setAttribute("aria-atomic", "true");
+            }
+            const close = el("button", { className: "kit-statusbar-close", attrs: { type: "button", title: "Close", "aria-label": "Close" } }, [icon("close")]);
+            const body = el("div", { className: "kit-statusbar-panel-body" });
+            const dialog = el("div", {
+                className: "kit-statusbar-panel",
+                attrs: { id: `${base}-panel`, role: "dialog", "aria-label": panel.label, tabindex: "-1", hidden: "" },
+            }, [close, body]);
+            bar.append(name, button, dialog);
+            const entry = { button, dialog, width: panel.width };
+
+            button.addEventListener("click", () => {
+                if (open === entry) closePanel(entry);
+                else openPanel(entry);
+            });
+            close.addEventListener("click", () => closePanel(entry, { focusBack: true }));
+            dialog.addEventListener("keydown", (event) => {
+                if (event.key === "Escape") {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    closePanel(entry, { focusBack: true });
+                    return;
+                }
+                if (event.key !== "Tab") return;
+                // Tab past its last control, or Shift+Tab before its first, leaves it, closed, for its item.
+                const controls = [...dialog.querySelectorAll(FOCUSABLE)].filter((node) => !node.disabled && node.checkVisibility());
+                const edge = event.shiftKey ? controls[0] : controls[controls.length - 1];
+                if (controls.length === 0 || event.target === edge || (event.shiftKey && event.target === dialog)) {
+                    event.preventDefault();
+                    closePanel(entry, { focusBack: true });
+                }
+            });
+            // The focus gone somewhere else (a click on a control, a prompt): never left open behind it.
+            dialog.addEventListener("focusout", (event) => {
+                const to = event.relatedTarget;
+                if (to && !dialog.contains(to) && to !== button) closePanel(entry);
+            });
+
+            entries.set(id, {
+                button,
+                panel: body,
+                open() {
+                    if (bar.hidden) fail(`statusBar.item("${id}").open(): the bar is hidden; show it first.`);
+                    openPanel(entry);
+                },
+                close() {
+                    closePanel(entry, { focusBack: dialog.contains(document.activeElement) });
+                },
+                get opened() {
+                    return open === entry;
+                },
+            });
+        }
+
+        // A click outside the open panel and its item closes it, leaving the focus where the click put it.
+        document.addEventListener("pointerdown", (event) => {
+            if (open && !open.dialog.contains(event.target) && !open.button.contains(event.target)) closePanel(open);
+        }, true);
+        addEventListener("resize", () => open && place(open));
+
+        frame.after(bar);
+        return {
+            show(visible) {
+                if (typeof visible !== "boolean") fail("statusBar.show() takes true or false.");
+                if (!visible && open) closePanel(open);
+                bar.hidden = !visible;
+                frame.classList.toggle("kit-with-statusbar", visible);
+            },
+            item(id) {
+                if (!entries.has(id)) fail(`statusBar has no item "${id}".`);
+                return entries.get(id);
+            },
+        };
+    }
+
     // -- The shell -------------------------------------------------------------
 
     /**
      * Build the app's frame around its sections: the nav rail, the header and
      * the Settings view. See the top of this file.
-     * @returns {{ showView(view: string): void, showSettings(tab?: string, options?: { focus?: boolean }): void, ready: Promise<void> }}
+     * @returns {{ showView(view: string): void, showSettings(tab?: string, options?: { focus?: boolean }): void, ready: Promise<void>,
+     *   statusBar: null | { show(visible: boolean): void, item(id: string): { button: HTMLButtonElement, panel: HTMLElement, open(): void, close(): void, opened: boolean } } }}
      */
     function mountShell(options) {
         checkOptions(options);
-        const { title, sections = [], toolbar, settingsTabs = [], credits = {}, onViewChange, busy } = options;
+        const { title, sections = [], toolbar, settingsTabs = [], credits = {}, onViewChange, busy, statusBar } = options;
         if (document.querySelector(".app-frame")) throw new Error("kit.ui.mountShell() was called twice.");
 
         // The rail: the app's sections, then Settings, then Collapse.
@@ -860,7 +1035,11 @@
             element.classList.add("kit-view");
             element.dataset.view = view;
         }
-        document.body.prepend(el("div", { className: "app-frame" }, [rail, shell]));
+        const frame = el("div", { className: "app-frame" }, [rail, shell]);
+        document.body.prepend(frame);
+        const bar = statusBar ? buildStatusBar(statusBar, frame, (message) => {
+            throw new Error(`kit.ui.mountShell(): ${message}`);
+        }) : null;
 
         for (const { id, render } of settingsTabs) render(settings.pane(id));
 
@@ -974,7 +1153,7 @@
             if (status) showUpdate(status);
         });
 
-        return { showView, showSettings, ready };
+        return { showView, showSettings, ready, statusBar: bar };
     }
 
     // -- Progress ------------------------------------------------------------------
@@ -1213,8 +1392,43 @@
     /** A status line's tones: what each colours its dot and its text. running pulses. */
     const CARD_TONES = ["ready", "running", "warning", "danger", "success", "muted"];
 
+    /**
+     * A status line on its own, as a card draws its own: a dot coloured by
+     * its tone, then the text, cut off with an ellipsis, its whole text the
+     * title unless title says more (what a colour means, say). It's a span,
+     * so it can sit in a button, such as a bar item's. set() takes the whole
+     * of it again, as a card's update() does.
+     * @param {{ text: string, tone: string, title?: string }} options
+     * @returns {{ element: HTMLElement, set(state: { text: string, tone: string, title?: string }): void }}
+     */
+    function statusLine(options) {
+        const fail = (message) => {
+            throw new Error(`kit.ui.statusLine(): ${message}`);
+        };
+        const check = (given, where) => {
+            if (given === null || typeof given !== "object") fail(`${where} takes { text, tone, title }.`);
+            const extra = Object.keys(given).find((key) => !["text", "tone", "title"].includes(key));
+            if (extra !== undefined) fail(`${where} has no option "${extra}".`);
+            const { text, tone, title = text } = given;
+            if (typeof text !== "string") fail(`${where}: text must be text.`);
+            if (!CARD_TONES.includes(tone)) fail(`${where}: tone must be one of ${CARD_TONES.join(", ")}.`);
+            if (typeof title !== "string") fail(`${where}: title must be text, or left out.`);
+            return { text, tone, title };
+        };
+        const first = check(options, "it");
+        const textPart = el("span", { className: "kit-status-text" });
+        const element = el("span", { className: "kit-card-status" }, [el("span", { className: "kit-status-dot" }), textPart]);
+        function draw({ text, tone, title }) {
+            element.className = `kit-card-status kit-tone-${tone}`;
+            textPart.textContent = text;
+            textPart.title = title;
+        }
+        draw(first);
+        return { element, set: (state) => draw(check(state, "set()")) };
+    }
+
     /** What a card's update() takes. */
-    const CARD_STATE = ["name", "meta", "settings", "status", "percent", "paused", "actions", "rows", "locked", "canRemove", "route"];
+    const CARD_STATE =["name", "meta", "settings", "status", "percent", "paused", "actions", "rows", "locked", "canRemove", "route"];
 
     /** The elements a click on a card belongs to rather than the card: a click on one of them doesn't pick it. */
     const CARD_CONTROLS = "button, input, select, textarea, a[href], label, summary, [contenteditable], [tabindex]";
@@ -1309,8 +1523,7 @@
                 : [el("span", { className: "kit-card-from", text: route.from }), icon("arrow_forward", "kit-card-arrow")]),
             route.control,
         ]);
-        const statusText = el("span", { className: "kit-status-text" });
-        const status = el("div", { className: "kit-card-status" }, [el("span", { className: "kit-status-dot" }), statusText]);
+        const status = statusLine({ text: "", tone: "muted" });
         const bar = progress({ label: name, thin: true });
         bar.element.classList.add("kit-card-progress");
         const rowSlot = el("div", { className: "kit-card-rows" });
@@ -1321,7 +1534,7 @@
             meta,
             settings,
             routeLine,
-            status,
+            status.element,
             bar.element,
             rowSlot,
             actionSlot,
@@ -1381,7 +1594,7 @@
             if (state === null || typeof state !== "object") fail("update() takes the card's state, { status, … }.");
             unknown(state, CARD_STATE, "update()");
             const {
-                name: renamed, meta: metaText, settings: settingsLine, status: statusLine, percent, paused = false,
+                name: renamed, meta: metaText, settings: settingsLine, status: statusOf, percent, paused = false,
                 actions = [], rows = [], locked = false, canRemove = !locked, route: showRoute = true,
             } = state;
             // Everything is checked before anything is drawn, so a mistake leaves the card as it was.
@@ -1392,7 +1605,7 @@
                 || (settingsOf.tone !== undefined && settingsOf.tone !== "warning"))) {
                 fail('update(): settings must be text, or { text, tone: "warning" }.');
             }
-            if (statusLine !== undefined && (statusLine === null || typeof statusLine !== "object" || typeof statusLine.text !== "string" || !CARD_TONES.includes(statusLine.tone))) {
+            if (statusOf !== undefined && (statusOf === null || typeof statusOf !== "object" || typeof statusOf.text !== "string" || !CARD_TONES.includes(statusOf.tone))) {
                 fail(`update(): status must be { text, tone }, the tone one of ${CARD_TONES.join(", ")}.`);
             }
             if (percent !== undefined && percent !== null && !Number.isFinite(percent)) fail("update(): percent must be a number, or null when it isn't known.");
@@ -1419,10 +1632,8 @@
             settings.title = settingsOf?.text ?? "";
             settings.classList.toggle("kit-card-settings-warning", settingsOf?.tone === "warning");
             if (routeLine) routeLine.hidden = !showRoute;
-            status.hidden = statusLine === undefined;
-            status.className = `kit-card-status kit-tone-${statusLine?.tone ?? "muted"}`;
-            statusText.textContent = statusLine?.text ?? "";
-            statusText.title = statusLine?.text ?? "";
+            status.element.hidden = statusOf === undefined;
+            status.set({ text: statusOf?.text ?? "", tone: statusOf?.tone ?? "muted" });
             bar.element.hidden = percent === undefined;
             if (percent !== undefined) bar.set(percent, { paused });
             // The app's rows, put back only when they're other elements, so one being typed in or selected keeps it.
@@ -2086,7 +2297,7 @@
     }, true);
 
     window.kit = {
-        ui: { mountShell, toast, confirm, progress, actionBar, dropZone, busy, card, cardGrid, bulkBar, switchField, stepSlider },
+        ui: { mountShell, toast, confirm, progress, actionBar, dropZone, busy, statusLine, card, cardGrid, bulkBar, switchField, stepSlider },
         format: { plural, countOf, groupDigits, formatBytes, formatEta, formatDuration, summarise },
         keys: { isTyping, onKey },
     };
