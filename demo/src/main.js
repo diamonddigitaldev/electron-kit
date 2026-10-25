@@ -9,21 +9,25 @@
 // from kit.sessions.isolated(), where the kit's preload is never registered:
 // it gets electronAPI only, and its own channel is answered there only.
 //
-// The demo passes the kit its own setting (and a migration), its credits, its
-// own menu item and a log in a file, so every piece of the kit is in use. It
-// logs what it was opened with, which the log keeps without any folder.
+// The demo passes the kit its own settings (one only main changes, and a
+// migration), its credits, its own menu item and a log in a file, so every
+// piece of the kit is in use. It logs what it was opened with, which the log
+// keeps without any folder.
 
 const path = require("path");
 const { BrowserWindow } = require("electron");
-const { IPC, ISOLATED_PARTITION, SETTINGS_DEFAULTS } = require("./constants");
+const { IPC, ISOLATED_PARTITION, SETTINGS_DEFAULTS, MAIN_ONLY_SETTINGS } = require("./constants");
 
 const kit = require("@diamonddigitaldev/electron-kit/main").start({
     // package.json's build.appId: the Windows user model ID its shortcut carries.
     appId: "com.diamonddigitaldev.electronkitdemo",
+    // The export folder is main's alone, and a whole path when it's set.
     // Version 1 of the demo's settings: a store from before it loses the
     // setting the demo dropped, and its old key.
     settings: {
         defaults: SETTINGS_DEFAULTS,
+        mainOnly: MAIN_ONLY_SETTINGS,
+        checks: { exportFolder: (folder) => folder === null || (typeof folder === "string" && path.isAbsolute(folder)) },
         version: 1,
         migrate: (settings) => {
             delete settings.showGrid;

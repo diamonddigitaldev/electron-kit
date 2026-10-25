@@ -4,7 +4,9 @@
 // log in debug.log in its profile (userData), started with a banner and
 // emptied at each launch, with what it was opened with logged and no folder
 // in it; and a profile from before the demo's settings version 1 is migrated
-// once, as the store is first opened, before the page reads anything.
+// once, as the store is first opened, before the page reads anything. The
+// demo's export folder is main's alone: the page is refused a change to it,
+// main's is taken (and checked), and main hears each change.
 
 const fs = require("fs");
 const path = require("path");
@@ -47,6 +49,45 @@ test("a profile from before the settings' version is migrated once, before the p
     const log = fs.readFileSync(path.join(demo.profile, "debug.log"), "utf8");
     expect(log).toContain("[INFO] Settings version 1: removing showGrid.");
     expect(log).toContain("[INFO] Settings version 1: removing the store's obsolete key recentFiles.");
+});
+
+test("the page is refused a change to the export folder, which main alone changes; main's is taken, checked, and heard", async ({ demo }) => {
+    const main = await demo.mainWindow();
+    const config = path.join(demo.profile, "config.json");
+    /** What a kitAPI.setSettings() comes to in the page: the setting asked for, or the error it rejects with. */
+    const pageSets = (changes, key) => main.evaluate(([changes, key]) => window.kitAPI.setSettings(changes).then((after) => after[key], (err) => err.message), [changes, key]);
+    /** What kit.settings.set() comes to in main: the setting asked for, or the error it throws. */
+    const mainSets = (changes, key) => demo.app.evaluate((_electron, [changes, key]) => {
+        try {
+            return globalThis.demoKit.settings.set(changes)[key];
+        } catch (err) {
+            return err.message;
+        }
+    }, [changes, key]);
+    const read = () => main.evaluate(() => window.kitAPI.getSettings());
+
+    // Main hears every change, and who made it.
+    await demo.app.evaluate(() => {
+        globalThis.heard = [];
+        globalThis.demoKit.settings.onChange((changes, _after, { from }) => globalThis.heard.push({ changes, from }));
+    });
+
+    expect(await pageSets({ showAccentSample: false, exportFolder: demo.profile }, "exportFolder")).toContain(`The setting "exportFolder" can't be changed from the page.`);
+    expect(await read(), "nothing of that change is stored").toMatchObject({ showAccentSample: true, exportFolder: null });
+    expect(JSON.parse(fs.readFileSync(config, "utf8")).settings ?? {}).not.toHaveProperty("showAccentSample", false);
+
+    // Main sets it, and the page reads it; a folder that isn't a whole path is refused by the demo's check.
+    expect(await mainSets({ exportFolder: demo.profile }, "exportFolder")).toBe(demo.profile);
+    expect(await mainSets({ exportFolder: "exports" }, "exportFolder")).toBe(`The setting "exportFolder" doesn't take that value.`);
+    expect((await read()).exportFolder).toBe(demo.profile);
+    expect(JSON.parse(fs.readFileSync(config, "utf8")).settings.exportFolder).toBe(demo.profile);
+
+    // The page still changes the demo's other setting.
+    expect(await pageSets({ showAccentSample: false }, "showAccentSample")).toBe(false);
+    expect(await demo.app.evaluate(() => globalThis.heard)).toEqual([
+        { changes: { exportFolder: demo.profile }, from: "main" },
+        { changes: { showAccentSample: false }, from: "page" },
+    ]);
 });
 
 test.describe("the memory log", () => {

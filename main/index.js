@@ -69,7 +69,7 @@ function registerPreload(ses) {
 /**
  * Start the kit. Call it once, at the top of main.js, before any window.
  * @param {{
- *   settings?: { defaults?: Record<string, unknown>, version?: number, migrate?: (settings: object, from: number) => object, obsoleteKeys?: string[] },
+ *   settings?: { defaults?: Record<string, unknown>, mainOnly?: string[], checks?: Record<string, (value: unknown) => boolean>, version?: number, migrate?: (settings: object, from: number) => object, obsoleteKeys?: string[] },
  *   log?: "file" | "memory" | { mode: "file" | "memory", lines?: number },
  *   appId?: string,
  *   singleInstance?: boolean,
@@ -86,9 +86,11 @@ function registerPreload(ses) {
  *   keeps the log in debug.log in userData; "memory" keeps the run's last
  *   lines (1000, or lines) in memory, and in debug.log too only while the
  *   kit's keepLogOnDisk setting is on (log.js); without it, the console
- *   only. settings.version, migrate and obsoleteKeys: the store's migration
- *   (store.js). singleInstance: false lets more than one run (it's one, by
- *   default). appId: the app's build.appId, its user model ID on Windows
+ *   only. settings.mainOnly: the app's settings the page may read and not
+ *   change; settings.checks: a function per setting, true for a value it
+ *   takes, from the page or main (store.js). settings.version, migrate and
+ *   obsoleteKeys: the store's migration (store.js). singleInstance: false
+ *   lets more than one run (it's one, by default). appId: the app's build.appId, its user model ID on Windows
  *   (instance.js); the app's name without it. files: the app takes files
  *   it's opened with (instance.js); files.except, the switches that make a
  *   launch the app's own to handle, whose files aren't taken.
@@ -97,7 +99,7 @@ function registerPreload(ses) {
  *   (shell.js).
  * @returns {{
  *   ready: Promise<void>,
- *   settings: { get(): object, set(changes: object): object },
+ *   settings: { get(): object, set(changes: object): object, onChange(listener: (changes: object, after: object, how: { from: "page" | "main" }) => void): () => void },
  *   ipc: { handle(channel: string, handler: (event: Electron.IpcMainInvokeEvent, ...args: any[]) => any, options?: { session?: Electron.Session }): void },
  *   sessions: { isolated(name: string, options?: { persist?: boolean }): Electron.Session },
  *   log: { error(...args: unknown[]): void, warn(...args: unknown[]): void, info(...args: unknown[]): void, debug(...args: unknown[]): void, lines(): string[] },
@@ -108,9 +110,11 @@ function registerPreload(ses) {
  * }}
  *   ready resolves once the app is ready, the shared preload is registered and
  *   the menu set: create windows after it. settings are the app's settings,
- *   for its main process. ipc.handle() answers one of the app's own channels,
- *   for the app's own page only (ipc.js), in the UI session or in the
- *   isolated session given. sessions.isolated() makes a session without the
+ *   for its main process; settings.onChange() hears every stored change,
+ *   after the updater and the log have, and returns the function that stops
+ *   it. ipc.handle() answers one of the app's own channels, for the app's
+ *   own page only (ipc.js), in the UI session or in the isolated session
+ *   given. sessions.isolated() makes a session without the
  *   kit's bridge (sessions.js). log is the app's log, redacted, and its
  *   lines() the banner and the run's last lines (log.js).
  *   windows.createMain() makes the main window (windows.js).
@@ -140,6 +144,7 @@ function start(config = {}) {
         banner: `${config.name ?? app.getName()} ${app.getVersion()} started`,
     });
     const settings = store.createSettings({ ...config.settings, log, memoryLog: mode === "memory" });
+    const changed = store.createChangeListeners(log);
     const credits = info.checkInfo({ credits: config.credits, repository: config.repository, name: config.name });
     const openExternal = shell.createOpener({
         allow: shell.checkOpenExternal(config.openExternal),
@@ -149,7 +154,16 @@ function start(config = {}) {
             return [...shown.credits.lines.flat().map((part) => part?.href ?? null), shown.credits.donate, shown.repository];
         },
     });
-    const updates = updater.createUpdater({ options: updater.checkUpdates(config.updates), app, settings, send: sendUpdateStatus, log });
+    // The updater saves the running build's channel itself, the first time: the app's listeners hear that too.
+    const updaterSettings = {
+        get: settings.get,
+        set: (changes) => {
+            const after = settings.set(changes);
+            changed.tell(changes, after, "main");
+            return after;
+        },
+    };
+    const updates = updater.createUpdater({ options: updater.checkUpdates(config.updates), app, settings: updaterSettings, send: sendUpdateStatus, log });
     const template = menu.menuTemplate({
         items: config.menu?.items,
         version: app.getVersion(),
@@ -163,19 +177,25 @@ function start(config = {}) {
     windows = windowing.createWindows({ bounds: settings.bounds, onMainCreated: files.mainCreated });
     files.listen({ isPackaged: app.isPackaged, appPath: app.getAppPath() });
 
-    /** Change some settings, from the page or the app's main, and tell the updater. */
-    function setSettings(changes) {
+    /**
+     * Change some settings, from the page or the app's main; tell the updater
+     * and the log, then the app's listeners.
+     * @param {Record<string, unknown>} changes
+     * @param {"page" | "main"} from
+     */
+    function setSettings(changes, from) {
         const before = settings.get();
-        const after = settings.set(changes);
+        const after = settings.set(changes, { from });
         updates.settingsChanged(changes, before);
         if (log.mode === "memory" && Object.hasOwn(changes, "keepLogOnDisk")) log.keepOnDisk(after.keepLogOnDisk);
+        changed.tell(changes, after, from);
         return after;
     }
 
     ipc.handle(INVOKE.APP_GET_VERSION, () => app.getVersion());
     ipc.handle(INVOKE.APP_GET_INFO, () => info.appInfo(credits));
     ipc.handle(INVOKE.SETTINGS_GET, () => settings.get());
-    ipc.handle(INVOKE.SETTINGS_SET, (_event, changes) => setSettings(changes));
+    ipc.handle(INVOKE.SETTINGS_SET, (_event, changes) => setSettings(changes, "page"));
     ipc.handle(INVOKE.SHELL_OPEN_EXTERNAL, (_event, url) => openExternal(url));
     ipc.handle(INVOKE.UPDATE_GET_STATUS, () => updates.status());
     ipc.handle(INVOKE.UPDATE_CHECK, () => updates.check());
@@ -211,7 +231,7 @@ function start(config = {}) {
     });
     return {
         ready,
-        settings: { get: settings.get, set: setSettings },
+        settings: { get: settings.get, set: (changes) => setSettings(changes, "main"), onChange: changed.onChange },
         ipc: { handle: (channel, handler, options) => ipc.handleApp(channel, handler, options, isolation.isIsolated) },
         sessions: { isolated: isolation.isolated },
         log: { error: log.error, warn: log.warn, info: log.info, debug: log.debug, lines: log.lines },
