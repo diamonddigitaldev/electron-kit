@@ -7,7 +7,8 @@
 // Nothing here opens a modal: a prompt's keyboard (the focus kept inside,
 // Escape, the focus going back) is in prompts.spec.js. The bottom bar's panel
 // is opened only to walk its controls' rings; its keyboard is in
-// status-bar.spec.js.
+// status-bar.spec.js. A form (kit.ui.dialog()) is opened only to walk its
+// rings; its keyboard is in dialog.spec.js.
 
 const fs = require("fs");
 const path = require("path");
@@ -128,6 +129,29 @@ test("the bottom bar's item comes after the view, and it and its panel's control
             const where = `${name ?? "the demo"}'s accent, ${theme}`;
             problems.push(...ringProblems([item, ...inPanel]).map((line) => `${where}: ${line}`));
             await main.keyboard.press("Escape");
+        }
+        await style?.evaluate((element) => element.remove());
+    }
+    expect(problems).toEqual([]);
+});
+
+test("a form's fields and buttons (kit.ui.dialog()) hold 3:1 in both themes, in every accent", async ({ demo }) => {
+    const main = await demo.mainWindow();
+    await main.getByRole("button", { name: "Queue", exact: true }).click();
+    const opener = main.getByRole("group", { name: "printer-manual.pdf", exact: true }).getByRole("button", { name: "Advanced Options" });
+    const problems = [];
+    for (const name of [null, ...APP_ACCENTS]) {
+        const style = name && await main.addStyleTag({ content: fs.readFileSync(path.join(__dirname, "..", "test", "fixtures", "accents", `${name}.css`), "utf8") });
+        for (const theme of ["light", "dark"]) {
+            await demo.useTheme(main, theme);
+            await opener.click();
+            await expect(main.getByRole("spinbutton", { name: "File lifetime" })).toBeFocused();
+            // From the first field round to it again: the unit, the downloads, Cancel, Apply, Close.
+            const stops = [await focused(main), ...await walk(main, 5)];
+            expect(stops.map((stop) => stop.name)).toEqual(["File lifetime", "Unit", "Max downloads", "Cancel", "Apply", "Close"]);
+            problems.push(...ringProblems(stops).map((line) => `${name ?? "the demo"}'s accent, ${theme}: ${line}`));
+            await main.keyboard.press("Escape");
+            await expect(main.locator("dialog[open]")).toHaveCount(0);
         }
         await style?.evaluate((element) => element.remove());
     }

@@ -4,7 +4,8 @@
 // 2.2 A and AA: every view and every Settings tab, with the rail expanded and
 // collapsed, in the light and dark themes, with the demo's own accent and
 // with each of the three apps' accents (test/fixtures/accents/), laid over the
-// demo's in turn; and the bottom bar, shown, and with its panel open. Each
+// demo's in turn; the bottom bar, shown, and with its panel open; and a form
+// (kit.ui.dialog(), the demo's Advanced Options) open. Each
 // theme is switched as the OS switches it (nativeTheme,
 // from main), and the kit's theme.js draws the page in it.
 //
@@ -96,6 +97,35 @@ test("axe finds nothing in the bottom bar, or with its panel open, in both theme
             }
             await main.keyboard.press("Escape");
             await expect(main.getByRole("dialog", { name: "Check Details" })).toBeHidden();
+        }
+        await style?.evaluate((element) => element.remove());
+    }
+    expect(found).toEqual([]);
+});
+
+test("axe finds nothing with a form open (kit.ui.dialog()), its help lines plain or saying what's wrong, in both themes, in the demo's accent and each app's", async ({ demo }) => {
+    const main = await demo.mainWindow();
+    await main.getByRole("button", { name: "Queue", exact: true }).click();
+    const opener = main.getByRole("group", { name: "printer-manual.pdf", exact: true }).getByRole("button", { name: "Advanced Options" });
+    const dialog = main.getByRole("dialog", { name: "Advanced Options" });
+    const found = [];
+    for (const name of [null, ...APP_ACCENTS]) {
+        const style = name && await main.addStyleTag({ content: fs.readFileSync(path.join(__dirname, "..", "test", "fixtures", "accents", `${name}.css`), "utf8") });
+        for (const theme of ["light", "dark"]) {
+            await demo.useTheme(main, theme);
+            for (const wrong of [false, true]) {
+                await opener.click();
+                // Too long a lifetime: its help line in the danger shade, Apply disabled.
+                if (wrong) await dialog.getByRole("spinbutton", { name: "File lifetime" }).fill("99");
+                await main.mouse.move(0, 0);
+                await main.evaluate(() => Promise.all(document.getAnimations()
+                    .filter((a) => a.effect?.getComputedTiming().iterations !== Infinity)
+                    .map((a) => a.finished.catch(() => {}))));
+                const place = `${name ?? "the demo"}'s accent, the ${theme} theme, a form${wrong ? " saying what's wrong" : ""}`;
+                found.push(...(await violations(main)).map((line) => `${place}: ${line}`));
+                await main.keyboard.press("Escape");
+                await expect(dialog).toHaveCount(0);
+            }
         }
         await style?.evaluate((element) => element.remove());
     }

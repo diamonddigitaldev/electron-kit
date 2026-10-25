@@ -38,7 +38,9 @@
 // header; its action shows a list under the message (what was skipped).
 // kit.ui.confirm({ title, body, … }) asks a question in a modal, one at a
 // time, and resolves with the answer; its batch form takes the answers as
-// choices, with Apply to All Remaining.
+// choices, with Apply to All Remaining. kit.ui.dialog({ title, icon, body,
+// actions }) is a small form in the same modal, the app's own fields in it,
+// waiting its turn with the prompts, and resolves with the button pressed.
 // kit.ui.progress(), kit.ui.actionBar() and kit.ui.dropZone() are the parts of
 // a section that works through a list of files: a bar (null is "not known"),
 // the bar under the list with its status line and its one primary action, and
@@ -617,7 +619,7 @@
     /** The variants a prompt's button may take: Bootstrap's, as DESIGN §6 uses them. */
     const BUTTON_VARIANTS = ["primary", "secondary", "success", "warning", "danger", "outline-secondary", "outline-danger"];
 
-    /** The prompt showing now, or last shown, so the next waits for it: one prompt at a time. */
+    /** The prompt or form showing now, or last shown, so the next waits for it: one at a time. */
     let prompts = Promise.resolve();
 
     /** The prompt's dialog, built the first time one is asked, and filled for each. */
@@ -704,37 +706,21 @@
     }
 
     /**
-     * Show one prompt, and resolve with its answer once it's closed.
-     * @param {ReturnType<typeof promptOf>} prompt
+     * Show a kit dialog, a prompt's or a form's, as a modal, and wire its ways
+     * out, so the two can't drift: answer(value) fades it out, then closes it;
+     * Escape and the close button answer cancel, and so does a click on the
+     * backdrop where backdrop is true. Closing is what calls onClosed, with
+     * the answer. A modal <dialog> gives the focus back to what had it once it
+     * closes, by itself.
+     * @param {HTMLDialogElement} dialog
+     * @param {{ closeButton: HTMLElement, cancel: any, backdrop: boolean, focus: () => HTMLElement, onClosed: (value: any) => void }} how
+     * @returns {(value: any) => void} answer
      */
-    function ask(prompt) {
-        const parts = confirmDialog();
-        const { dialog, glyph, title, closeButton, body, detail, all, allLabel, allRow, footer } = parts;
-        glyph.textContent = prompt.glyph;
-        glyph.className = `material-icons-round kit-dialog-icon${prompt.tone ? ` text-${prompt.tone}` : ""}`;
-        title.textContent = prompt.title;
-        body.textContent = prompt.body;
-        detail.textContent = prompt.detail ?? "";
-        detail.hidden = !prompt.detail;
-        allRow.hidden = !prompt.applyToAll;
-        allLabel.textContent = prompt.applyToAll ?? "";
-        all.checked = false;
-        delete all.dataset.kitTick;
-        const buttons = prompt.buttons.map(({ value, label, variant }) => {
-            const button = el("button", { className: `btn btn-${variant}`, text: label, attrs: { type: "button" } });
-            button.addEventListener("click", () => answer(value));
-            return [value, button];
-        });
-        footer.replaceChildren(...buttons.map(([, button]) => button));
-
+    function showModal(dialog, { closeButton, cancel, backdrop, focus, onClosed }) {
         let answered = null;
         let fallback = null;
-        let done;
-        const closed = new Promise((resolve) => {
-            done = resolve;
-        });
 
-        /** Answer, and close: faded out, then closed (closing is what resolves the prompt). */
+        /** Answer, and close: faded out, then closed (closing is what resolves the dialog). */
         function answer(value) {
             if (answered !== null || !dialog.open) return;
             answered = { value };
@@ -755,41 +741,76 @@
             // Escape: faded out like any other answer. Pressed again before it's gone, Chromium
             // may close the dialog itself, which onClose answers the same way.
             event.preventDefault();
-            answer(prompt.cancel);
+            answer(cancel);
         };
         const onBackdrop = (event) => {
             if (event.target !== dialog) return;
             const box = dialog.getBoundingClientRect();
             const inside = event.clientX >= box.left && event.clientX <= box.right && event.clientY >= box.top && event.clientY <= box.bottom;
-            if (!inside) answer(prompt.cancel);
+            if (!inside) answer(cancel);
         };
-        const onCloseButton = () => answer(prompt.cancel);
+        const onCloseButton = () => answer(cancel);
         function onClose() {
-            // Not left to close the next prompt, which may open in this one's place at once.
+            // Not left to close the next dialog, which may open in this one's place at once.
             clearTimeout(fallback);
             dialog.removeEventListener("cancel", onCancel);
             dialog.removeEventListener("click", onBackdrop);
             dialog.removeEventListener("close", onClose);
             closeButton.removeEventListener("click", onCloseButton);
             dialog.classList.remove("leaving");
-            const value = answered ? answered.value : prompt.cancel;
-            done(prompt.batch ? { choice: value, all: all.checked } : value);
+            onClosed(answered ? answered.value : cancel);
         }
         dialog.addEventListener("cancel", onCancel);
-        dialog.addEventListener("click", onBackdrop);
+        if (backdrop) dialog.addEventListener("click", onBackdrop);
         dialog.addEventListener("close", onClose);
         closeButton.addEventListener("click", onCloseButton);
 
-        // A modal <dialog> gives the focus back to what had it once it closes, by itself.
         dialog.showModal();
-        buttons.find(([value]) => value === prompt.focus)[1].focus();
-        return closed;
+        focus().focus();
+        return answer;
+    }
+
+    /**
+     * Show one prompt, and resolve with its answer once it's closed.
+     * @param {ReturnType<typeof promptOf>} prompt
+     */
+    function ask(prompt) {
+        const parts = confirmDialog();
+        const { dialog, glyph, title, closeButton, body, detail, all, allLabel, allRow, footer } = parts;
+        glyph.textContent = prompt.glyph;
+        glyph.className = `material-icons-round kit-dialog-icon${prompt.tone ? ` text-${prompt.tone}` : ""}`;
+        title.textContent = prompt.title;
+        body.textContent = prompt.body;
+        detail.textContent = prompt.detail ?? "";
+        detail.hidden = !prompt.detail;
+        allRow.hidden = !prompt.applyToAll;
+        allLabel.textContent = prompt.applyToAll ?? "";
+        all.checked = false;
+        delete all.dataset.kitTick;
+        /** The prompt's answer, once it's shown. */
+        let answer = null;
+        const buttons = prompt.buttons.map(({ value, label, variant }) => {
+            const button = el("button", { className: `btn btn-${variant}`, text: label, attrs: { type: "button" } });
+            button.addEventListener("click", () => answer(value));
+            return [value, button];
+        });
+        footer.replaceChildren(...buttons.map(([, button]) => button));
+
+        return new Promise((resolve) => {
+            answer = showModal(dialog, {
+                closeButton,
+                cancel: prompt.cancel,
+                backdrop: true,
+                focus: () => buttons.find(([value]) => value === prompt.focus)[1],
+                onClosed: (value) => resolve(prompt.batch ? { choice: value, all: all.checked } : value),
+            });
+        });
     }
 
     /**
      * Ask a question only the person can answer, in a modal over the page,
      * and resolve with the answer. Prompts are asked one at a time: one asked
-     * while another shows waits until that's answered.
+     * while another, or a form (dialog()), shows waits until that's answered.
      *
      *     if (!await kit.ui.confirm({ title: "Large Frame Export", body: "This writes about 4,000 images.",
      *                                 detail: "Narrow the range if that's more than you meant.",
@@ -824,6 +845,164 @@
         const answer = prompts.then(() => ask(prompt));
         prompts = answer.then(() => {}, () => {});
         return answer;
+    }
+
+    // -- Dialog ------------------------------------------------------------------
+
+    /** What kit.ui.dialog() takes, and what each of its actions takes. */
+    const DIALOG_OPTIONS = ["title", "icon", "body", "actions"];
+    const DIALOG_ACTION = ["label", "value", "variant", "cancel", "close"];
+
+    /** Each form dialog's number, for its title's id. */
+    let formDialogs = 0;
+
+    /** Check a form dialog's options, and put its actions in one shape. */
+    function formOf(options) {
+        const fail = (message) => {
+            throw new Error(`kit.ui.dialog(): ${message}`);
+        };
+        if (options === null || typeof options !== "object") fail("it takes { title, icon, body, actions }.");
+        const extra = Object.keys(options).find((key) => !DIALOG_OPTIONS.includes(key));
+        if (extra !== undefined) fail(`it has no option "${extra}".`);
+        const { title, icon: glyph, body, actions } = options;
+        if (typeof title !== "string" || title === "") fail("title must be the dialog's name, in Title Case.");
+        if (typeof glyph !== "string" || glyph === "") fail("icon must be a Material Icons Round glyph.");
+        const parts = Array.isArray(body) ? body : [body];
+        if (parts.length === 0 || !parts.every((part) => part instanceof Element)) fail("body must be the app's own elements: an element, or a list of them.");
+        if (!Array.isArray(actions) || actions.length === 0) fail("actions must be a list of one or more { label, value, variant }.");
+        const values = new Map();
+        const checked = actions.map((action, i) => {
+            if (action === null || typeof action !== "object") fail(`actions[${i}] must be { label, value, variant }.`);
+            const unknown = Object.keys(action).find((key) => !DIALOG_ACTION.includes(key));
+            if (unknown !== undefined) fail(`actions[${i}] has no option "${unknown}".`);
+            const { label, value, variant = "secondary", cancel = false, close = true } = action;
+            if (typeof label !== "string" || label === "") fail(`actions[${i}].label must be text.`);
+            if (value === undefined) fail(`actions[${i}].value must be given: it's what dialog.closed resolves with.`);
+            if (values.has(value)) fail(`actions[${i}].value is actions[${values.get(value)}]'s already.`);
+            values.set(value, i);
+            if (!BUTTON_VARIANTS.includes(variant)) fail(`actions[${i}].variant must be one of ${BUTTON_VARIANTS.join(", ")}.`);
+            if (typeof cancel !== "boolean") fail(`actions[${i}].cancel must be true or false.`);
+            if (typeof close !== "boolean") fail(`actions[${i}].close must be true or false.`);
+            if (cancel && !close) fail(`actions[${i}] is the cancel action, which always closes: leave close out.`);
+            return { label, value, variant, cancel, close };
+        });
+        if (checked.filter((action) => action.cancel).length > 1) fail("only one action can be the cancel action.");
+        if (checked.filter((action) => action.variant === "primary").length > 1) fail("only one action can be primary.");
+        return { title, glyph, body: parts, actions: checked };
+    }
+
+    /** Whether Enter in a control presses the primary button: a field typed in on one line. */
+    const enterPresses = (target) => target instanceof HTMLInputElement && !NOT_TYPED.test(target.type);
+
+    /** The controls a form dialog's focus can start on: its first field, by these. */
+    const FIELDS = "input:not([type=hidden]), select, textarea";
+
+    /**
+     * A small form in a modal over the page, for an app's own options: the
+     * title with its glyph, the app's own elements, and its buttons.
+     *
+     *     const dialog = kit.ui.dialog({
+     *         title: "Advanced Options",                      // Title Case
+     *         icon: "tune",
+     *         body: [nameLine, lifetimeRow, downloadsRow],   // the app's own elements
+     *         actions: [
+     *             { label: "Cancel", value: false, cancel: true },
+     *             { label: "Apply", value: true, variant: "primary" },
+     *         ],
+     *     });
+     *     dialog.action(true).disabled = !valid;   // the app turns its button on and off
+     *     if (await dialog.closed) apply();
+     *
+     * It's drawn and animated as confirm()'s prompt (kit-dialog), a native
+     * modal <dialog> named by its title. The actions are left to right, each
+     * btn-secondary unless it names its variant; one may be primary, which
+     * Enter in a field presses (unless it's disabled), and one may be the
+     * cancel action. closed resolves with the value of the action pressed,
+     * or with the cancel action's for Escape or the close button (false
+     * with none). A click on the backdrop doesn't close it: what was typed
+     * isn't thrown away. An action with close: false doesn't close it either:
+     * the app hears it (action(value)) and calls close(value) once it's done.
+     * The focus starts on the first field (or the primary button, or the
+     * last), and goes back to what had it on close. It waits its turn with
+     * the kit's prompts: one prompt or form at a time. It's in the page only
+     * while it shows.
+     * @returns {{ element: HTMLDialogElement, action(value: any): HTMLButtonElement, close(value: any): void, closed: Promise<any> }}
+     */
+    function dialog(options) {
+        const form = formOf(options);
+        const titleId = `kit-form-dialog-${++formDialogs}-title`;
+        const closeButton = el("button", { className: "btn-close", attrs: { type: "button", "aria-label": "Close" } });
+        const buttons = new Map(form.actions.map(({ label, value, variant, close }) => {
+            const button = el("button", { className: `btn btn-${variant}`, text: label, attrs: { type: "button" } });
+            if (close) button.addEventListener("click", () => answer?.(value));
+            return [value, button];
+        }));
+        const element = el("dialog", { className: "kit-dialog kit-form-dialog", attrs: { "aria-modal": "true", "aria-labelledby": titleId } }, [
+            el("div", { className: "kit-dialog-header" }, [
+                el("h2", { className: "kit-dialog-title" }, [icon(form.glyph, "kit-dialog-icon"), el("span", { text: form.title, attrs: { id: titleId } })]),
+                closeButton,
+            ]),
+            el("div", { className: "kit-dialog-body" }, form.body),
+            el("div", { className: "kit-dialog-footer" }, [...buttons.values()]),
+        ]);
+        const cancel = form.actions.find((action) => action.cancel)?.value ?? false;
+        const primary = buttons.get(form.actions.find((action) => action.variant === "primary")?.value);
+
+        element.addEventListener("keydown", (event) => {
+            if (event.key !== "Enter" || event.isComposing || !enterPresses(event.target)) return;
+            event.preventDefault();
+            if (primary && !primary.disabled) primary.click();
+        });
+
+        /** Its answer while it shows; null before and after. */
+        let answer = null;
+        let finished = false;
+        let resolve;
+        const closed = new Promise((done) => {
+            resolve = done;
+        });
+        function finish(value) {
+            if (finished) return;
+            finished = true;
+            answer = null;
+            element.remove();
+            resolve(value);
+        }
+
+        const shown = prompts.then(() => {
+            // Closed by the app before its turn: it never shows.
+            if (finished) return;
+            document.body.append(element);
+            const visible = (control) => !control.disabled && control.getClientRects().length > 0;
+            answer = showModal(element, {
+                closeButton,
+                cancel,
+                backdrop: false,
+                focus: () => [...element.querySelector(".kit-dialog-body").querySelectorAll(FIELDS)].find(visible)
+                    ?? (primary && !primary.disabled ? primary : null)
+                    ?? [...buttons.values()].reverse().find((button) => !button.disabled)
+                    ?? closeButton,
+                onClosed: finish,
+            });
+            return closed;
+        });
+        prompts = shown.then(() => {}, () => {});
+
+        return {
+            element,
+            /** The button of the action with this value, for the app to turn on and off, or to hear. */
+            action(value) {
+                if (!buttons.has(value)) throw new Error("kit.ui.dialog(): action() takes one of the actions' values.");
+                return buttons.get(value);
+            },
+            /** Close it with this value, faded out as a button does; before its turn, it never shows. */
+            close(value) {
+                if (value === undefined) throw new Error("kit.ui.dialog(): close() takes the value dialog.closed resolves with.");
+                if (answer) answer(value);
+                else finish(value);
+            },
+            closed,
+        };
     }
 
     /** The Credits tab, from app:get-info: the logo, name and version, the credit lines, then donating and the source. */
@@ -2297,7 +2476,7 @@
     }, true);
 
     window.kit = {
-        ui: { mountShell, toast, confirm, progress, actionBar, dropZone, busy, statusLine, card, cardGrid, bulkBar, switchField, stepSlider },
+        ui: { mountShell, toast, confirm, dialog, progress, actionBar, dropZone, busy, statusLine, card, cardGrid, bulkBar, switchField, stepSlider },
         format: { plural, countOf, groupDigits, formatBytes, formatEta, formatDuration, summarise },
         keys: { isTyping, onKey },
     };
