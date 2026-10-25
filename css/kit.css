@@ -1594,7 +1594,8 @@ a:hover {
 }
 
 /* -- Prompts --------------------------------------------------------------------
-   kit.ui.confirm(): a native modal <dialog>, drawn as Dropgate's Upload
+   kit.ui.confirm(), and kit.ui.dialog()'s forms with it, so the two can't
+   drift: a native modal <dialog>, drawn as Dropgate's Upload
    Security Warning, a Bootstrap centred modal, is (Will, D73): its surface,
    border and radius with no shadow, a half-black backdrop, no rules between
    header, body and footer, and Bootstrap's own spacing; the glyph beside the
@@ -1684,6 +1685,20 @@ a:hover {
 
 .kit-dialog-all {
     margin: 1rem 0 0;
+}
+
+/* kit.ui.dialog(): the same modal, its body the app's own form rows, a little
+   apart, as Dropgate's Advanced Options has them. */
+.kit-form-dialog .kit-dialog-body {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
+/* The house's form row: the label, the control, then a help line that keeps
+   its height, so nothing under it jumps as its text comes and goes. */
+.form-text.reserved {
+    min-height: 1.5em;
 }
 
 /* Cancel first, on the left; the buttons wrap on a narrow window. Bootstrap's

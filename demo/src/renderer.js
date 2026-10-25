@@ -140,10 +140,11 @@ function transfer(spec) {
     const card = window.kit.ui.card({
         icon: spec.icon,
         name: spec.name,
-        onConfigure: says("Advanced Options open here."),
+        onConfigure: upload ? () => openAdvanced([card]) : says("Advanced Options open here."),
         onRemove: () => queue.remove(card),
         route: { label: upload ? "To" : "Save to", control: select },
     });
+    item.options = { lifetime: { value: 7, unit: "days" }, downloads: 10 };
     item.send = (server) => {
         item.server = server;
         select.value = server;
@@ -207,7 +208,10 @@ function fillQueue() {
             note: (scope, { all }) => (waiting(scope).length === 0 ? `No ${all ? "" : "selected "}upload is waiting to start` : ""),
         },
         actions: [
-            { label: "Bulk Edit", variant: "primary", selection: true, onClick: says("Advanced Options open here.") },
+            {
+                label: "Bulk Edit", variant: "primary", selection: true,
+                onClick: (scope) => (waiting(scope).length > 0 ? openAdvanced(waiting(scope)) : window.kit.ui.toast("No selected upload is waiting to start.", { type: "info" })),
+            },
             { label: "Remove", variant: "outline-danger", selection: true, enabled: (scope) => scope.some((card) => items.get(card).removable), onClick: removeAll },
         ],
     });
@@ -233,6 +237,116 @@ function fillQueue() {
         conversion({ icon: "audio_file", name: "notes.m4a", from: "M4A", target: "mp3", meta: "44.1 kHz · 3:12 · 4.4 MB", state: "cancelled" }),
         transfer({ icon: "download", name: "Link from drop.example.com", meta: "drop.example.com", state: "reading" }),
     ]) queue.add(card);
+}
+
+// -- Advanced Options ---------------------------------------------------------------
+//
+// kit.ui.dialog() as Dropgate uses it, from an upload's Advanced Options or the
+// bar's Bulk Edit: how long the server keeps the files, and how many times
+// they can be downloaded, each row with its help line, and Apply turned off
+// while a value is more than the server allows.
+
+/** What the demo's servers allow. */
+const MOST = { days: 30, downloads: 100 };
+
+/** A form row, the house's way: its label, the control, and a help line that keeps its height and describes it. */
+function formRow(id, label, control) {
+    const row = document.createElement("div");
+    const labelElement = document.createElement("label");
+    labelElement.className = "form-label";
+    labelElement.htmlFor = id;
+    labelElement.textContent = label;
+    const help = document.createElement("div");
+    help.className = "form-text reserved";
+    help.id = `${id}-help`;
+    const field = control.matches("input, select") ? control : control.querySelector("input");
+    field.id = id;
+    for (const each of control.matches("input, select") ? [control] : control.querySelectorAll("input, select")) each.setAttribute("aria-describedby", help.id);
+    row.append(labelElement, control, help);
+    /** Its help line, plain or saying what's wrong. */
+    row.say = (text, wrong) => {
+        help.textContent = text;
+        help.classList.toggle("text-danger-emphasis", wrong);
+    };
+    return row;
+}
+
+/** A number field. */
+function numberField(value, { min, max }) {
+    const input = document.createElement("input");
+    input.className = "form-control form-control-sm";
+    input.type = "number";
+    input.min = String(min);
+    input.max = String(max);
+    input.step = "1";
+    input.value = String(value);
+    return input;
+}
+
+/** "7 Days · 10 Downloads": what's been set on an upload, for its settings line. */
+function optionsText({ lifetime, downloads }) {
+    const { plural } = window.kit.format;
+    return `${lifetime.value} ${plural(lifetime.value, lifetime.unit === "days" ? "Day" : "Hour")} · ${downloads} ${plural(downloads, "Download")}`;
+}
+
+/** Advanced Options for these uploads, the first's options to start with; Apply sets them on every one. */
+async function openAdvanced(cards) {
+    const { countOf } = window.kit.format;
+    const [first] = cards.map((card) => items.get(card));
+    const about = document.createElement("p");
+    about.className = "kit-dialog-text";
+    about.textContent = cards.length > 1 ? `For the ${countOf(cards.length, "upload")} selected.` : first.name;
+
+    const lifetimeValue = numberField(first.options.lifetime.value, { min: 1, max: MOST.days });
+    const unit = document.createElement("select");
+    unit.className = "form-select form-select-sm";
+    unit.setAttribute("aria-label", "Unit");
+    for (const [value, label] of [["hours", "Hours"], ["days", "Days"]]) unit.append(new Option(label, value));
+    unit.value = first.options.lifetime.unit;
+    const group = document.createElement("div");
+    group.className = "input-group input-group-sm";
+    group.append(lifetimeValue, unit);
+    const lifetimeRow = formRow("advanced-lifetime", "File lifetime", group);
+    const downloads = numberField(first.options.downloads, { min: 1, max: MOST.downloads });
+    const downloadsRow = formRow("advanced-downloads", "Max downloads", downloads);
+
+    const dialog = window.kit.ui.dialog({
+        title: "Advanced Options",
+        icon: "tune",
+        body: [about, lifetimeRow, downloadsRow],
+        actions: [
+            { label: "Cancel", value: false, cancel: true },
+            { label: "Apply", value: true, variant: "primary" },
+        ],
+    });
+
+    /** The whole number a field holds, or null. */
+    const whole = (input) => (/^\d+$/.test(input.value.trim()) ? Number(input.value) : null);
+    /** Each help line says what the server allows, or what's wrong; Apply is off while something is. */
+    function check() {
+        lifetimeValue.max = String(unit.value === "days" ? MOST.days : MOST.days * 24);
+        const life = whole(lifetimeValue);
+        const days = life === null ? null : (unit.value === "days" ? life : life / 24);
+        const lifeWrong = life === null || life === 0 ? "Enter a lifetime of more than 0." : days > MOST.days ? `Too long: The server keeps files up to ${MOST.days} days.` : null;
+        lifetimeRow.say(lifeWrong ?? `The server keeps files up to ${MOST.days} days.`, lifeWrong !== null);
+        const n = whole(downloads);
+        const downloadsWrong = n === null || n < 1 || n > MOST.downloads ? `Enter a whole number from 1 to ${MOST.downloads}.` : null;
+        downloadsRow.say(downloadsWrong ?? `The server allows up to ${MOST.downloads} downloads.`, downloadsWrong !== null);
+        dialog.action(true).disabled = lifeWrong !== null || downloadsWrong !== null;
+    }
+    for (const field of [lifetimeValue, downloads]) field.addEventListener("input", check);
+    unit.addEventListener("change", check);
+    check();
+
+    if (!await dialog.closed) return;
+    const options = { lifetime: { value: whole(lifetimeValue), unit: unit.value }, downloads: whole(downloads) };
+    for (const card of cards) {
+        const item = items.get(card);
+        item.options = options;
+        // A warning on the line stays: it says more than the options do.
+        if (typeof item.settings !== "object") item.settings = optionsText(options);
+        item.draw();
+    }
 }
 
 /** The Controls' stepped slider: how many files are worked on at once. */

@@ -5,7 +5,7 @@
 // the images are taken on a Windows CI runner, so they show Segoe UI as most
 // people see it, and Linux runs every other test without them.
 //
-// Twenty-one states, each a whole window:
+// Twenty-two states, each a whole window:
 // - Settings > Update with an update waiting (and the dot), downloading, ready
 //   to install, restarting (Restart Now busy), checking (Check for Updates
 //   busy), and after a check that failed;
@@ -26,11 +26,13 @@
 //   target's note, and the actions a selection shows); then the update dot
 //   on the collapsed rail;
 // - the bottom bar (kit.ui.mountShell({ statusBar })), shown under Controls
-//   with its item focused by keyboard, and with its panel open.
-// All twenty-one in the demo's accent, in the light and dark themes. The six
-// that show the most accent (the rail, Controls toggled, the Queue at rest
-// and selected, the bar and its panel) again in each of the three apps'
-// accents (test/fixtures/accents/), in both themes. 78 images.
+//   with its item focused by keyboard, and with its panel open;
+// - a form (kit.ui.dialog()), the demo's Advanced Options over the Queue,
+//   its first field focused.
+// All twenty-two in the demo's accent, in the light and dark themes. The
+// seven that show the most accent (the rail, Controls toggled, the Queue at
+// rest and selected, the bar and its panel, the form) again in each of the
+// three apps' accents (test/fixtures/accents/), in both themes. 86 images.
 //
 // So that an image only changes when the look does: the window's page is
 // 760 x 600 at a scale factor of 1, drawn without the GPU; motion is reduced, so every transition ends
@@ -324,12 +326,24 @@ const STATES = {
         await main.locator("#kit-statusbar-checks").click();
         await expect(main.getByRole("dialog", { name: "Check Details" })).toBeFocused();
     },
+    "form-dialog": async (main) => {
+        // A form (kit.ui.dialog()): the demo's Advanced Options for printer-manual.pdf, over the Queue with
+        // nothing selected and the bar hidden again, its first field focused.
+        await main.keyboard.press("Escape");
+        await expect(main.getByRole("dialog", { name: "Check Details" })).toBeHidden();
+        await main.evaluate(() => window.demoShell.statusBar.show(false));
+        await main.getByRole("button", { name: "Queue", exact: true }).click();
+        await main.keyboard.press("Escape");
+        await expect(main.locator("#queue .kit-card.selected")).toHaveCount(0);
+        await main.getByRole("group", { name: "printer-manual.pdf", exact: true }).getByRole("button", { name: "Advanced Options" }).click();
+        await expect(main.getByRole("spinbutton", { name: "File lifetime" })).toBeFocused();
+    },
 };
 
 /** Which states each accent is pictured in. */
 const PLAN = [
     [null, Object.keys(STATES)],
-    ...APP_ACCENTS.map((accent) => [accent, ["controls-toggled", "rail-expanded", "cards", "cards-selected", "status-bar", "status-bar-panel"]]),
+    ...APP_ACCENTS.map((accent) => [accent, ["controls-toggled", "rail-expanded", "cards", "cards-selected", "status-bar", "status-bar-panel", "form-dialog"]]),
 ];
 
 for (const [accent, states] of PLAN) {

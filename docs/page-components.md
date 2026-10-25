@@ -1,6 +1,6 @@
 # Page Components
 
-The page library's parts: toasts, prompts, the parts of a section of files, cards and the status line, the card grid and its bulk bar, busy buttons, the switch, the stepped slider, the key guard, the house's wording for numbers, and its copy rules.
+The page library's parts: toasts, prompts, form dialogs, the parts of a section of files, cards and the status line, the card grid and its bulk bar, busy buttons, the switch, the stepped slider, the key guard, the house's wording for numbers, and its copy rules.
 
 [All the docs](README.md)
 
@@ -36,7 +36,7 @@ with the answer. It's drawn as Dropgate's Upload Security Warning, a Bootstrap c
 beside the title (in a warning's or a danger's colour for those), the body in the page's text, an optional
 `detail` under it in small grey text, Cancel a filled grey button, and Bootstrap's spacing, sliding down into
 place. It's a native modal `<dialog>` (`role="alertdialog"`), so it needs no Bootstrap script: the page behind can't be reached while it's open, Tab stays inside it,
-and the focus goes back to what had it once it closes. Prompts are asked one at a time: one asked while
+and the focus goes back to what had it once it closes. Prompts are asked one at a time, with the form dialogs below: one asked while
 another shows waits until that one is answered. Everything in it is text, never markup.
 
 ```js
@@ -77,6 +77,90 @@ unticked each time). Each choice is `btn-secondary` unless it names its `variant
 `secondary`, `success`, `warning`, `danger`, `outline-secondary` or `outline-danger`). What the answers mean
 for the batch, such as a Cancel All ending the prompts still to come, is the app's. A mistake in the options
 throws before anything shows.
+
+## Form Dialogs
+
+`kit.ui.dialog(options)` is a small form in the same modal as a prompt, for an app's own options: Advanced
+Options on an upload, Add Server. The kit draws the title, the buttons and the way out; the body is the app's own
+elements.
+
+```js
+const lifetime = formRow("advanced-lifetime", "File lifetime", lifetimeGroup);   // the app's own form rows
+const downloads = formRow("advanced-downloads", "Max downloads", downloadsField);
+
+const dialog = kit.ui.dialog({
+    title: "Advanced Options",                  // Title Case
+    icon: "tune",                               // its Material Icons Round glyph
+    body: [nameLine, lifetime, downloads],      // an element, or a list of them
+    actions: [
+        { label: "Cancel", value: false, cancel: true },
+        { label: "Apply", value: true, variant: "primary" },
+    ],
+});
+dialog.action(true).disabled = !valid;          // Apply off while a value is outside the server's limits
+if (await dialog.closed) apply();
+```
+
+- **It's drawn and animated as a prompt is**, from the same rules (`.kit-dialog`): the glyph beside the title, the
+  close button, Bootstrap's spacing, sliding down into place, with the body's rows `0.75rem` apart. It's a native
+  modal `<dialog>` named by its title, so the page behind can't be reached and Tab stays inside it. It's in the page
+  only while it shows: `element` is the `<dialog>`.
+- **The actions** are its buttons, left to right, each `{ label, value, variant }`: `btn-secondary` unless it names its
+  `variant` (`primary`, `secondary`, `success`, `warning`, `danger`, `outline-secondary` or `outline-danger`). At
+  most one is `primary`, and at most one is the `cancel: true` action. Their values are any value but `undefined`,
+  each different.
+- **The ways out:** a button gives its value; Escape and the close button give the cancel action's value, or `false`
+  with none. **A click on the backdrop does nothing**: what was typed is never thrown away by a stray click. `closed`
+  resolves with the value, once it has faded out.
+- **Enter in a field** (a text, number or other one-line input) presses the primary button, unless it's disabled.
+  Enter in a text area is a new line, and on a button it presses that button.
+- **The focus** starts on the first field that can take it (a hidden row or a disabled field is passed over); with
+  none, on the primary button, or, while that's disabled, on the last button that isn't. It goes back to what had it
+  once the form closes.
+- **`action(value)`** is that action's button, for the app to turn on and off (Apply while a field is invalid), or to
+  listen to. **`close(value)`** closes it from the app, faded out like a button press, with that value.
+- **A button that leaves it open:** an action with `close: false` doesn't close the form when it's pressed (or when
+  Enter presses it). The app listens to it and calls `close(value)` once its work is done, as Add Server's Check does:
+  it checks the address, says what it found, and turns into Add Server.
+
+  ```js
+  const check = dialog.action("check");          // { label: "Check", value: "check", variant: "primary", close: false }
+  check.addEventListener("click", async () => {
+      const restore = kit.ui.busy(check, "Checking…");
+      const found = await checkServer(address.value).finally(restore);
+      if (found) dialog.close(found);
+  });
+  ```
+
+- **One at a time, with the prompts:** a form opened while a prompt or another form shows waits its turn, and a
+  prompt asked while a form shows waits for it, either way round. A form closed by the app before its turn never
+  shows; its `closed` resolves at once.
+- A mistake in the options, in `action()`'s value, or a `close()` without a value throws.
+
+**The house's form row** is the label, the control, then a help line under it that keeps its height
+(`.form-text.reserved`, which the kit's CSS gives `min-height: 1.5em`), so nothing below it jumps as its text comes
+and goes. The help line describes the control (`aria-describedby`), says what's allowed, and says what's wrong, in
+`text-danger-emphasis`, while it is:
+
+```js
+function formRow(id, label, control) {
+    const row = document.createElement("div");
+    const labelElement = document.createElement("label");
+    labelElement.className = "form-label";
+    labelElement.htmlFor = id;
+    labelElement.textContent = label;
+    const help = document.createElement("div");
+    help.className = "form-text reserved";
+    help.id = `${id}-help`;
+    control.id = id;                          // a group's input takes the id instead
+    control.setAttribute("aria-describedby", help.id);
+    row.append(labelElement, control, help);
+    return row;
+}
+```
+
+The words follow the copy rules below: "Too long: The server keeps files up to 30 days." A switch in a form is
+`kit.ui.switchField()`, whose help line already says what each state does.
 
 ## A Section of Files
 
@@ -388,7 +472,7 @@ atOnce.input.disabled = true;            // the range itself, for anything else
 
 `kit.keys.onKey(handler, { view })` listens for a section's own shortcuts (Delete, Escape, `Ctrl+A` on a list),
 and returns a function that stops listening. The handler isn't called while someone is typing, while a modal
-is open (a prompt, or one of Bootstrap's), or, given a `view`, while another view shows. `kit.keys.isTyping()`
+is open (a prompt, a form, or one of Bootstrap's), or, given a `view`, while another view shows. `kit.keys.isTyping()`
 says whether a key goes into something being typed in: a text field, a text area or anything editable. A
 checkbox isn't, and neither is a select, which keeps the focus after a choice and would swallow the next
 Escape.

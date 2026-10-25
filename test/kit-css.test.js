@@ -322,3 +322,8 @@ test("the Settings tabs sit on a thin line, with a bar in the accent's fill that
     assert.equal(bar.transform, "translateX(var(--indicator-x, 0))");
     assert.equal(bar.transition.replace(/\s+/g, " "), "transform var(--dur-default) var(--ease-standard), width var(--dur-default) var(--ease-standard)");
 });
+
+test("a form dialog is a prompt's dialog with its rows apart, and the house's help line keeps its height", () => {
+    assert.deepEqual(rule(".kit-form-dialog .kit-dialog-body"), { display: "flex", "flex-direction": "column", gap: "0.75rem" });
+    assert.deepEqual(rule(".form-text.reserved"), { "min-height": "1.5em" });
+});
