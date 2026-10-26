@@ -337,6 +337,26 @@ test("the Settings tabs sit on a thin line, with an accent bar that slides to th
     expect(widths.size).toBe(3);
 });
 
+test("every Settings tab's content fills the pane, edge to edge, in a wide window: the app's own, Update and Credits", async ({ demo }) => {
+    const main = await demo.mainWindow();
+    const win = await demo.app.browserWindow(main);
+    await win.evaluate((w) => w.setContentSize(1400, 700));
+    await expect.poll(() => main.evaluate(() => innerWidth)).toBe(1400);
+    await main.getByRole("button", { name: "Settings", exact: true }).click();
+    const seen = {};
+    for (const name of ["General", "Update", "Credits"]) {
+        await main.getByRole("tab", { name, exact: name !== "Update" }).click();
+        const pane = main.getByRole("tabpanel", { name: name === "Update" ? /^Update/ : name });
+        seen[name] = await pane.evaluate((el) => {
+            const style = getComputedStyle(el);
+            const inside = el.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
+            return [...el.children].map((child) => Math.round(child.getBoundingClientRect().width - inside));
+        });
+    }
+    // Each child of each tab is as wide as the pane's inside: nothing holds a tab to a column.
+    expect(seen).toEqual({ General: [0], Update: [0], Credits: [0] });
+});
+
 test("a checkbox's tick is drawn when ticked and springs away when unticked, a switch's knob slides across, in the accent, and both stop moving under reduced motion", async ({ demo }) => {
     const main = await demo.mainWindow();
     await main.getByRole("button", { name: "Controls", exact: true }).click();

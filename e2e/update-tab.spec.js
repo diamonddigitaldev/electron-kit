@@ -214,9 +214,29 @@ test("the tab is two cards in a column: the version, its status and the buttons,
     expect(c.y).toBeGreaterThan(s.y);
     expect(Math.abs(d.y - c.y)).toBeLessThan(2);
     expect(d.x).toBeGreaterThan(c.x);
-    // A readable column, not the pane's width.
-    const width = await pane.locator(".update-tab").evaluate((el) => el.getBoundingClientRect().width);
-    expect(width).toBeLessThanOrEqual(36 * 16 + 1);
+});
+
+test("the Update tab's cards fill the pane, however wide the window, and the channel's select keeps its own width", async ({ demo }) => {
+    const main = await demo.mainWindow();
+    const win = await demo.app.browserWindow(main);
+    const pane = await openUpdate(main);
+    for (const width of [760, 1400]) {
+        await win.evaluate((w, width) => w.setContentSize(width, 700), width);
+        await expect.poll(() => main.evaluate(() => innerWidth)).toBe(width);
+        const seen = await pane.evaluate((el) => {
+            const style = getComputedStyle(el);
+            const inside = el.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
+            return {
+                inside,
+                cards: [...el.querySelectorAll(".update-card")].map((card) => card.getBoundingClientRect().width),
+                channel: el.querySelector(".update-channel").getBoundingClientRect().width,
+            };
+        });
+        // At 1400px the pane is far wider than the old 36rem cap.
+        if (width === 1400) expect(seen.inside).toBeGreaterThan(36 * 16 * 1.5);
+        expect(seen.cards).toEqual([seen.inside, seen.inside]);
+        expect(seen.channel).toBeLessThanOrEqual(16 * 16 + 0.5);
+    }
 });
 
 test("the header's toolbar is hidden on Settings, out of the Tab order, and back on the app's sections", async ({ demo }) => {

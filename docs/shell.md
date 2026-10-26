@@ -100,7 +100,13 @@ Update's text, moves nothing). There's no save button anywhere: a tab keeps each
 `setSettings()` as it's made. It's reached from the rail, and from the menu's `Settings` (`CmdOrCtrl+,`),
 which puts focus on the selected tab.
 
-**Update** is two cards in a readable column (36rem at most). The first is headed with the version running
+**A tab's cards fill the pane**, edge to edge, as the tab bar above them does, however wide the window: the kit's
+tabs hold nothing to a column, and an app's own tabs shouldn't either, so they all look alike. What's inside a card
+keeps its own layout (buttons side by side, a switch or a select at its usual size). Where a readable width is
+wanted, it's the text inside a card, a help line, never the card. A pane taller than the window scrolls, with the
+kit's thin scrollbar ([Theming](theming.md#scrollbars)).
+
+**Update** is two cards, one under the other. The first is headed with the version running
 (`Version 2.0.0`), then a status line (`role="status"`, its height kept), then `Check for Updates` (disabled
 while a check or download runs, or with no updater; busy, "Checking…" with a spinner, while a check runs, however
 it was started, through `kit.ui.busy()`) and, when there's an update to download, `Download
