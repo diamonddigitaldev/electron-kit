@@ -17,6 +17,14 @@ const ISOLATED_PARTITION = "demo-isolated";
 /** The demo's own settings and their defaults, which the kit keeps beside its own. */
 const SETTINGS_DEFAULTS = Object.freeze({
     showAccentSample: true,
+    // The folder the demo saves its exports in, null for the system's
+    // Documents folder. Main alone changes it (MAIN_ONLY_SETTINGS), as an app
+    // whose folder is chosen with the system's folder picker would: the page
+    // may read it, and is refused a change to it.
+    exportFolder: null,
 });
 
-module.exports = { IPC, ISOLATED_PARTITION, SETTINGS_DEFAULTS };
+/** The demo's settings only main changes. */
+const MAIN_ONLY_SETTINGS = Object.freeze(["exportFolder"]);
+
+module.exports = { IPC, ISOLATED_PARTITION, SETTINGS_DEFAULTS, MAIN_ONLY_SETTINGS };

@@ -14,6 +14,15 @@
 // a boolean), or it's refused and nothing is stored. A setting whose default
 // is null has no kind yet: it takes any JSON value.
 //
+// Some of an app's settings are main's alone (settings: { mainOnly }): the
+// page may read them, but a change from the page naming one is refused, so a
+// page that went wrong can't point a setting such as a downloads folder
+// anywhere. And a setting can have a check of its own (settings: { checks }),
+// a function of the value that says whether it's taken: a change it refuses,
+// from the page or from main, is refused whole. Reads aren't checked. The
+// app's main hears every stored change, and who made it, through
+// kit.settings.onChange() (createChangeListeners()).
+//
 // Migration: an app whose settings change shape between versions gives them a
 // version (settings: { version, migrate, obsoleteKeys }). When the file was
 // last written by an older version, or by none, migrate(settings, from) is
@@ -138,6 +147,29 @@ function checkDefaults(defaults) {
 }
 
 /**
+ * Check the settings only main changes, and the app's checks: each names one
+ * of the app's own settings (a key of its defaults), and each check is a
+ * function. Throws on anything else, when kit.start() is called.
+ * @param {Record<string, unknown>} defaults - Already checked.
+ * @param {string[]} mainOnly
+ * @param {Record<string, (value: unknown) => boolean>} checks
+ */
+function checkRules(defaults, mainOnly, checks) {
+    /** Throws unless a key, named in an option, is one of the app's own settings. */
+    const ownSetting = (option, key) => {
+        if (Object.hasOwn(KIT_DEFAULTS, key) || Object.hasOwn(MEMORY_LOG_DEFAULTS, key)) throw new Error(`kit.start(): settings.${option} names "${key}", one of the kit's own settings; it takes the app's own only.`);
+        if (!Object.hasOwn(defaults, key)) throw new Error(`kit.start(): settings.${option} names "${key}", which isn't in settings.defaults.`);
+    };
+    if (!Array.isArray(mainOnly) || !mainOnly.every((key) => typeof key === "string")) throw new Error("kit.start(): settings.mainOnly must be a list of the app's own settings, by name.");
+    for (const key of mainOnly) ownSetting("mainOnly", key);
+    if (!isPlainObject(checks)) throw new Error("kit.start(): settings.checks must be an object of functions, by setting.");
+    for (const [key, check] of Object.entries(checks)) {
+        ownSetting("checks", key);
+        if (typeof check !== "function") throw new Error(`kit.start(): settings.checks.${key} must be a function.`);
+    }
+}
+
+/**
  * Check the migration's options: a version (a whole number from 1), a migrate
  * function, and the obsolete keys (names other than the settings' own). All
  * optional, but migrate and obsoleteKeys need a version.
@@ -188,6 +220,8 @@ function migrateStore(store, { version, migrate, obsoleteKeys = [], log }) {
  * The app's settings.
  * @param {{
  *   defaults?: Record<string, unknown>,
+ *   mainOnly?: string[],
+ *   checks?: Record<string, (value: unknown) => boolean>,
  *   version?: number,
  *   migrate?: (settings: object, from: number) => object,
  *   obsoleteKeys?: string[],
@@ -195,15 +229,20 @@ function migrateStore(store, { version, migrate, obsoleteKeys = [], log }) {
  *   memoryLog?: boolean,
  *   open?: () => { get(key: string): unknown, set(key: string, value: unknown): void, delete(key: string): void },
  * }} [options]
- *   defaults: the app's own settings and their defaults. version, migrate and
- *   obsoleteKeys: the migration (the top of this file); log: where it says
- *   what it removed. memoryLog: the app keeps the memory log, so it has
- *   keepLogOnDisk too. open: opens the store, electron-store unless a test
- *   stands one in. It's opened on first use, never before, and migrated then.
+ *   defaults: the app's own settings and their defaults. mainOnly: those
+ *   the page may not change. checks: a function per setting, true for a
+ *   value it takes. version, migrate and obsoleteKeys: the migration (the
+ *   top of this file); log: where it says what it removed. memoryLog: the
+ *   app keeps the memory log, so it has keepLogOnDisk too. open: opens the
+ *   store, electron-store unless a test stands one in. It's opened on first
+ *   use, never before, and migrated then.
  */
-function createSettings({ defaults = {}, version, migrate, obsoleteKeys, log, memoryLog = false, open = openElectronStore } = {}) {
+function createSettings({ defaults = {}, mainOnly = [], checks = {}, version, migrate, obsoleteKeys, log, memoryLog = false, open = openElectronStore } = {}) {
     checkDefaults(defaults);
+    checkRules(defaults, mainOnly, checks);
     checkMigration({ version, migrate, obsoleteKeys });
+    const pageCantChange = new Set(mainOnly);
+    const checked = { ...checks };
     const all = Object.freeze({ ...defaults, ...KIT_DEFAULTS, ...(memoryLog ? MEMORY_LOG_DEFAULTS : {}) });
     let store = null;
     const stored = () => {
@@ -229,18 +268,23 @@ function createSettings({ defaults = {}, version, migrate, obsoleteKeys, log, me
 
     /**
      * Change some settings, and return every setting. Refuses the whole change,
-     * storing nothing, if it names a setting that doesn't exist or changes a
-     * setting's kind.
+     * storing nothing, if it names a setting that doesn't exist, changes a
+     * setting's kind, or gives a value the setting's check refuses; or, from
+     * the page, if it names a setting only main changes.
      * @param {Record<string, unknown>} changes
+     * @param {{ from?: "page" | "main" }} [options] - Who's changing them: main, unless it's the page.
      */
-    function set(changes) {
+    function set(changes, { from = "main" } = {}) {
         if (!isPlainObject(changes)) throw new Error("Settings can only be changed with an object of settings.");
         for (const [key, value] of Object.entries(changes)) {
             if (!Object.hasOwn(all, key)) throw new Error(`There's no setting called "${key}".`);
+            if (from === "page" && pageCantChange.has(key)) throw new Error(`The setting "${key}" can't be changed from the page.`);
             if (Object.hasOwn(KIT_CHOICES, key) && !KIT_CHOICES[key].includes(value)) {
                 throw new Error(`The setting "${key}" takes one of ${KIT_CHOICES[key].map((c) => JSON.stringify(c)).join(", ")}.`);
             }
             if (!fits(value, all[key])) throw new Error(`The setting "${key}" takes ${KIND_NAMES[kindOf(all[key])]}.`);
+            // A copy, so a check can't change what's stored.
+            if (Object.hasOwn(checked, key) && checked[key](structuredClone(value)) !== true) throw new Error(`The setting "${key}" doesn't take that value.`);
         }
         const next = { ...get(), ...changes };
         store.set(STORE_KEY, next);
@@ -268,10 +312,57 @@ function createSettings({ defaults = {}, version, migrate, obsoleteKeys, log, me
     return { get, set, defaults: all, bounds };
 }
 
+/**
+ * The app's listeners for its settings' changes (kit.settings.onChange()).
+ * Each stored change is told to every listener, as (changes, after, { from }),
+ * each its own copy, in the order they were added. A listener that throws, or
+ * returns a promise that rejects, is logged: the change stays stored, and the
+ * other listeners still hear it.
+ * @param {{ error(...args: unknown[]): void }} log
+ */
+function createChangeListeners(log) {
+    const listeners = new Set();
+
+    /**
+     * Listen for every stored change. Returns the function that stops it.
+     * @param {(changes: object, after: object, how: { from: "page" | "main" }) => void} listener
+     */
+    function onChange(listener) {
+        if (typeof listener !== "function") throw new Error("kit.settings.onChange() takes a function.");
+        // Its own entry, so the same function added twice is two listeners, each stopped on its own.
+        const entry = { listener };
+        listeners.add(entry);
+        return () => {
+            listeners.delete(entry);
+        };
+    }
+
+    /**
+     * Tell every listener of a stored change.
+     * @param {Record<string, unknown>} changes
+     * @param {Record<string, unknown>} after - Every setting, as stored.
+     * @param {"page" | "main"} from
+     */
+    function tell(changes, after, from) {
+        const failed = (err) => log.error("A kit.settings.onChange() listener failed:", err);
+        // As they are now: one added or stopped by a listener doesn't change who hears this one.
+        for (const { listener } of [...listeners]) {
+            try {
+                const result = listener(structuredClone(changes), structuredClone(after), { from });
+                if (typeof result?.then === "function") result.then(undefined, failed);
+            } catch (err) {
+                failed(err);
+            }
+        }
+    }
+
+    return { onChange, tell };
+}
+
 /** electron-store, in its default file. It's ESM only; Node's require() loads it as a namespace. */
 function openElectronStore() {
     const Store = require("electron-store").default;
     return new Store();
 }
 
-module.exports = { createSettings, KIT_DEFAULTS, MEMORY_LOG_DEFAULTS, KIT_CHOICES, STORE_KEY, VERSION_KEY, BOUNDS_KEY };
+module.exports = { createSettings, createChangeListeners, KIT_DEFAULTS, MEMORY_LOG_DEFAULTS, KIT_CHOICES, STORE_KEY, VERSION_KEY, BOUNDS_KEY };

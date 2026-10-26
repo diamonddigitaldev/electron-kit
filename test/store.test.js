@@ -3,12 +3,16 @@
 // The settings (main/store.js): kept under one "settings" key, read merged
 // over the app's defaults and the kit's own, changed a few at a time, and
 // never taking a setting that doesn't exist or a value of the wrong kind. And
-// settings:get / settings:set, which kit.start() answers with them.
+// settings:get / settings:set, which kit.start() answers with them: the
+// settings only main changes, the app's checks, and kit.settings.onChange().
 
 const test = require("node:test");
 const assert = require("node:assert/strict");
+const fs = require("fs");
+const os = require("os");
+const path = require("path");
 const { createSettings, KIT_DEFAULTS, KIT_CHOICES, STORE_KEY, VERSION_KEY } = require("../main/store");
-const { loadMain, appPage } = require("./helpers/main");
+const { loadMain, appPage, fakeAutoUpdater } = require("./helpers/main");
 const { INVOKE } = require("../main/channels");
 
 /** A store in memory: `data` is what's on disk. */
@@ -168,6 +172,241 @@ test("kit.start() throws on bad settings defaults, before registering anything",
     // And it can still be started properly.
     assert.doesNotThrow(() => main.start());
 });
+
+// -- Settings only main changes, checks, and main hearing each change --------------
+
+/** Dropgate's: the downloads folder chosen in main only, and how many transfers run at once, from 1 to 6. */
+const GUARDED = {
+    defaults: { downloadFolder: null, transfersAtOnce: 3, theme: "auto" },
+    mainOnly: ["downloadFolder"],
+    checks: { transfersAtOnce: (n) => Number.isInteger(n) && n >= 1 && n <= 6 },
+};
+
+test("mainOnly and checks are checked when the settings are made: the app's own settings, and functions", () => {
+    const defaults = { downloadFolder: null, transfersAtOnce: 3 };
+    const bad = [
+        [{ mainOnly: "downloadFolder" }, /settings\.mainOnly must be a list of the app's own settings/],
+        [{ mainOnly: [1] }, /settings\.mainOnly must be a list/],
+        [{ mainOnly: ["navCollapsed"] }, /settings\.mainOnly names "navCollapsed", one of the kit's own settings/],
+        [{ mainOnly: ["keepLogOnDisk"] }, /settings\.mainOnly names "keepLogOnDisk", one of the kit's own settings/],
+        [{ mainOnly: ["servers"] }, /settings\.mainOnly names "servers", which isn't in settings\.defaults/],
+        [{ checks: [] }, /settings\.checks must be an object of functions/],
+        [{ checks: () => true }, /settings\.checks must be an object of functions/],
+        [{ checks: { updateChannel: () => true } }, /settings\.checks names "updateChannel", one of the kit's own settings/],
+        [{ checks: { servers: () => true } }, /settings\.checks names "servers", which isn't in settings\.defaults/],
+        [{ checks: { transfersAtOnce: true } }, /settings\.checks\.transfersAtOnce must be a function/],
+    ];
+    for (const [options, error] of bad) {
+        assert.throws(() => createSettings({ defaults, ...options, open: memoryStore().open }), error, String(Object.keys(options)));
+    }
+    assert.doesNotThrow(() => createSettings({ defaults, mainOnly: [], checks: {}, open: memoryStore().open }));
+});
+
+test("kit.start() throws on bad mainOnly or checks, with kit.start()'s name, before registering anything", () => {
+    const { main, handlers } = loadMain();
+    assert.throws(() => main.start({ settings: { defaults: { a: 1 }, mainOnly: ["b"] } }), /^Error: kit\.start\(\): settings\.mainOnly names "b"/);
+    assert.throws(() => main.start({ settings: { defaults: { a: 1 }, checks: { a: "positive" } } }), /^Error: kit\.start\(\): settings\.checks\.a must be a function/);
+    assert.equal(handlers.size, 0);
+    assert.doesNotThrow(() => main.start({ settings: GUARDED }));
+});
+
+test("the page's change naming a setting only main changes is refused whole, and nothing is stored; main's is taken", async () => {
+    const { main, handlers, eventFrom, stored } = loadMain({ stored: { settings: { theme: "dark" } } });
+    const kit = main.start({ settings: GUARDED });
+    const page = eventFrom(appPage());
+    const set = handlers.get(INVOKE.SETTINGS_SET);
+    for (const changes of [{ downloadFolder: "C:\\Elsewhere" }, { theme: "light", downloadFolder: null }, { downloadFolder: 7 }]) {
+        assert.throws(() => set(page, changes), /^Error: The setting "downloadFolder" can't be changed from the page\.$/, JSON.stringify(changes));
+    }
+    assert.deepEqual(stored.settings, { theme: "dark" }, "nothing of any of them is stored");
+
+    // Main changes it as any other, and the page reads it as it is.
+    assert.equal(kit.settings.set({ downloadFolder: "D:\\Downloads" }).downloadFolder, "D:\\Downloads");
+    assert.equal((await handlers.get(INVOKE.SETTINGS_GET)(page)).downloadFolder, "D:\\Downloads");
+    // The page still changes the rest, and the kit's own.
+    assert.deepEqual(pick(await set(page, { theme: "light", navCollapsed: true }), ["theme", "navCollapsed", "downloadFolder"]), { theme: "light", navCollapsed: true, downloadFolder: "D:\\Downloads" });
+});
+
+test("a check refuses a value from the page and from main, storing nothing of the change; it's handed a copy", async () => {
+    const seen = [];
+    const { main, handlers, eventFrom, stored } = loadMain();
+    const kit = main.start({
+        settings: {
+            ...GUARDED,
+            defaults: { ...GUARDED.defaults, ports: [] },
+            checks: {
+                ...GUARDED.checks,
+                ports: (list) => {
+                    const ok = list.every((n) => n > 0);
+                    list.push(0);
+                    seen.push(list);
+                    return ok;
+                },
+            },
+        },
+    });
+    const page = eventFrom(appPage());
+    const set = handlers.get(INVOKE.SETTINGS_SET);
+    for (const value of [0, 7, 2.5]) {
+        assert.throws(() => set(page, { theme: "light", transfersAtOnce: value }), /^Error: The setting "transfersAtOnce" doesn't take that value\.$/, `the page's ${value}`);
+        assert.throws(() => kit.settings.set({ theme: "light", transfersAtOnce: value }), /^Error: The setting "transfersAtOnce" doesn't take that value\.$/, `main's ${value}`);
+    }
+    // Its kind is checked first: the check is never handed a value of another kind.
+    assert.throws(() => set(page, { transfersAtOnce: "6" }), /"transfersAtOnce" takes a number/);
+    assert.equal(stored.settings, undefined, "nothing is stored");
+
+    assert.equal((await set(page, { transfersAtOnce: 6 })).transfersAtOnce, 6);
+    assert.equal(kit.settings.set({ transfersAtOnce: 1 }).transfersAtOnce, 1);
+    // A check is handed a copy: what it does to it isn't stored.
+    assert.deepEqual(kit.settings.set({ ports: [8080] }).ports, [8080]);
+    assert.deepEqual(stored.settings.ports, [8080]);
+    assert.deepEqual(seen, [[8080, 0]]);
+});
+
+test("reads aren't checked: a stored value a check would refuse is still handed out", () => {
+    const { main } = loadMain({ stored: { settings: { transfersAtOnce: 12 } } });
+    assert.equal(main.start({ settings: GUARDED }).settings.get().transfersAtOnce, 12);
+});
+
+test("kit.settings.onChange() hears every stored change, as (changes, after, { from }), the page's and main's", async () => {
+    const { main, handlers, eventFrom } = loadMain();
+    const kit = main.start({ settings: GUARDED });
+    await kit.ready;
+    const heard = [];
+    kit.settings.onChange((changes, after, how) => heard.push([changes, after, how]));
+
+    const fromPage = await handlers.get(INVOKE.SETTINGS_SET)(eventFrom(appPage()), { transfersAtOnce: 5 });
+    const fromMain = kit.settings.set({ downloadFolder: "D:\\Downloads", navCollapsed: true });
+    assert.deepEqual(heard, [
+        [{ transfersAtOnce: 5 }, fromPage, { from: "page" }],
+        [{ downloadFolder: "D:\\Downloads", navCollapsed: true }, fromMain, { from: "main" }],
+    ]);
+    assert.deepEqual(heard[1][1], { ...GUARDED.defaults, ...KIT, transfersAtOnce: 5, downloadFolder: "D:\\Downloads", navCollapsed: true });
+});
+
+test("a refused change is heard by no listener", async () => {
+    const { main, handlers, eventFrom } = loadMain();
+    const kit = main.start({ settings: GUARDED });
+    let heard = 0;
+    kit.settings.onChange(() => heard++);
+    assert.throws(() => handlers.get(INVOKE.SETTINGS_SET)(eventFrom(appPage()), { downloadFolder: "C:\\" }));
+    assert.throws(() => kit.settings.set({ transfersAtOnce: 9 }));
+    assert.throws(() => kit.settings.set({ nope: 1 }));
+    assert.equal(heard, 0);
+});
+
+test("each listener gets its own copy: what one does to it changes neither what's stored nor what the next one hears", () => {
+    const { main, stored } = loadMain();
+    const kit = main.start({ settings: GUARDED });
+    const heard = [];
+    kit.settings.onChange((changes, after) => {
+        changes.theme = "changed";
+        after.downloadFolder = "C:\\Elsewhere";
+    });
+    kit.settings.onChange((changes, after) => heard.push(changes.theme, after.downloadFolder));
+    const returned = kit.settings.set({ theme: "light" });
+    assert.deepEqual(heard, ["light", null]);
+    assert.equal(stored.settings.downloadFolder, null);
+    assert.equal(returned.downloadFolder, null);
+});
+
+test("the listeners hear a change after the updater and the log have acted on it", async (t) => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "kit-on-change-"));
+    t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+    // An update waiting, with automatic downloads off.
+    const autoUpdater = fakeAutoUpdater({
+        checkForUpdates: async () => ({ isUpdateAvailable: true, updateInfo: { version: "2.1.0" } }),
+        downloadUpdate: () => new Promise(() => {}),
+    });
+    const { main, handlers, eventFrom, openWindow, electron } = loadMain({ version: "2.0.0", isPackaged: true, autoUpdater, userData: dir, stored: { settings: { autoDownloadUpdates: false } } });
+    t.mock.method(console, "log", () => {});
+    const kit = main.start({ log: "memory", updates: { checkOnLaunch: false } });
+    await kit.ready;
+    const ui = openWindow();
+    ui.webContents.session = electron.session.defaultSession;
+    const page = eventFrom(appPage());
+    assert.equal((await handlers.get(INVOKE.UPDATE_CHECK)(page)).state, "available");
+
+    const seen = [];
+    kit.settings.onChange((changes) => seen.push({ changes, update: ui.sent.at(-1).args[0].state, onDisk: fs.existsSync(path.join(dir, "debug.log")) }));
+    await handlers.get(INVOKE.SETTINGS_SET)(page, { autoDownloadUpdates: true });
+    await handlers.get(INVOKE.SETTINGS_SET)(page, { keepLogOnDisk: true });
+    assert.deepEqual(seen, [
+        { changes: { autoDownloadUpdates: true }, update: "downloading", onDisk: false },
+        { changes: { keepLogOnDisk: true }, update: "downloading", onDisk: true },
+    ]);
+});
+
+test("the updater saving the build's own channel, the first time, is heard as main's", async () => {
+    const { main } = loadMain({ version: "2.0.0-beta.1" });
+    const kit = main.start({ updates: {} });
+    const heard = [];
+    kit.settings.onChange((changes, after, how) => heard.push([changes, after.updateChannel, how]));
+    await kit.ready;
+    assert.deepEqual(heard, [[{ updateChannel: "beta" }, "beta", { from: "main" }]]);
+});
+
+test("onChange() returns the function that stops the listener; the same function added twice is two listeners", () => {
+    const { main } = loadMain();
+    const kit = main.start({ settings: GUARDED });
+    const heard = [];
+    const listener = (changes) => heard.push(changes.transfersAtOnce);
+    const stopFirst = kit.settings.onChange(listener);
+    const stopSecond = kit.settings.onChange(listener);
+    kit.settings.set({ transfersAtOnce: 2 });
+    assert.equal(stopFirst(), undefined);
+    stopFirst();
+    kit.settings.set({ transfersAtOnce: 4 });
+    stopSecond();
+    kit.settings.set({ transfersAtOnce: 6 });
+    assert.deepEqual(heard, [2, 2, 4]);
+    assert.throws(() => kit.settings.onChange("listener"), /^Error: kit\.settings\.onChange\(\) takes a function\.$/);
+    assert.throws(() => kit.settings.onChange(), /takes a function/);
+});
+
+test("a listener stopped, or added, by another while a change is told hears that one as it was", () => {
+    const { main } = loadMain();
+    const kit = main.start({ settings: GUARDED });
+    const heard = [];
+    let stopSecond = null;
+    kit.settings.onChange(() => {
+        heard.push("first");
+        stopSecond();
+        kit.settings.onChange(() => heard.push("added"));
+    });
+    stopSecond = kit.settings.onChange(() => heard.push("second"));
+    kit.settings.set({ theme: "light" });
+    assert.deepEqual(heard, ["first", "second"]);
+});
+
+test("a listener that throws, or rejects, is logged: the change stays stored and the others still hear it", async (t) => {
+    const { main, handlers, eventFrom, stored } = loadMain();
+    const errors = t.mock.method(console, "error", () => {});
+    const kit = main.start({ settings: GUARDED });
+    const heard = [];
+    kit.settings.onChange(() => {
+        throw new Error("the registry isn't ready");
+    });
+    kit.settings.onChange(async () => {
+        throw new Error("the async one failed");
+    });
+    kit.settings.onChange((_changes, _after, { from }) => heard.push(from));
+
+    const after = await handlers.get(INVOKE.SETTINGS_SET)(eventFrom(appPage()), { transfersAtOnce: 4 });
+    assert.equal(after.transfersAtOnce, 4, "the page is answered as if nothing had failed");
+    assert.equal(stored.settings.transfersAtOnce, 4);
+    assert.equal(kit.settings.set({ transfersAtOnce: 5 }).transfersAtOnce, 5);
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.deepEqual(heard, ["page", "main"]);
+    const failed = kit.log.lines().filter((line) => line.includes("[ERROR] A kit.settings.onChange() listener failed: Error: "));
+    assert.equal(failed.length, 4);
+    assert.equal(failed.filter((line) => line.includes("the registry isn't ready")).length, 2);
+    assert.equal(failed.filter((line) => line.includes("the async one failed")).length, 2);
+    assert.equal(errors.mock.callCount(), 4);
+});
+
+/** Some of an object's keys. */
+const pick = (object, keys) => Object.fromEntries(keys.map((key) => [key, object[key]]));
 
 test("a setting whose default is null takes any JSON value, and keeps it across launches", () => {
     // File Converter's concurrency: null until someone picks a number.

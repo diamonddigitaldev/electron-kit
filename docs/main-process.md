@@ -103,6 +103,42 @@ only, or it's refused and nothing is stored. A setting whose default is `null` m
 takes any JSON value (File Converter's `concurrency: null`, the CPU count until someone picks one). The main process has the same settings as
 `kit.settings.get()` and `kit.settings.set(changes)`.
 
+**Settings only main changes, and checks.** A setting that names a folder on disk, such as where downloads are
+saved, shouldn't be the page's to point anywhere: it's chosen in main, with the system's folder picker. And a
+setting may take only some values of its kind, such as a number in a range:
+
+```js
+settings: {
+    defaults: { downloadFolder: null, transfersAtOnce: 3 },
+    mainOnly: ["downloadFolder"],                                        // the page reads it, and can't change it
+    checks: { transfersAtOnce: (n) => Number.isInteger(n) && n >= 1 && n <= 6 },   // true for a value it takes
+},
+```
+
+- **`mainOnly`:** a change from the page (`kitAPI.setSettings()`) naming one of them is refused whole ("The
+  setting "downloadFolder" can't be changed from the page."), and nothing of it is stored. `kit.settings.set()`
+  in main changes them as any other, and the page reads them as it reads the rest.
+- **`checks`:** a function per setting, handed a copy of the value once its kind is checked. Unless it returns
+  `true`, the change is refused whole, from the page or from main ("The setting "transfersAtOnce" doesn't take
+  that value."), and nothing of it is stored. What's stored is read as it is, unchecked.
+- Both name the app's own settings only, keys of `defaults`, never the kit's; a check is a function. `start()`
+  throws on anything else.
+
+**Hearing a change.** `kit.settings.onChange(listener)` hears every change stored, the page's and main's, and
+returns the function that stops it:
+
+```js
+const stop = kit.settings.onChange((changes, after, { from }) => {
+    if (Object.hasOwn(changes, "transfersAtOnce")) transfers.setAtOnce(after.transfersAtOnce);
+});
+```
+
+`changes` is what was changed, `after` every setting as stored, and `from` `"page"` or `"main"` (the updater
+saving the running build's channel, the first time, is main's). Each listener has its own copies. It's told
+once the change is stored and the kit has acted on it (the updater has its new channel, the log is on disk or
+off), in the order the listeners were added. A refused change tells no one. A listener that throws, or returns
+a promise that rejects, is logged as an error: the change stays stored, and the others still hear it.
+
 **Migration.** An app whose settings change shape between versions numbers them:
 
 ```js
