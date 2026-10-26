@@ -17,6 +17,6 @@ and links here, so these can be corrected without a new release.
 | [The Main Process](main-process.md) | The main window, isolated sessions, spell checking, one instance and the files an app is opened with, the settings (those only main changes, their checks, hearing a change) and their migration, the redacted log, and the menu |
 | [Updates](updates.md) | The updater: when it checks, Stable, Beta and Alpha, automatic downloads, its state, and a proxy |
 | [Building](building.md) | `config()`, the electron-builder config every app builds with; the files an app opens, on Linux; the update files every release carries; and naming an app's files |
-| [Theme, Accent and Tokens](theming.md) | The OS theme, an app's accent and its WCAG 2.2 AA check, the house tokens, focus rings and controls |
+| [Theme, Accent and Tokens](theming.md) | The OS theme, an app's accent and its WCAG 2.2 AA check, the house tokens, scrollbars, focus rings and controls |
 | [Testing an App](testing.md) | The helpers for an app's own tests: nothing reached beyond the machine, the preload, the menu, the accent and the build config |
 | [Development](development.md) | Working on the kit: its tests, the demo app, CI and the visual baselines |

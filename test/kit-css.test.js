@@ -42,8 +42,12 @@ const TOKENS = {
     "--focus-ring-width": "2px",
     "--focus-ring-offset": "2px",
     "--scrollbar-width": "6px",
-    "--scrollbar-thumb": "rgba(128, 128, 128, 0.3)",
-    "--scrollbar-thumb-hover": "rgba(128, 128, 128, 0.5)",
+};
+
+/** The tokens each theme sets on its own root, worked out from its own text colour. */
+const THEME_TOKENS = {
+    "--scrollbar-thumb": "rgba(var(--bs-body-color-rgb), 0.5)",
+    "--scrollbar-thumb-hover": "rgba(var(--bs-body-color-rgb), 0.7)",
 };
 
 /** A block's text, from its opening brace to the matching closing one. */
@@ -91,7 +95,7 @@ test("kit.css has the house tokens, in :root, with their values", () => {
 });
 
 test("each token is set once, outside reduced motion", () => {
-    for (const name of Object.keys(TOKENS)) {
+    for (const name of [...Object.keys(TOKENS), ...Object.keys(THEME_TOKENS)]) {
         const set = KIT_RULES.filter((r) => Object.hasOwn(r.declarations, name));
         assert.equal(set.length, 1, name);
     }
@@ -326,4 +330,28 @@ test("the Settings tabs sit on a thin line, with a bar in the accent's fill that
 test("a form dialog is a prompt's dialog with its rows apart, and the house's help line keeps its height", () => {
     assert.deepEqual(rule(".kit-form-dialog .kit-dialog-body"), { display: "flex", "flex-direction": "column", gap: "0.75rem" });
     assert.deepEqual(rule(".form-text.reserved"), { "min-height": "1.5em" });
+});
+
+test("the scrollbar's thumb is each theme's text colour, at half and at 0.7 hovered, set on every theme's root", () => {
+    assert.deepEqual(rule(":root, [data-bs-theme]"), THEME_TOKENS);
+});
+
+test("every scrollbar is thin, its thumb the token's on a track that isn't drawn, with no arrow buttons", () => {
+    assert.deepEqual(rule("::-webkit-scrollbar"), { width: "var(--scrollbar-width)", height: "var(--scrollbar-width)", "background-color": "transparent" });
+    assert.deepEqual(rule("::-webkit-scrollbar-thumb"), { "border-radius": "var(--radius-pill)", "background-color": "var(--scrollbar-thumb)" });
+    assert.deepEqual(rule("::-webkit-scrollbar-thumb:hover"), { "background-color": "var(--scrollbar-thumb-hover)" });
+    assert.deepEqual(rule("::-webkit-scrollbar-corner"), { "background-color": "transparent" });
+    // No rule draws an arrow button: Chromium draws none unless one is styled.
+    assert.deepEqual(KIT_RULES.filter((r) => r.selector.includes("scrollbar-button")).map((r) => r.selector), []);
+    // The standard properties are never set: Chromium ignores ::-webkit-scrollbar wherever either is, and its
+    // scrollbar-width: thin still draws an arrow button at each end.
+    for (const { selector, declarations } of KIT_RULES) {
+        for (const name of ["scrollbar-width", "scrollbar-color", "scrollbar-gutter"]) assert.ok(!Object.hasOwn(declarations, name), `"${selector}" sets ${name}`);
+    }
+});
+
+test("the Update tab's cards fill the pane: nothing on a Settings tab caps its width but the channel's select", () => {
+    assert.deepEqual(rule(".update-tab"), { display: "flex", "flex-direction": "column", gap: "1rem" });
+    const capped = KIT_RULES.filter((r) => /settings|update|credits/.test(r.selector) && Object.hasOwn(r.declarations, "max-width"));
+    assert.deepEqual(capped.map((r) => [r.selector, r.declarations["max-width"]]), [[".update-channel", "16rem"]]);
 });

@@ -61,9 +61,22 @@ shade 20% lighter again. White on the fill needs 4.5:1, so the hover goes darker
 `--dur-ambient` and the `--ease-*` curves, `--ease-spring` among them), the wash ladder (`--wash-*`, alphas for
 `rgba(var(--accent-rgb), …)`), radii (`--radius-*`), opacity (`--opacity-disabled`, `--opacity-muted`), the
 timings the JS side shares (`--timing-*`), the focus ring (`--focus-ring-width`, `--focus-ring-offset`) and
-the scrollbar. It binds the accent into Bootstrap's primary (`--bs-primary`, `.btn-primary`, links and
+the scrollbar (`--scrollbar-width`, `--scrollbar-thumb`, `--scrollbar-thumb-hover`; [Scrollbars](#scrollbars)). It binds the accent into Bootstrap's primary (`--bs-primary`, `.btn-primary`, links and
 `.progress`) and its form controls: a checked box or switch is the fill, and so is every range's knob
 (Bootstrap's is a literal blue), darker while pressed, with the house's focus ring rather than Bootstrap's glow.
+
+## Scrollbars
+
+Every element that scrolls, in every app on the kit, has a thin scrollbar, vertical and horizontal alike, with no
+CSS of its own: 6px (`--scrollbar-width`), no arrow buttons, the thumb on a track that isn't drawn. The thumb is
+the theme's text colour at half (`--scrollbar-thumb`), 3:1 or more against the page in both themes (3.12:1 light,
+4.07:1 dark), and darker (lighter, in the dark theme) while hovered (`--scrollbar-thumb-hover`, 0.7). Each theme
+sets the two thumb tokens on its own root, so a part of the page in the other theme has its own.
+
+It's drawn through `::-webkit-scrollbar`, not the standard `scrollbar-width: thin`, which in Chromium still draws
+an arrow button at each end, on Windows and on Linux. Chromium ignores `::-webkit-scrollbar` on an element that sets
+`scrollbar-width` or `scrollbar-color`, so `kit.css` sets neither, and an app shouldn't either: one that does gets
+Chromium's own bar on that element.
 
 ## Focus Rings and Controls
 

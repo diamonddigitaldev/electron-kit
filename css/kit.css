@@ -78,10 +78,21 @@
     --focus-ring-width:  2px;
     --focus-ring-offset: 2px;
 
-    /* -- Scrollbar ---------------------------------------------------------- */
-    --scrollbar-width:       6px;
-    --scrollbar-thumb:       rgba(128, 128, 128, 0.3);
-    --scrollbar-thumb-hover: rgba(128, 128, 128, 0.5);
+    /* -- Scrollbar ----------------------------------------------------------
+       Every scroller's (Scrollbars, below): how thick it is. Its thumb is
+       each theme's (the theme's own tokens, next). */
+    --scrollbar-width: 6px;
+}
+
+/* The scrollbar's thumb: the theme's text colour at half, 3:1 or more against
+   the page in both themes (3.12:1 light, 4.07:1 dark), and darker (lighter,
+   in the dark theme) while hovered. Set on every theme's root, so it's
+   worked out from the text colour of the theme it's in, not the one at the
+   top of the page. */
+:root,
+[data-bs-theme] {
+    --scrollbar-thumb:       rgba(var(--bs-body-color-rgb), 0.5);
+    --scrollbar-thumb-hover: rgba(var(--bs-body-color-rgb), 0.7);
 }
 
 /* The accent's text and link shades for the theme in force. accent.css gives
@@ -125,6 +136,33 @@ a {
 
 a:hover {
     color: var(--bs-link-hover-color);
+}
+
+/* -- Scrollbars ---------------------------------------------------------------
+   Thin, in place of Chromium's own wide one with its arrow buttons: the thumb
+   on a track that isn't drawn, vertical and horizontal alike, on every
+   element that scrolls. Drawn through ::-webkit-scrollbar, not the standard
+   scrollbar-width: thin, which still draws an arrow button at each end on
+   Windows and Linux. The standard properties are left unset: Chromium ignores
+   these wherever either is set, so an app that sets one on an element gets
+   Chromium's own bar there. */
+::-webkit-scrollbar {
+    width: var(--scrollbar-width);
+    height: var(--scrollbar-width);
+    background-color: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+    border-radius: var(--radius-pill);
+    background-color: var(--scrollbar-thumb);
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background-color: var(--scrollbar-thumb-hover);
+}
+
+::-webkit-scrollbar-corner {
+    background-color: transparent;
 }
 
 /* Bootstrap's progress bar sets --bs-progress-bar-bg to a literal #0d6efd
@@ -757,15 +795,15 @@ a:hover {
 }
 
 /* -- Update tab ---------------------------------------------------------------
-   Two cards in a readable column. The first: the version running, the status
-   line, then Check for Updates and Download Update side by side. The status
-   line keeps its height, so the buttons don't jump. The second: the
-   automatic downloads switch and the channel, each a row with a help line. */
+   Two cards, one under the other, filling the pane as every Settings tab's
+   cards do. The first: the version running, the status line, then Check for
+   Updates and Download Update side by side. The status line keeps its
+   height, so the buttons don't jump. The second: the automatic downloads
+   switch and the channel, each a row with a help line. */
 .update-tab {
     display: flex;
     flex-direction: column;
     gap: 1rem;
-    max-width: 36rem;
 }
 
 .update-card {
